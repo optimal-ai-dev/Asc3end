@@ -24,6 +24,8 @@ export default function GlobalStyle() {
         --warn: #FFB648;
         --rest: #FF5C7A;
       }
+      html, body, #root { height: 100%; }
+      body { background: var(--bg); }
       .atlas-root {
         background:
           radial-gradient(560px 320px at 15% -8%, rgba(255,92,57,0.10), transparent 60%),
@@ -32,6 +34,7 @@ export default function GlobalStyle() {
         color: var(--ink);
         font-family: 'Manrope', sans-serif;
         min-height: 100%;
+        width: 100%;
         max-width: 480px;
         margin: 0 auto;
         position: relative;
@@ -128,6 +131,20 @@ export default function GlobalStyle() {
       ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+      /* Responsive: this app is designed as a single mobile-width column (bottom tab bar and
+         all), so instead of stretching content edge-to-edge on larger screens — which reads badly
+         with a bottom nav — widen the column in steps for tablet/desktop and let the radial
+         background fill the rest. These must stay last in the stylesheet so they win the cascade
+         over the base .atlas-root/.atlas-nav rules above at equal specificity. */
+      @media (min-width: 640px) {
+        .atlas-root { max-width: 600px; }
+        .atlas-nav { max-width: 600px; }
+      }
+      @media (min-width: 1024px) {
+        .atlas-root { max-width: 720px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+        .atlas-nav { max-width: 720px; }
+      }
     `}</style>
   );
 }

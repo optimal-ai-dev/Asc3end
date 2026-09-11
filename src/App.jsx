@@ -22,6 +22,7 @@ const KEYS = {
   nutrition: "atlas:nutrition",
   weightlog: "atlas:weightlog",
   session: "atlas:session",
+  customExercises: "atlas:customExercises",
 };
 
 async function loadKey(key) {
@@ -319,6 +320,11 @@ const EQUIPMENT_TYPES = ["Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight"
 const MUSCLE_POSITIONS = { shoulders: [50, 22], chest: [50, 40], arms: [78, 42], back: [22, 42], core: [50, 58], legs: [50, 82] };
 const EQUIPMENT_COLORS = { Barbell: "var(--brass)", Dumbbell: "var(--steel)", Machine: "var(--warn)", Cable: "var(--good)", Bodyweight: "var(--ink-dim)", Strongman: "var(--rest)" };
 
+/* Custom exercises don't have a hand-picked movement pattern, so give each muscle group a
+   reasonable default pose — this keeps the illustration and form cues meaningful instead of
+   falling back to an empty/misleading generic figure. */
+const MUSCLE_DEFAULT_POSE = { chest: "press_lying", back: "row", shoulders: "press_overhead", arms: "curl", legs: "squat", core: "plank" };
+
 const SET_TYPES = ["normal", "warmup", "drop", "failure"];
 const SET_TYPE_LABELS = { normal: "Normal", warmup: "Warm-up", drop: "Drop Set", failure: "Failure" };
 const SET_TYPE_COLORS = { normal: "#2FD9B8", warmup: "#7ED957", drop: "#FF5C39", failure: "#FF5C7A" };
@@ -452,14 +458,15 @@ function suggestNextTarget(workouts, exerciseName, goal) {
   };
 }
 
-function muscleRecovery(workouts) {
+function muscleRecovery(workouts, customExercises = []) {
   const now = Date.now();
   const status = {};
   MUSCLE_GROUPS.forEach((m) => (status[m] = { hours: Infinity }));
+  const allEx = [...EXERCISES, ...customExercises];
   workouts.forEach((w) => {
     const t = new Date(w.date).getTime();
     w.exercises.forEach((e) => {
-      const ex = EXERCISES.find((x) => x.name === e.name);
+      const ex = allEx.find((x) => x.name === e.name);
       if (!ex) return;
       const hrs = (now - t) / 3600000;
       if (hrs < status[ex.muscle].hours) status[ex.muscle].hours = hrs;
@@ -640,17 +647,21 @@ function extractClaudeText(data) {
   return text;
 }
 
-async function callClaude(messages, maxTokens = 1000, tools = null, system = null) {
-  const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages };
+async function callClaude(messages, maxTokens = 1000, tools = null, system = null, feature = "estimate") {
+  const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages, feature };
   if (tools) body.tools = tools;
   if (system) body.system = system;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   let response;
   try {
+    const { data: { session } } = await supabase.auth.getSession();
     response = await fetch("/api/claude", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -661,6 +672,11 @@ async function callClaude(messages, maxTokens = 1000, tools = null, system = nul
   }
   clearTimeout(timeout);
   const data = await response.json();
+  if (response.status === 402 && data?.error?.code === "premium_required") {
+    const err = new Error(data.error.message || "This feature requires Asc3end Premium.");
+    err.code = "premium_required";
+    throw err;
+  }
   if (!response.ok && data?.type !== "exceeded_limit") {
     throw new Error(data?.error?.message || `The coach hit an error (${response.status}) — try again.`);
   }
@@ -678,6 +694,9 @@ function Onboarding({ onComplete }) {
     goal: "muscle_growth", experience: "intermediate", trainingDays: 4,
   });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  // Strips stray leading zeros (e.g. "018") that can otherwise persist in a controlled
+  // number input when a field is cleared and retyped — "18" should never render as "018".
+  const setNumber = (k, raw) => set(k, raw === "" ? 0 : +raw.replace(/^0+(?=\d)/, ""));
 
   const steps = [
     {
@@ -689,7 +708,7 @@ function Onboarding({ onComplete }) {
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>AGE</label>
-              <input type="number" className="atlas-input" value={form.age} onChange={(e) => set("age", +e.target.value)} />
+              <input type="number" className="atlas-input" value={form.age} onChange={(e) => setNumber("age", e.target.value)} />
             </div>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>GENDER</label>
@@ -703,11 +722,11 @@ function Onboarding({ onComplete }) {
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>HEIGHT (CM)</label>
-              <input type="number" className="atlas-input" value={form.heightCm} onChange={(e) => set("heightCm", +e.target.value)} />
+              <input type="number" className="atlas-input" value={form.heightCm} onChange={(e) => setNumber("heightCm", e.target.value)} />
             </div>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>WEIGHT (KG)</label>
-              <input type="number" className="atlas-input" value={form.weightKg} onChange={(e) => set("weightKg", +e.target.value)} />
+              <input type="number" className="atlas-input" value={form.weightKg} onChange={(e) => setNumber("weightKg", e.target.value)} />
             </div>
           </div>
         </div>
@@ -1018,9 +1037,9 @@ function evaluatePR(historySets, weight, reps) {
   return { isPR: false };
 }
 
-function Dashboard({ profile, workouts, nutrition, weightlog, onNav, onLogWeight, onLogOut }) {
+function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, onUpgrade, onManageBilling }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
-  const status = useMemo(() => muscleRecovery(workouts), [workouts]);
+  const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
   const targets = useMemo(() => computeTargets(profile), [profile]);
   const todayFoods = nutrition.filter((n) => n.date === todayStr());
   const totals = todayFoods.reduce(
@@ -1082,6 +1101,28 @@ function Dashboard({ profile, workouts, nutrition, weightlog, onNav, onLogWeight
           Log Out
         </button>
       </div>
+
+      {isPremium ? (
+        <div className="atlas-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: "var(--brass)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Sparkles size={16} color="var(--brass)" />
+            <span className="disp" style={{ fontSize: 13 }}>Premium Active</span>
+          </div>
+          <button onClick={onManageBilling} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>Manage</button>
+        </div>
+      ) : (
+        <button
+          onClick={onUpgrade}
+          className="atlas-card"
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", textAlign: "left", width: "100%", border: "1px solid var(--brass)", background: "var(--brass-soft)" }}
+        >
+          <div>
+            <div className="disp" style={{ fontSize: 13, color: "var(--brass)" }}>Upgrade to Premium</div>
+            <div style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 2 }}>AI Coach, food scanner, and Meals Near You — $9.99/mo</div>
+          </div>
+          <ChevronRight size={18} color="var(--brass)" />
+        </button>
+      )}
 
       {nudge && (
         <div className="atlas-card" style={{ borderColor: "var(--warn)", background: "rgba(255,182,72,0.1)", display: "flex", alignItems: "center", gap: 8 }}>
@@ -1165,7 +1206,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, onNav, onLogWeight
 /* Train                                                                */
 /* ------------------------------------------------------------------ */
 
-function Train({ profile, workouts, session, setSession, onFinish }) {
+function Train({ profile, workouts, session, setSession, onFinish, customExercises, onAddCustomExercise }) {
   const [picker, setPicker] = useState(false);
   const [search, setSearch] = useState("");
   const [muscleFilter, setMuscleFilter] = useState("all");
@@ -1178,6 +1219,12 @@ function Train({ profile, workouts, session, setSession, onFinish }) {
   const [now, setNow] = useState(Date.now());
   const [restDuration, setRestDuration] = useState(90);
   const [linkingEx, setLinkingEx] = useState(null);
+  const [creatingCustom, setCreatingCustom] = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [customMuscle, setCustomMuscle] = useState(MUSCLE_GROUPS[0]);
+  const [customEquip, setCustomEquip] = useState(EQUIPMENT_TYPES[0]);
+  const [customError, setCustomError] = useState(null);
+  const [typeIn, setTypeIn] = useState({});
   const restAlertedRef = useRef(false);
 
   useEffect(() => {
@@ -1241,7 +1288,9 @@ function Train({ profile, workouts, session, setSession, onFinish }) {
     );
   }
 
-  const filtered = EXERCISES.filter((e) =>
+  const allExercises = [...EXERCISES, ...customExercises];
+
+  const filtered = allExercises.filter((e) =>
     e.name.toLowerCase().includes(search.toLowerCase()) &&
     (muscleFilter === "all" || e.muscle === muscleFilter) &&
     (equipFilter === "all" || e.equipment === equipFilter)
@@ -1254,7 +1303,22 @@ function Train({ profile, workouts, session, setSession, onFinish }) {
     setDetailEx(null);
   };
 
-  const [typeIn, setTypeIn] = useState({});
+  const createCustomExercise = () => {
+    const trimmed = customName.trim();
+    if (!trimmed) { setCustomError("Give it a name."); return; }
+    if (allExercises.some((e) => e.name.toLowerCase() === trimmed.toLowerCase())) {
+      setCustomError("An exercise with that name already exists.");
+      return;
+    }
+    const ex = { name: trimmed, muscle: customMuscle, equipment: customEquip, pose: MUSCLE_DEFAULT_POSE[customMuscle], isCustom: true };
+    onAddCustomExercise(ex);
+    addExercise(ex);
+    setCreatingCustom(false);
+    setCustomName("");
+    setCustomMuscle(MUSCLE_GROUPS[0]);
+    setCustomEquip(EQUIPMENT_TYPES[0]);
+    setCustomError(null);
+  };
 
   const addSet = (exName) => {
     const w = +weightIn[exName]; const r = +repsIn[exName];
@@ -1350,7 +1414,7 @@ function Train({ profile, workouts, session, setSession, onFinish }) {
 
       {session.exercises.map((ex) => {
         const suggestion = suggestNextTarget(workouts, ex.name, profile.goal);
-        const meta = EXERCISES.find((e) => e.name === ex.name);
+        const meta = allExercises.find((e) => e.name === ex.name);
         const tips = meta ? (POSE_TIPS[meta.pose] || []) : [];
         const currentType = typeIn[ex.name] || "normal";
         return (
@@ -1452,6 +1516,39 @@ function Train({ profile, workouts, session, setSession, onFinish }) {
             <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add to Workout
           </button>
         </div>
+      ) : creatingCustom ? (
+        <div className="atlas-card">
+          <button onClick={() => { setCreatingCustom(false); setCustomError(null); }} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0, marginBottom: 12 }}>
+            ← Back to library
+          </button>
+          <div className="disp" style={{ fontSize: 16, marginBottom: 12 }}>New Custom Exercise</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>NAME</div>
+              <input autoFocus className="atlas-input" placeholder="e.g. Cable Y-Raise" value={customName} onChange={(e) => { setCustomName(e.target.value); setCustomError(null); }} />
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>MUSCLE GROUP</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                {MUSCLE_GROUPS.map((m) => (
+                  <button key={m} onClick={() => setCustomMuscle(m)} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", textTransform: "capitalize", background: customMuscle === m ? "var(--brass-soft)" : "transparent", color: customMuscle === m ? "var(--brass)" : "var(--ink-dim)" }}>{m}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>EQUIPMENT</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                {EQUIPMENT_TYPES.map((eq) => (
+                  <button key={eq} onClick={() => setCustomEquip(eq)} className="pill" style={{ cursor: "pointer", border: `1px solid ${customEquip === eq ? EQUIPMENT_COLORS[eq] : "var(--line)"}`, background: "transparent", color: customEquip === eq ? EQUIPMENT_COLORS[eq] : "var(--ink-dim)" }}>{eq}</button>
+                ))}
+              </div>
+            </div>
+            {customError && <div className="mono" style={{ color: "var(--rest)", fontSize: 12 }}>{customError}</div>}
+            <button className="atlas-btn" style={{ width: "100%", marginTop: 6 }} onClick={createCustomExercise}>
+              <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Create & Add to Workout
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="atlas-card">
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -1470,13 +1567,23 @@ function Train({ profile, workouts, session, setSession, onFinish }) {
               <button key={eq} onClick={() => setEquipFilter(eq)} className="pill" style={{ cursor: "pointer", border: `1px solid ${equipFilter === eq ? EQUIPMENT_COLORS[eq] : "var(--line)"}`, background: "transparent", color: equipFilter === eq ? EQUIPMENT_COLORS[eq] : "var(--ink-dim)" }}>{eq}</button>
             ))}
           </div>
+          <button
+            onClick={() => { setCreatingCustom(true); setCustomName(search); }}
+            className="atlas-btn-ghost"
+            style={{ width: "100%", marginBottom: 10, borderColor: "var(--steel)", color: "var(--steel)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+          >
+            <Plus size={14} /> Create Custom Exercise
+          </button>
           <div style={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
             {filtered.length === 0 && <div style={{ fontSize: 12, color: "var(--ink-dim)", padding: 8 }}>No exercises match those filters.</div>}
             {filtered.map((ex) => (
               <button key={ex.name} onClick={() => setDetailEx(ex)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "var(--ink)" }}>
                 <PoseFigure pose={ex.pose} muscle={ex.muscle} size={30} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13 }}>{ex.name}</div>
+                  <div style={{ fontSize: 13 }}>
+                    {ex.name}
+                    {ex.isCustom && <span className="pill" style={{ marginLeft: 6, fontSize: 8, border: "1px solid var(--steel)", color: "var(--steel)" }}>Custom</span>}
+                  </div>
                   <span className="mono" style={{ fontSize: 10, color: EQUIPMENT_COLORS[ex.equipment] }}>{ex.equipment}</span>
                 </div>
                 <ChevronRight size={15} color="var(--ink-dim)" />
@@ -1550,7 +1657,27 @@ function MuscleGroupBlock({ muscleGroups, onTapExercise }) {
   );
 }
 
-function Coach({ profile, workouts, onUpdateProfile }) {
+/* Shared upsell shown in place of a gated feature — Coach entirely, or an inline slot inside
+   Nutrition for the scanner / Meals Near You. Subscription status is only ever set by the
+   Stripe webhook, so this button just starts Checkout; it never grants access itself. */
+function Paywall({ feature, onUpgrade }) {
+  const COPY = {
+    coach: { title: "AI Coach is Premium", blurb: "Personalized training plans, a chat coach that knows your history, and real-time form feedback." },
+    scanner: { title: "Food Scanner is Premium", blurb: "Snap a photo or scan a barcode to log food in seconds instead of typing it in by hand." },
+    meals: { title: "Meals Near You is Premium", blurb: "Real nearby restaurant suggestions tuned to your macros and training goal." },
+  };
+  const c = COPY[feature] || { title: "This feature is Premium", blurb: "" };
+  return (
+    <div className="atlas-card" style={{ textAlign: "center", padding: 28 }}>
+      <Sparkles size={26} color="var(--brass)" style={{ marginBottom: 10 }} />
+      <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>{c.title}</div>
+      <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>{c.blurb}</div>
+      <button className="atlas-btn" style={{ width: "100%" }} onClick={onUpgrade}>Upgrade — $9.99/mo</button>
+    </div>
+  );
+}
+
+function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade }) {
   const [plan, setPlan] = useState(profile.plan || null);
   const [genLoading, setGenLoading] = useState(false);
   const [messages, setMessages] = useState([
@@ -1576,7 +1703,7 @@ Return ONLY valid JSON (no markdown fences, no preamble) matching exactly this s
 {"days":[{"day":"Day 1: Push","muscleGroups":[{"muscle":"chest","exercises":[{"name":"Barbell Bench Press","sets":4,"reps":"6-10"}]}]}]}
 Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${profile.trainingDays} day entries. Use exercise names matching this list as closely as possible: ${EXERCISES.map((e) => e.name).join(", ")}`;
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
-      const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}`);
+      const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}`, "coach");
       const parsed = extractJSON(text);
       setPlan(parsed);
     } catch (e) {
@@ -1602,7 +1729,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       // starting with "user", which is why the coach silently failed on every message before.
       // Also strip any extra UI-only fields (like `workout`) so future turns send clean {role, content} pairs.
       const apiMessages = newMessages.slice(1).map((m) => ({ role: m.role, content: m.content }));
-      const reply = await callClaude(apiMessages, 900, null, system);
+      const reply = await callClaude(apiMessages, 900, null, system, "coach");
       let parsedWorkout = null;
       if (reply.includes('"type"') && reply.includes('"workout"')) {
         try {
@@ -1616,6 +1743,15 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     }
     setSending(false);
   };
+
+  if (!isPremium) {
+    return (
+      <div style={{ padding: "24px 18px" }}>
+        <div className="disp" style={{ fontSize: 26, marginBottom: 16 }}>Coach</div>
+        <Paywall feature="coach" onUpgrade={onUpgrade} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "24px 18px", display: "flex", flexDirection: "column", height: "calc(100vh - 88px)" }}>
@@ -1776,12 +1912,17 @@ function FoodScanner({ onAdd, onClose }) {
       canvas.getContext("2d").drawImage(video, 0, 0);
       const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
       stopCamera();
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch("/api/claude", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 400,
+          feature: "scanner",
           messages: [{
             role: "user",
             content: [
@@ -1792,6 +1933,9 @@ function FoodScanner({ onAdd, onClose }) {
         }),
       });
       const data = await response.json();
+      if (response.status === 402 && data?.error?.code === "premium_required") {
+        throw new Error(data.error.message || "This feature requires Asc3end Premium.");
+      }
       const text = extractClaudeText(data);
       const parsed = extractJSON(text);
       setResult({
@@ -1801,7 +1945,11 @@ function FoodScanner({ onAdd, onClose }) {
       });
       setGrams(parsed.estimatedGrams || 150);
     } catch (e) {
-      setError(e.message && e.message.startsWith("Usage limit") ? e.message : "Couldn't identify that photo — try better lighting, or log it manually.");
+      setError(
+        e.message && (e.message.startsWith("Usage limit") || e.message.includes("Premium"))
+          ? e.message
+          : "Couldn't identify that photo — try better lighting, or log it manually."
+      );
     }
     setLoading(false);
   };
@@ -1858,7 +2006,7 @@ function FoodScanner({ onAdd, onClose }) {
             {result.source === "barcode" ? "From barcode lookup" : "From photo scan"} · {result.per100g.calories} kcal / 100g
           </div>
           <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>PORTION SIZE — ADJUST IF NEEDED (GRAMS)</label>
-          <input type="number" className="atlas-input" value={grams} onChange={(e) => setGrams(+e.target.value || 0)} style={{ marginTop: 4, marginBottom: 12 }} />
+          <input type="number" className="atlas-input" value={grams} onChange={(e) => setGrams(e.target.value === "" ? 0 : +e.target.value.replace(/^0+(?=\d)/, ""))} style={{ marginTop: 4, marginBottom: 12 }} />
           <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
             <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.calories}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>KCAL</div></div>
             <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.protein}g</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>PROTEIN</div></div>
@@ -1879,7 +2027,7 @@ function FoodScanner({ onAdd, onClose }) {
   );
 }
 
-function Nutrition({ profile, nutrition, onAdd, onDelete }) {
+function Nutrition({ profile, nutrition, onAdd, onDelete, isPremium, onUpgrade }) {
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -1935,7 +2083,8 @@ Respond with ONLY this JSON, nothing else:
         [{ role: "user", content: prompt }],
         1800,
         [{ type: "web_search_20250305", name: "web_search" }],
-        system
+        system,
+        "meals"
       );
       const parsed = extractJSON(text);
       if (!Array.isArray(parsed.places) || parsed.places.length === 0) throw new Error("No places came back — try a more specific location.");
@@ -1970,7 +2119,14 @@ Respond with ONLY this JSON, nothing else:
       <button className="atlas-btn" style={{ width: "100%", marginBottom: 16, padding: 13 }} onClick={() => setScannerOpen(true)}>
         <Camera size={16} style={{ verticalAlign: -3, marginRight: 7 }} /> Scan Food
       </button>
-      {scannerOpen && <FoodScanner onAdd={onAdd} onClose={() => setScannerOpen(false)} />}
+      {scannerOpen && (isPremium ? (
+        <FoodScanner onAdd={onAdd} onClose={() => setScannerOpen(false)} />
+      ) : (
+        <div style={{ marginBottom: 16 }}>
+          <Paywall feature="scanner" onUpgrade={onUpgrade} />
+          <button onClick={() => setScannerOpen(false)} className="mono" style={{ display: "block", margin: "8px auto 0", background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11 }}>Maybe later</button>
+        </div>
+      ))}
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         {["calories", "protein", "carbs", "fat"].map((k) => (
@@ -1984,6 +2140,9 @@ Respond with ONLY this JSON, nothing else:
         ))}
       </div>
 
+      {!isPremium ? (
+        <div style={{ marginBottom: 16 }}><Paywall feature="meals" onUpgrade={onUpgrade} /></div>
+      ) : (
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
           <MapPin size={15} color="var(--brass)" />
@@ -2033,6 +2192,7 @@ Respond with ONLY this JSON, nothing else:
           </div>
         )}
       </div>
+      )}
 
       <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Quick Add</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
@@ -2218,8 +2378,13 @@ export default function App() {
   const [workouts, setWorkouts] = useState([]);
   const [nutrition, setNutrition] = useState([]);
   const [weightlog, setWeightlog] = useState([]);
+  const [customExercises, setCustomExercises] = useState([]);
   const [tab, setTab] = useState("dashboard");
   const [session, setSession] = useState(null);
+  // undefined = not checked yet, null = no row (never subscribed), object = { status, current_period_end }.
+  // Never set directly from checkout success — only the Stripe webhook (server-side) is trusted
+  // to write this, so a user can't just flip themselves to "active" from the browser.
+  const [subscription, setSubscription] = useState(undefined);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthUser(session?.user ?? null));
@@ -2233,17 +2398,66 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return;
     (async () => {
-      const [p, w, n, wl, sess] = await Promise.all([
-        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session),
+      const [p, w, n, wl, sess, ce] = await Promise.all([
+        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises),
       ]);
       if (p) setProfile(p);
       if (w) setWorkouts(w);
       if (n) setNutrition(n);
       if (wl) setWeightlog(wl);
       if (sess) { setSession(sess); setTab("train"); }
+      if (ce) setCustomExercises(ce);
       setLoaded(true);
     })();
   }, [authUser]);
+
+  const refreshSubscription = async () => {
+    if (!authUser) return;
+    const { data } = await supabase.from("subscriptions").select("status, current_period_end").eq("user_id", authUser.id).maybeSingle();
+    setSubscription(data || null);
+  };
+
+  useEffect(() => {
+    if (!authUser) { setSubscription(undefined); return; }
+    refreshSubscription();
+  }, [authUser]);
+
+  // After returning from Stripe Checkout, the webhook that actually activates the subscription
+  // may take a moment to land — poll briefly instead of showing stale "not premium" state.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success" || !authUser) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      await refreshSubscription();
+      if (attempts >= 6) clearInterval(interval); // ~12s of polling, then give up quietly
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [authUser]);
+
+  const isPremium = subscription && (subscription.status === "active" || subscription.status === "trialing");
+
+  const startCheckout = async () => {
+    const { data: { session: authSession } } = await supabase.auth.getSession();
+    const res = await fetch("/api/create-checkout-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
+    });
+    const data = await res.json();
+    if (data.url) window.location.href = data.url;
+  };
+
+  const openBillingPortal = async () => {
+    const { data: { session: authSession } } = await supabase.auth.getSession();
+    const res = await fetch("/api/create-portal-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
+    });
+    const data = await res.json();
+    if (data.url) window.location.href = data.url;
+  };
 
   const logOut = async () => {
     await supabase.auth.signOut();
@@ -2251,7 +2465,9 @@ export default function App() {
     setWorkouts([]);
     setNutrition([]);
     setWeightlog([]);
+    setCustomExercises([]);
     setSession(null);
+    setSubscription(undefined);
     setTab("dashboard");
   };
 
@@ -2295,6 +2511,13 @@ export default function App() {
     const next = [...weightlog, { date: todayStr(), weight }];
     setWeightlog(next);
     await saveKey(KEYS.weightlog, next);
+  };
+
+  const addCustomExercise = async (ex) => {
+    const next = [...customExercises, ex];
+    setCustomExercises(next);
+    await saveKey(KEYS.customExercises, next);
+    return ex;
   };
 
   const updateProfile = async (patch) => {
@@ -2341,10 +2564,10 @@ export default function App() {
   return (
     <div className="atlas-root">
       <GlobalStyle />
-      {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} />}
-      {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} />}
-      {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} />}
-      {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onDelete={deleteFood} />}
+      {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} onUpgrade={startCheckout} onManageBilling={openBillingPortal} />}
+      {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
+      {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} />}
+      {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onDelete={deleteFood} isPremium={isPremium} onUpgrade={startCheckout} />}
       {tab === "progress" && <Progress profile={profile} workouts={workouts} weightlog={weightlog} />}
 
       <nav className="atlas-nav">
