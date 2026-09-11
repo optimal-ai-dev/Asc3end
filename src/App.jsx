@@ -2135,11 +2135,124 @@ function Paywall({ feature, onUpgrade }) {
       <Sparkles size={26} color="var(--brass)" style={{ marginBottom: 10 }} />
       <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>{c.title}</div>
       <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>{c.blurb}</div>
-      <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onUpgrade()}>Upgrade — $9.99/mo</button>
+      <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onUpgrade()}>See Plans — from $9.99/mo</button>
       <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0, marginTop: 12 }}>
         {showComparison ? "Hide" : "See"} full Free vs Premium comparison {showComparison ? <ChevronUp size={12} style={{ verticalAlign: -2 }} /> : <ChevronDown size={12} style={{ verticalAlign: -2 }} />}
       </button>
       {showComparison && <FeatureComparisonTable />}
+    </div>
+  );
+}
+
+const MONTHLY_PRICE = 9.99;
+const ANNUAL_PRICE = 79.99;
+const ANNUAL_SAVINGS_PCT = Math.round((1 - ANNUAL_PRICE / (MONTHLY_PRICE * 12)) * 100);
+
+const PRICING_FAQ = [
+  { q: "Can I cancel anytime?", a: "Yes. Cancel from Profile > Manage Billing whenever you like — you keep Asc3end+ until the end of the period you already paid for, then it reverts to the Free plan automatically. No phone calls, no retention flow." },
+  { q: "What happens when my free trial ends?", a: "If you start a trial, your card is charged automatically when it ends unless you cancel first. You'll keep full access the whole time you're deciding." },
+  { q: "Is my payment information secure?", a: "Payments are handled entirely by Stripe — Asc3end never sees or stores your card number." },
+  { q: "Can I switch between monthly and annual?", a: "Yes, any time from Profile > Manage Billing, which opens Stripe's own billing portal." },
+];
+
+function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLoading, billingError, onClose, initialFeature }) {
+  const [plan, setPlan] = useState("monthly");
+  const [trial, setTrial] = useState(false);
+  useEffect(() => { logEvent("paywall_viewed", { feature: initialFeature || "pricing_page" }); }, [initialFeature]);
+
+  const price = plan === "annual" ? ANNUAL_PRICE : MONTHLY_PRICE;
+  const period = plan === "annual" ? "yr" : "mo";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 45, overflowY: "auto", padding: "24px 18px 60px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+        <div className="disp" style={{ fontSize: 24 }}>Asc3end+</div>
+        <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close pricing"><X size={16} /></button>
+      </div>
+
+      {isPremium ? (
+        <div className="atlas-card" style={{ textAlign: "center", padding: 28, marginBottom: 16 }}>
+          <Check size={26} color="var(--good)" style={{ marginBottom: 10 }} />
+          <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>You're already on Asc3end+</div>
+          <div style={{ color: "var(--ink-dim)", fontSize: 13 }}>{describeSubscriptionState(subscriptionState)}</div>
+        </div>
+      ) : (
+        <>
+          <div className="atlas-card" style={{ textAlign: "center", padding: "24px 20px", marginBottom: 16 }}>
+            <Sparkles size={26} color="var(--brass)" style={{ marginBottom: 10 }} />
+            <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>Unlock unlimited Coach, food scanner & Meals Near You</div>
+            <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18 }}>Everything you're already tracking, without the free-tier limits.</div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <button
+                onClick={() => setPlan("monthly")}
+                className={plan === "monthly" ? "atlas-btn" : "atlas-btn-ghost"}
+                style={{ flex: 1 }}
+              >
+                Monthly
+              </button>
+              <button
+                onClick={() => setPlan("annual")}
+                className={plan === "annual" ? "atlas-btn" : "atlas-btn-ghost"}
+                style={{ flex: 1, position: "relative" }}
+              >
+                Annual
+                <span className="mono" style={{ position: "absolute", top: -9, right: -6, background: "var(--good)", color: "var(--bg)", fontSize: 8.5, padding: "2px 5px", borderRadius: 3 }}>
+                  SAVE {ANNUAL_SAVINGS_PCT}%
+                </span>
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 4 }}>
+              <span className="disp" style={{ fontSize: 32 }}>${price.toFixed(2)}</span>
+              <span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/{period}</span>
+            </div>
+            {plan === "annual" && (
+              <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 14 }}>
+                equivalent to ${(ANNUAL_PRICE / 12).toFixed(2)}/mo — vs ${(MONTHLY_PRICE * 12).toFixed(2)}/yr paid monthly
+              </div>
+            )}
+            {plan !== "annual" && <div style={{ marginBottom: 14 }} />}
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", marginBottom: 16, cursor: "pointer" }}>
+              <input type="checkbox" checked={trial} onChange={(e) => setTrial(e.target.checked)} />
+              <span style={{ fontSize: 12.5 }}>Start with a 7-day free trial</span>
+            </label>
+
+            {billingError && <div style={{ color: "var(--rest)", fontSize: 12, marginBottom: 12 }}>{billingError}</div>}
+
+            <button
+              className="atlas-btn"
+              style={{ width: "100%" }}
+              disabled={billingLoading === "checkout"}
+              onClick={() => onConfirmUpgrade(plan, trial)}
+            >
+              {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
+              {trial ? "Start Free Trial" : `Subscribe — $${price.toFixed(2)}/${period}`}
+            </button>
+            <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10, lineHeight: 1.5 }}>
+              {trial
+                ? "You won't be charged for 7 days. Your card is charged automatically after the trial unless you cancel first. Cancel anytime."
+                : "Billed immediately, then recurring until you cancel. Cancel anytime — no lock-in."}
+            </div>
+          </div>
+
+          <div className="atlas-card" style={{ marginBottom: 16 }}>
+            <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Free vs Asc3end+</div>
+            <FeatureComparisonTable />
+          </div>
+        </>
+      )}
+
+      <div className="atlas-card">
+        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Questions</div>
+        {PRICING_FAQ.map((item) => (
+          <div key={item.q} style={{ padding: "10px 0", borderTop: "1px solid var(--line)" }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>{item.q}</div>
+            <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.5 }}>{item.a}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3311,6 +3424,7 @@ export default function App() {
   const [billingError, setBillingError] = useState(null);
   const [billingLoading, setBillingLoading] = useState(null); // null | "checkout" | "portal"
   const [showProfile, setShowProfile] = useState(false);
+  const [showPricing, setShowPricing] = useState(false);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState(null);
   // True while the user has followed a password-reset email link — Supabase signs them into a
@@ -3732,20 +3846,27 @@ export default function App() {
   return (
     <div className="atlas-root">
       <GlobalStyle />
-      {showProfile ? (
+      {showPricing ? (
+        <PricingPage
+          subscriptionState={subscriptionState} isPremium={isPremium}
+          onConfirmUpgrade={(plan, trial) => { setShowPricing(false); startCheckout(plan, trial); }}
+          billingLoading={billingLoading} billingError={billingError}
+          onClose={() => setShowPricing(false)}
+        />
+      ) : showProfile ? (
         <Profile
           profile={profile} authUser={authUser} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises}
-          isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={startCheckout}
+          isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={() => setShowPricing(true)}
           billingLoading={billingLoading} billingError={billingError} onLogOut={logOut}
           onDeleteAccount={deleteAccount} deleteAccountLoading={deleteAccountLoading} deleteAccountError={deleteAccountError}
           onClose={() => setShowProfile(false)}
         />
       ) : (
         <>
-          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
+          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
           {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
-          {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
-          {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
+          {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
+          {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (
             <Suspense fallback={<div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}><Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} /></div>}>
               <Progress profile={profile} workouts={workouts} weightlog={weightlog} />
