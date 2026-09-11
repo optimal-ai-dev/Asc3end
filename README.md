@@ -111,9 +111,15 @@ create policy "Users can insert their own events" on analytics_events
   for insert with check (auth.uid() = user_id);
 ```
 Logged from `src/lib/analytics.js`'s `logEvent(name, props)`, fire-and-forget so a failed or slow
-write never blocks a real user action. Instrumented at: `signup_completed`, `onboarding_completed`,
-`plan_generated`, `plan_activated`, `workout_started`, `first_set_logged`, `workout_completed`,
-`coach_message_sent`, `food_logged`, `paywall_viewed`, `subscription_started`.
+write never blocks a real user action. `EVENT_NAMES` in that file is the authoritative, typed
+catalog of every event the app emits and what props each carries — `logEvent()` silently no-ops
+(dev-only console warning) on any name not in that set, and strips any prop that looks sensitive
+(an email-shaped string, a key like `email`/`token`/`*name`, or a nested object) before the row
+ever leaves the browser, so a future call site can't accidentally leak PII into analytics even by
+mistake. Currently instrumented: `signup_completed`, `onboarding_completed`, `plan_generated`,
+`plan_activated`, `plan_edited`, `workout_started`, `first_set_logged`, `workout_completed`,
+`coach_message_sent`, `food_logged`, `paywall_viewed`, `checkout_started`, `checkout_failed`,
+`subscription_activated`.
 
 ### `rate_limits` table + `increment_rate_limit` function (server-side rate limiting)
 Only ever touched by API routes using `SUPABASE_SERVICE_ROLE_KEY` (via `lib/rateLimit.js`) — no
