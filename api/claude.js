@@ -17,6 +17,12 @@
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 
+// Vercel's Hobby plan defaults serverless functions to a 10-second execution limit — nowhere
+// near enough for web-search-augmented Claude calls (Meals Near You), which can legitimately
+// take 10-20+ seconds. Without this, Vercel kills the function mid-request regardless of the
+// frontend's own timeout, and the client sees a generic failure that looks like "the app is slow".
+export const config = { maxDuration: 60 };
+
 const PREMIUM_ONLY_FEATURES = new Set(["scanner"]);
 const TRIAL_FEATURES = new Set(["coach", "meals"]);
 export const FREE_TRIAL_LIMIT = 5;
