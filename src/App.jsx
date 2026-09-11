@@ -332,7 +332,7 @@ const MUSCLE_DEFAULT_POSE = { chest: "press_lying", back: "row", shoulders: "pre
 
 const SET_TYPES = ["normal", "warmup", "drop", "failure"];
 const SET_TYPE_LABELS = { normal: "Normal", warmup: "Warm-up", drop: "Drop Set", failure: "Failure" };
-const SET_TYPE_COLORS = { normal: "#2FD9B8", warmup: "#7ED957", drop: "#FF5C39", failure: "#FF5C7A" };
+const SET_TYPE_COLORS = { normal: "#4F9DFF", warmup: "#3ECF8E", drop: "#FFA53D", failure: "#FF6B81" };
 
 const GOAL_LABELS = {
   muscle_growth: "Build Muscle",
@@ -1370,8 +1370,8 @@ function Train({ profile, workouts, session, setSession, onFinish, customExercis
       {prToast && (
         <div className="atlas-card" style={{
           position: "sticky", top: 0, zIndex: 20, marginBottom: 14, borderColor: "var(--brass)",
-          background: "linear-gradient(135deg, rgba(201,161,92,0.18), var(--bg-elev))",
-          display: "flex", alignItems: "center", gap: 10, boxShadow: "0 4px 18px rgba(201,161,92,0.25)",
+          background: "linear-gradient(135deg, rgba(62,207,142,0.18), var(--bg-elev))",
+          display: "flex", alignItems: "center", gap: 10, boxShadow: "0 4px 18px rgba(62,207,142,0.25)",
         }}>
           <Trophy size={22} color="var(--brass)" style={{ flexShrink: 0 }} />
           <div>
@@ -1437,7 +1437,7 @@ function Train({ profile, workouts, session, setSession, onFinish, customExercis
                 <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 6 }}>PAIR WITH:</div>
                 {session.exercises.filter((e) => e.name !== ex.name).length === 0 && <div style={{ fontSize: 11, color: "var(--ink-dim)" }}>Add another exercise first.</div>}
                 {session.exercises.filter((e) => e.name !== ex.name).map((e) => (
-                  <button key={e.name} onClick={() => toggleSuperset(ex.name, e.name)} className="pill" style={{ marginRight: 6, marginBottom: 6, cursor: "pointer", border: "1px solid var(--warn)", background: ex.supersetWith === e.name ? "var(--warn)" : "transparent", color: ex.supersetWith === e.name ? "#2A1A00" : "var(--warn)" }}>
+                  <button key={e.name} onClick={() => toggleSuperset(ex.name, e.name)} className="pill" style={{ marginRight: 6, marginBottom: 6, cursor: "pointer", border: "1px solid var(--warn)", background: ex.supersetWith === e.name ? "var(--warn)" : "transparent", color: ex.supersetWith === e.name ? "#2E1500" : "var(--warn)" }}>
                     {e.name}
                   </button>
                 ))}

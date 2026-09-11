@@ -51,12 +51,12 @@ export default function AuthScreen() {
           <div
             style={{
               width: 52, height: 52, borderRadius: 14,
-              background: "linear-gradient(135deg, var(--brass), #E8431F)",
+              background: "linear-gradient(135deg, var(--brass), #2BAE73)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              marginBottom: 12, boxShadow: "0 6px 18px -6px rgba(255,92,57,0.55)",
+              marginBottom: 12, boxShadow: "0 6px 18px -6px rgba(62,207,142,0.5)",
             }}
           >
-            <Dumbbell size={26} color="#1A0D08" />
+            <Dumbbell size={26} color="#072016" />
           </div>
           <div className="disp" style={{ fontSize: 24 }}>Asc3end</div>
           <div className="mono" style={{ color: "var(--ink-dim)", fontSize: 12, marginTop: 2 }}>
@@ -73,7 +73,7 @@ export default function AuthScreen() {
               flex: 1, padding: "8px 0", borderRadius: 7, border: "none", cursor: "pointer",
               fontSize: 11, letterSpacing: "0.03em",
               background: mode === "login" ? "var(--brass)" : "transparent",
-              color: mode === "login" ? "#1A0D08" : "var(--ink-dim)",
+              color: mode === "login" ? "#072016" : "var(--ink-dim)",
             }}
           >
             Log In
@@ -86,7 +86,7 @@ export default function AuthScreen() {
               flex: 1, padding: "8px 0", borderRadius: 7, border: "none", cursor: "pointer",
               fontSize: 11, letterSpacing: "0.03em",
               background: mode === "signup" ? "var(--brass)" : "transparent",
-              color: mode === "signup" ? "#1A0D08" : "var(--ink-dim)",
+              color: mode === "signup" ? "#072016" : "var(--ink-dim)",
             }}
           >
             Sign Up

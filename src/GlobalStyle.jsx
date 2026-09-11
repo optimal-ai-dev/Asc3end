@@ -8,28 +8,28 @@ export default function GlobalStyle() {
       @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
       :root {
-        --bg: #121317;
-        --bg-elev: #1B1D24;
-        --bg-elev2: #23262F;
-        --line: #2E323C;
-        --ink: #F3EFE4;
-        --ink-dim: #8D919C;
-        --brass: #FF5C39;
-        --brass-soft: rgba(255,92,57,0.16);
+        --bg: #0A120E;
+        --bg-elev: #121C17;
+        --bg-elev2: #1B2822;
+        --line: #253830;
+        --ink: #F1F5F3;
+        --ink-dim: #86A296;
+        --brass: #3ECF8E;
+        --brass-soft: rgba(62,207,142,0.16);
         --skin: #D4C4A8;
         --skin-dim: #8B8070;
         --muscle-hl: var(--brass);
-        --steel: #2FD9B8;
-        --good: #7ED957;
-        --warn: #FFB648;
-        --rest: #FF5C7A;
+        --steel: #4F9DFF;
+        --good: #3ECF8E;
+        --warn: #FFA53D;
+        --rest: #FF6B81;
       }
       html, body, #root { height: 100%; }
       body { background: var(--bg); }
       .atlas-root {
         background:
-          radial-gradient(560px 320px at 15% -8%, rgba(255,92,57,0.10), transparent 60%),
-          radial-gradient(500px 300px at 100% 0%, rgba(47,217,184,0.07), transparent 55%),
+          radial-gradient(560px 320px at 15% -8%, rgba(62,207,142,0.10), transparent 60%),
+          radial-gradient(500px 300px at 100% 0%, rgba(79,157,255,0.06), transparent 55%),
           var(--bg);
         color: var(--ink);
         font-family: 'Manrope', sans-serif;
@@ -44,27 +44,27 @@ export default function GlobalStyle() {
       .disp { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; }
       .mono { font-family: 'JetBrains Mono', monospace; }
       .atlas-card {
-        background: linear-gradient(160deg, var(--bg-elev), var(--bg-elev2));
+        background: var(--bg-elev);
         border: 1px solid var(--line);
-        border-radius: 16px;
+        border-radius: 20px;
         padding: 16px;
-        box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 10px 24px -16px rgba(0,0,0,0.6);
+        box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 12px 28px -18px rgba(0,0,0,0.55);
       }
       .atlas-btn {
-        background: linear-gradient(135deg, var(--brass), #E8431F);
-        color: #1A0D08;
+        background: linear-gradient(135deg, var(--brass), #2BAE73);
+        color: #072016;
         font-family: 'Oswald', sans-serif;
         text-transform: uppercase;
         letter-spacing: 0.03em;
         font-weight: 600;
         border: none;
-        border-radius: 10px;
+        border-radius: 12px;
         padding: 12px 18px;
         cursor: pointer;
-        box-shadow: 0 6px 18px -6px rgba(255,92,57,0.55);
+        box-shadow: 0 6px 18px -6px rgba(62,207,142,0.5);
         transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease;
       }
-      .atlas-btn:hover { transform: translateY(-1px); box-shadow: 0 9px 22px -6px rgba(255,92,57,0.7); }
+      .atlas-btn:hover { transform: translateY(-1px); box-shadow: 0 9px 22px -6px rgba(62,207,142,0.65); }
       .atlas-btn:active { transform: translateY(0); }
       .atlas-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
       .atlas-btn-ghost {
