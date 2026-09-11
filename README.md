@@ -60,12 +60,23 @@ create table subscriptions (
   stripe_subscription_id text,
   status text not null default 'inactive',
   current_period_end timestamptz,
+  cancel_at_period_end boolean not null default false,
+  plan text,
   updated_at timestamptz default now()
 );
 alter table subscriptions enable row level security;
 create policy "Users can read their own subscription" on subscriptions
   for select using (auth.uid() = user_id);
 ```
+If you already have this table from before `cancel_at_period_end`/`plan` existed, add them with:
+```sql
+alter table subscriptions add column if not exists cancel_at_period_end boolean not null default false;
+alter table subscriptions add column if not exists plan text;
+```
+`cancel_at_period_end` and `plan` feed `src/lib/subscription.js`'s `computeSubscriptionState` — see
+that file for the full authoritative entitlement model (free / demo / paid / loading / error) that
+every premium-gated part of the app now derives from, instead of ad hoc `status === "active"`
+checks scattered around.
 
 ### `feature_usage` table (free-trial counters)
 Same pattern as `subscriptions` — only the server (via `SUPABASE_SERVICE_ROLE_KEY`) writes to this;

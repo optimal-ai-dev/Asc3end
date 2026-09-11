@@ -13,6 +13,7 @@ import { loadKey, saveKey } from "./lib/storage";
 import { suggestNextTarget, evaluatePR, computeGamification } from "./lib/workoutMath";
 import { computeTargets } from "./lib/nutritionMath";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION } from "./lib/legal";
+import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./lib/subscription";
 import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
 
@@ -984,7 +985,7 @@ function playRestDoneSound() {
   } catch (e) { /* audio unavailable, fail silently */ }
 }
 
-function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile }) {
+function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, subscriptionState, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
   const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
   const [selectedMuscle, setSelectedMuscle] = useState(null);
@@ -1159,11 +1160,11 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       </div>
 
       {isPremium ? (
-        <div className="atlas-card" style={{ borderColor: "var(--brass)" }}>
+        <div className="atlas-card" style={{ borderColor: subscriptionState?.status === "past_due" ? "var(--warn)" : "var(--brass)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Sparkles size={16} color="var(--brass)" />
-              <span className="disp" style={{ fontSize: 13 }}>{isDemoEntitlement ? "Asc3end+ Demo Access" : "Premium Active"}</span>
+              <Sparkles size={16} color={subscriptionState?.status === "past_due" ? "var(--warn)" : "var(--brass)"} />
+              <span className="disp" style={{ fontSize: 13 }}>{describeSubscriptionState(subscriptionState)}</span>
             </div>
             {!isDemoEntitlement && (
               <button onClick={onManageBilling} disabled={billingLoading === "portal"} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>
@@ -1172,6 +1173,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
             )}
           </div>
           {isDemoEntitlement && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8 }}>Billing management is unavailable for demo accounts.</div>}
+          {subscriptionState?.status === "past_due" && <div className="mono" style={{ fontSize: 11, color: "var(--warn)", marginTop: 8 }}>Your last payment failed — update your card in Manage Billing to avoid losing access.</div>}
           {!isDemoEntitlement && billingError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginTop: 8 }}>{billingError}</div>}
         </div>
       ) : (
@@ -1233,7 +1235,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
 /* Profile / Settings                                                   */
 /* ------------------------------------------------------------------ */
 
-function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, isDemoEntitlement, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose }) {
+function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, isDemoEntitlement, subscriptionState, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose }) {
   const [edit, setEdit] = useState({
     name: profile.name || "", age: profile.age, gender: profile.gender,
     heightCm: profile.heightCm, weightKg: profile.weightKg,
@@ -1409,7 +1411,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
         {row("SUBSCRIPTION", isPremium ? (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="mono" style={{ fontSize: 12, color: "var(--brass)" }}><Sparkles size={12} style={{ verticalAlign: -2, marginRight: 4 }} />{isDemoEntitlement ? "Asc3end+ Demo Access" : "Premium Active"}</span>
+              <span className="mono" style={{ fontSize: 12, color: subscriptionState?.status === "past_due" ? "var(--warn)" : "var(--brass)" }}><Sparkles size={12} style={{ verticalAlign: -2, marginRight: 4 }} />{describeSubscriptionState(subscriptionState)}</span>
               {!isDemoEntitlement && (
                 <button onClick={onManageBilling} disabled={billingLoading === "portal"} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>
                   {billingLoading === "portal" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : "Manage Billing"}
@@ -1417,6 +1419,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
               )}
             </div>
             {isDemoEntitlement && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 6 }}>Billing management is unavailable for demo accounts.</div>}
+            {subscriptionState?.status === "past_due" && <div className="mono" style={{ fontSize: 11, color: "var(--warn)", marginTop: 6 }}>Your last payment failed — update your card via Manage Billing to avoid losing access.</div>}
           </div>
         ) : (
           <>
@@ -3322,7 +3325,22 @@ export default function App() {
 
   const refreshSubscription = async () => {
     if (!authUser) return null;
-    const { data } = await supabase.from("subscriptions").select("status, current_period_end, stripe_customer_id").eq("user_id", authUser.id).maybeSingle();
+    // cancel_at_period_end/plan are a newer migration (see README.md) — selecting a column that
+    // doesn't exist yet fails the WHOLE query (data comes back null), which would otherwise read
+    // as "free" for an actual paying/demo user until that SQL is run. Fall back to the original
+    // column set on error so existing entitlements keep displaying correctly either way.
+    let { data, error } = await supabase
+      .from("subscriptions")
+      .select("status, current_period_end, stripe_customer_id, cancel_at_period_end, plan")
+      .eq("user_id", authUser.id)
+      .maybeSingle();
+    if (error) {
+      ({ data } = await supabase
+        .from("subscriptions")
+        .select("status, current_period_end, stripe_customer_id")
+        .eq("user_id", authUser.id)
+        .maybeSingle());
+    }
     setSubscription(data || null);
     return data || null;
   };
@@ -3363,12 +3381,12 @@ export default function App() {
     return () => clearInterval(interval);
   }, [authUser]);
 
-  const isPremium = subscription && (subscription.status === "active" || subscription.status === "trialing");
-  // Premium with no Stripe customer on file can only happen from a manually-granted (demo/comp)
-  // entitlement — a real subscription always gets a stripe_customer_id from the checkout webhook.
-  // Distinguishing this avoids the confusing "Premium Active" + "No subscription found for this
-  // account" combo that shows up the moment such an account taps Manage Billing.
-  const isDemoEntitlement = !!(isPremium && !subscription.stripe_customer_id);
+  // The one authoritative entitlement computation — everything that used to check
+  // `subscription.status === "active" || "trialing"` ad hoc now derives from this single object,
+  // so free/demo/paid can't quietly drift apart or contradict each other across components.
+  const subscriptionState = useMemo(() => computeSubscriptionState(subscription), [subscription]);
+  const isPremium = isEntitled(subscriptionState);
+  const isDemoEntitlement = subscriptionState.type === "demo";
 
   const startCheckout = async () => {
     setBillingError(null);
@@ -3631,14 +3649,14 @@ export default function App() {
       {showProfile ? (
         <Profile
           profile={profile} authUser={authUser} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises}
-          isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={startCheckout}
+          isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={startCheckout}
           billingLoading={billingLoading} billingError={billingError} onLogOut={logOut}
           onDeleteAccount={deleteAccount} deleteAccountLoading={deleteAccountLoading} deleteAccountError={deleteAccountError}
           onClose={() => setShowProfile(false)}
         />
       ) : (
         <>
-          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
+          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
           {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}

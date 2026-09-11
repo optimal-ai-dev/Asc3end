@@ -24,6 +24,20 @@ function readRawBody(req) {
   });
 }
 
+// Maps a Stripe price id to the app's own "monthly"/"annual" label, purely from server-side env
+// config — never trusts anything the client sends for this. Both env vars are optional pre-Phase-5
+// (a single legacy price is still supported): if neither is set, or the price doesn't match
+// either, `plan` is left null and the UI falls back to generic "Asc3end+" copy rather than
+// guessing.
+function detectPlan(subscription) {
+  const priceId = subscription.items?.data?.[0]?.price?.id;
+  if (!priceId) return null;
+  if (priceId === process.env.STRIPE_MONTHLY_PRICE_ID) return "monthly";
+  if (priceId === process.env.STRIPE_ANNUAL_PRICE_ID) return "annual";
+  if (priceId === process.env.STRIPE_PRICE_ID) return "monthly"; // the original single-price setup
+  return null;
+}
+
 async function upsertFromSubscription(subscription) {
   const userId = subscription.metadata?.supabase_user_id;
   if (!userId) return; // not one of ours (or created outside the checkout flow) — nothing to sync
@@ -34,6 +48,8 @@ async function upsertFromSubscription(subscription) {
     stripe_subscription_id: subscription.id,
     status: subscription.status,
     current_period_end: periodEndUnix ? new Date(periodEndUnix * 1000).toISOString() : null,
+    cancel_at_period_end: !!subscription.cancel_at_period_end,
+    plan: detectPlan(subscription),
     updated_at: new Date().toISOString(),
   });
   if (error) console.error("subscriptions upsert failed", error);
