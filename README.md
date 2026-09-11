@@ -189,5 +189,20 @@ someone from calling the API directly:
   for `scanner` (always Premium), and checks + increments `feature_usage` for `coach`/`meals` (free
   up to the limit, then Premium) before proxying to Anthropic.
 
+## Error monitoring
+`src/lib/errorMonitoring.js` is a small Sentry-shaped abstraction (`initErrorMonitoring`,
+`captureException`, `captureMessage`) — the rest of the app never imports `@sentry/react`
+directly. With no `VITE_SENTRY_DSN` set, every call degrades to a console log and the app works
+exactly as before; Rollup tree-shakes `@sentry/react` out of the build entirely in that case (it's
+only ever reached via a dynamic `import()` behind an `if (dsn)` check), so a Sentry-free deploy
+ships zero extra bytes for it. `ErrorBoundary.jsx` wraps the app in `main.jsx` and shows a themed
+"Something went wrong — Reload" screen instead of a blank page on a render error; `main.jsx` also
+wires `window.onerror`/`unhandledrejection` for errors outside React's render (event handlers,
+async code) that a boundary can't catch.
+
+**Important**: Vite inlines `import.meta.env.VITE_SENTRY_DSN` at *build* time, not runtime — adding
+the env var in Vercel only takes effect starting from the next build/deploy after you add it, not
+by itself.
+
 ## Optional
 Add simple per-user rate limiting in `api/claude.js` so one heavy user can't run up the app's bill.

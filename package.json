@@ -12,6 +12,7 @@
     "test:integration": "vitest run --config vitest.integration.config.js"
   },
   "dependencies": {
+    "@sentry/react": "^10.74.0",
     "@supabase/supabase-js": "^2.45.0",
     "lucide-react": "^0.383.0",
     "react": "^18.3.1",
