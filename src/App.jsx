@@ -2313,7 +2313,10 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     try {
       const recent = workouts.slice(-3).map((w) => `${w.date}: ${w.exercises.map((e) => e.name).join(", ")}`).join(" | ");
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
-      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Recent workouts: ${recent || "none logged"}.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_OUTPUT_RULES}`;
+      // profile.name was previously missing from this prompt entirely — Claude had no actual
+      // name to address the athlete by (only the client-side synthetic greeting bubble did, and
+      // that's stripped before sending), so it would invent a literal "[Name]" placeholder.
+      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Recent workouts: ${recent || "none logged"}.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_OUTPUT_RULES}`;
       // Strip the synthetic greeting (index 0) — it was never a real API turn, and including it
       // alongside a fake priming pair broke the API's requirement that roles strictly alternate
       // starting with "user", which is why the coach silently failed on every message before.
