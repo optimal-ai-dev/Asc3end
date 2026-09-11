@@ -4,9 +4,11 @@
 // grant themselves access by editing client-side state.
 //
 // Needs STRIPE_WEBHOOK_SECRET set — create the endpoint in the Stripe Dashboard (Developers >
-// Webhooks) pointing at https://<your-domain>/api/stripe-webhook once deployed, subscribe it to
-// customer.subscription.created/updated/deleted and checkout.session.completed, then copy the
-// signing secret it gives you into this env var.
+// Webhooks) pointing at https://<your-domain>/api/stripe-webhook once deployed, subscribe it to:
+//   customer.subscription.created, customer.subscription.updated, customer.subscription.deleted,
+//   customer.subscription.trial_will_end, checkout.session.completed, invoice.paid,
+//   invoice.payment_failed
+// then copy the signing secret it gives you into this env var.
 
 import { stripe } from "../lib/stripe.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
@@ -99,6 +101,23 @@ export default async function handler(req, res) {
         }
         break;
       }
+      // Diagnostic-safe logging only (event id + subscription id, never amounts/card/customer
+      // details) — the actual status transition (active <-> past_due) is already driven by
+      // customer.subscription.updated, which Stripe fires alongside both of these. Logged
+      // separately so a payment-failure pattern is visible in Vercel logs without needing to
+      // cross-reference subscription events.
+      case "invoice.paid":
+        console.log("invoice.paid", { subscription: event.data.object.subscription });
+        break;
+      case "invoice.payment_failed":
+        console.log("invoice.payment_failed", { subscription: event.data.object.subscription });
+        break;
+      case "customer.subscription.trial_will_end":
+        // Hook point for a future "your trial ends in 3 days" notification — no email sending
+        // exists in this codebase yet, so this just logs for now rather than silently doing
+        // nothing with an event the integration is supposed to handle.
+        console.log("customer.subscription.trial_will_end", { subscription: event.data.object.id });
+        break;
       default:
         break; // ignore events we don't care about
     }

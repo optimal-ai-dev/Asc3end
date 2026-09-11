@@ -7,6 +7,15 @@ import { stripe } from "../lib/stripe.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
+// Never trust a client-supplied price id directly — only ever select from this fixed mapping of
+// server-configured price ids, so a modified client can't check out at an arbitrary price.
+function priceIdForPlan(plan) {
+  if (plan === "annual" && process.env.STRIPE_ANNUAL_PRICE_ID) return process.env.STRIPE_ANNUAL_PRICE_ID;
+  if (plan === "monthly" && process.env.STRIPE_MONTHLY_PRICE_ID) return process.env.STRIPE_MONTHLY_PRICE_ID;
+  // Pre-Phase-5-pricing-setup fallback: the original single monthly price.
+  return process.env.STRIPE_MONTHLY_PRICE_ID || process.env.STRIPE_PRICE_ID;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -47,12 +56,26 @@ export default async function handler(req, res) {
       });
     }
 
-    const origin = req.headers.origin || `https://${req.headers.host}`;
+    const { plan, trial } = req.body || {};
+    const priceId = priceIdForPlan(plan === "annual" ? "annual" : "monthly");
+    if (!priceId) {
+      return res.status(500).json({ error: "Billing is not fully configured yet — no price is set for this plan. Contact support." });
+    }
+
+    const origin = process.env.APP_URL || req.headers.origin || `https://${req.headers.host}`;
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
-      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-      subscription_data: { metadata: { supabase_user_id: user.id } },
+      line_items: [{ price: priceId, quantity: 1 }],
+      subscription_data: {
+        metadata: { supabase_user_id: user.id },
+        // Only offered when the caller explicitly asks for it (the pricing page's trial toggle)
+        // — Stripe doesn't natively dedupe "has this customer already trialed before" for
+        // Checkout-created subscriptions, so this is an honest "optional" trial, not a
+        // guaranteed-once-ever one; fine for a beta launch, worth revisiting before wide launch
+        // if trial abuse becomes a real cost concern.
+        ...(trial ? { trial_period_days: 7 } : {}),
+      },
       success_url: `${origin}/?checkout=success`,
       cancel_url: `${origin}/?checkout=cancelled`,
     });

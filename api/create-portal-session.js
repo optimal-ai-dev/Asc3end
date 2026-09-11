@@ -36,7 +36,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "No subscription found for this account." });
     }
 
-    const origin = req.headers.origin || `https://${req.headers.host}`;
+    const origin = process.env.APP_URL || req.headers.origin || `https://${req.headers.host}`;
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: sub.stripe_customer_id,
       return_url: `${origin}/`,

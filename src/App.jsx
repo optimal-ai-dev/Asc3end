@@ -3231,6 +3231,51 @@ function ResetPasswordScreen({ onDone }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Checkout result                                                      */
+/* ------------------------------------------------------------------ */
+
+// Shown right after returning from Stripe Checkout — a dedicated success/cancellation
+// acknowledgement instead of silently landing back on Home with a stray query param (the
+// cancelled case was previously completely unhandled).
+function CheckoutResultScreen({ result, subscriptionState, onContinue, onRetry }) {
+  const activated = subscriptionState.type === "paid" || subscriptionState.type === "demo";
+  return (
+    <div className="atlas-root" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 }}>
+      <div className="atlas-card" style={{ width: "100%", maxWidth: 360, textAlign: "center", padding: 28 }}>
+        {result === "success" ? (
+          <>
+            {activated ? (
+              <>
+                <Check size={28} color="var(--brass)" style={{ marginBottom: 10 }} />
+                <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>You're in — Asc3end+ is active</div>
+                <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>Unlimited Coach, the food scanner, and Meals Near You are unlocked.</div>
+              </>
+            ) : (
+              <>
+                <Loader2 size={24} color="var(--brass)" style={{ animation: "spin 1s linear infinite", marginBottom: 10 }} />
+                <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>Activating your subscription…</div>
+                <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>Payment succeeded — this can take a few seconds. If it's still not showing as active once you continue, check Profile &gt; Subscription or contact support.</div>
+              </>
+            )}
+            <button className="atlas-btn" style={{ width: "100%" }} onClick={onContinue}>Continue to Asc3end</button>
+          </>
+        ) : (
+          <>
+            <X size={28} color="var(--ink-dim)" style={{ marginBottom: 10 }} />
+            <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>Checkout cancelled</div>
+            <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>No charge was made. You can try again whenever you're ready.</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={onContinue}>Not now</button>
+              <button className="atlas-btn" style={{ flex: 1 }} onClick={onRetry}>Try Again</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* App root                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -3276,6 +3321,7 @@ export default function App() {
   // sign-in. Must gate the whole app behind a "set your new password" screen instead of dropping
   // them straight into their account on that temporary session.
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [checkoutResult, setCheckoutResult] = useState(null); // "success" | "cancelled" | null
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthUser(session?.user ?? null));
@@ -3360,12 +3406,25 @@ export default function App() {
     refreshUsage();
   }, [authUser]);
 
-  // After returning from Stripe Checkout, the webhook that actually activates the subscription
-  // may take a moment to land — poll briefly instead of showing stale "not premium" state.
+  // Reads the ?checkout=success|cancelled Stripe redirect param exactly once, turns it into a
+  // dedicated result screen (checkoutResult), and strips it from the URL either way — a cancelled
+  // checkout was previously left completely unhandled (silently landed on Home with a stray query
+  // param and no acknowledgement).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") !== "success" || !authUser) return;
-    window.history.replaceState(null, "", window.location.pathname);
+    const checkout = params.get("checkout");
+    if (checkout === "success" || checkout === "cancelled") {
+      setCheckoutResult(checkout);
+      window.history.replaceState(null, "", window.location.pathname);
+      if (checkout === "cancelled") logEvent("checkout_failed", { reason: "cancelled" });
+    }
+  }, []);
+
+  // After returning from a successful Checkout, the webhook that actually activates the
+  // subscription may take a moment to land — poll briefly instead of showing stale "not premium"
+  // state on the result screen.
+  useEffect(() => {
+    if (checkoutResult !== "success" || !authUser) return;
     let attempts = 0;
     let fired = false;
     const interval = setInterval(async () => {
@@ -3373,13 +3432,13 @@ export default function App() {
       const data = await refreshSubscription();
       if (!fired && data && (data.status === "active" || data.status === "trialing")) {
         fired = true;
-        logEvent("subscription_started", { status: data.status });
+        logEvent("subscription_activated", { status: data.status });
         clearInterval(interval);
       }
       if (attempts >= 6) clearInterval(interval); // ~12s of polling, then give up quietly
     }, 2000);
     return () => clearInterval(interval);
-  }, [authUser]);
+  }, [checkoutResult, authUser]);
 
   // The one authoritative entitlement computation — everything that used to check
   // `subscription.status === "active" || "trialing"` ad hoc now derives from this single object,
@@ -3388,19 +3447,23 @@ export default function App() {
   const isPremium = isEntitled(subscriptionState);
   const isDemoEntitlement = subscriptionState.type === "demo";
 
-  const startCheckout = async () => {
+  const startCheckout = async (plan = "monthly", trial = false) => {
     setBillingError(null);
     setBillingLoading("checkout");
+    logEvent("checkout_started", { plan, trial });
     try {
       const { data: { session: authSession } } = await supabase.auth.getSession();
       const res = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
+        body: JSON.stringify({ plan, trial }),
       });
       const data = await res.json();
       if (data.url) { window.location.href = data.url; return; }
+      logEvent("checkout_failed", { reason: "server_error" });
       setBillingError(data.error || "Couldn't start checkout — try again.");
     } catch (e) {
+      logEvent("checkout_failed", { reason: "network_error" });
       setBillingError("Couldn't reach the server — check your connection and try again.");
     }
     setBillingLoading(null);
@@ -3631,6 +3694,20 @@ export default function App() {
       <>
         <GlobalStyle />
         <Onboarding onComplete={completeOnboarding} />
+      </>
+    );
+  }
+
+  if (checkoutResult) {
+    return (
+      <>
+        <GlobalStyle />
+        <CheckoutResultScreen
+          result={checkoutResult}
+          subscriptionState={subscriptionState}
+          onContinue={() => setCheckoutResult(null)}
+          onRetry={() => { setCheckoutResult(null); startCheckout(); }}
+        />
       </>
     );
   }
