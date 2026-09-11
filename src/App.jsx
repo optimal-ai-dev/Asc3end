@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useId, lazy, Suspense } fr
 import {
   Dumbbell, UtensilsCrossed, LayoutDashboard, MessageCircle, TrendingUp,
   Plus, Trash2, Send, Sparkles, Flame, Target, ChevronRight, Check,
-  X, Scale, Loader2, Trophy, Search, MapPin, Navigation, Camera, RefreshCw, Bell
+  X, Scale, Loader2, Trophy, Search, MapPin, Navigation, Camera, RefreshCw, Bell,
+  UserCircle, Pencil, Copy, ArrowUp, ArrowDown, AlertTriangle, Star, ChevronDown, ChevronUp
 } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
 import AuthScreen from "./AuthScreen";
@@ -38,11 +39,15 @@ async function loadKey(key) {
     return null;
   }
 }
+// Returns true/false so callers that need to know whether a save actually landed (e.g. finishing
+// a workout) can react to failure — most callers still just fire-and-forget this and that's fine.
 async function saveKey(key, value) {
   try {
-    await storage.set(key, JSON.stringify(value));
+    const result = await storage.set(key, JSON.stringify(value));
+    return result !== null;
   } catch (e) {
     console.error("storage error", e);
+    return false;
   }
 }
 
@@ -388,6 +393,9 @@ function uid() {
 }
 
 function computeTargets(p) {
+  // A manually-set override (Profile > Nutrition) always wins over the calculated targets —
+  // recalculating body metrics should never silently clobber a target the user chose on purpose.
+  if (p.macroOverride) return p.macroOverride;
   const bmr =
     p.gender === "female"
       ? 10 * p.weightKg + 6.25 * p.heightCm - 5 * p.age - 161
@@ -1035,7 +1043,7 @@ function evaluatePR(historySets, weight, reps) {
   return { isPR: false };
 }
 
-function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, onUpgrade, onManageBilling, billingError, billingLoading }) {
+function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
   const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
   const targets = useMemo(() => computeTargets(profile), [profile]);
@@ -1071,6 +1079,13 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
   }, [workouts, streak]);
   const [weightInput, setWeightInput] = useState("");
 
+  const activePlan = profile.activePlan;
+  const planDay = activePlan?.days?.[activePlan.currentDayIndex] || null;
+  const planExerciseCount = planDay ? planDay.muscleGroups.reduce((n, mg) => n + mg.exercises.length, 0) : 0;
+  const planSetCount = planDay ? planDay.muscleGroups.reduce((n, mg) => n + mg.exercises.reduce((n2, e) => n2 + (+e.sets || 3), 0), 0) : 0;
+  const planApproxMins = planDay ? Math.round((planSetCount * 2.5 + 10) / 5) * 5 : 0;
+  const planMuscles = planDay ? [...new Set(planDay.muscleGroups.map((mg) => mg.muscle))] : [];
+
   const macroRow = (label, val, target, color) => (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
@@ -1091,12 +1106,99 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
           <div className="disp" style={{ fontSize: 26 }}>Welcome back, {profile.name || "Athlete"}</div>
           <div style={{ color: "var(--ink-dim)", fontSize: 14, marginTop: 4, fontStyle: "italic" }}>"{quote}"</div>
         </div>
-        <button
-          onClick={onLogOut}
-          className="atlas-btn-ghost"
-          style={{ padding: "6px 10px", fontSize: 10, flexShrink: 0 }}
-        >
-          Log Out
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button onClick={onOpenProfile} className="atlas-btn-ghost" style={{ padding: "6px 9px" }} aria-label="Profile and settings" title="Profile and settings">
+            <UserCircle size={16} />
+          </button>
+          <button onClick={onLogOut} className="atlas-btn-ghost" style={{ padding: "6px 10px", fontSize: 10 }}>
+            Log Out
+          </button>
+        </div>
+      </div>
+
+      {/* Today's planned workout — the single most important thing on Home: what should I do right now. */}
+      <div className="atlas-card" style={{ borderColor: "var(--brass)" }}>
+        {session ? (
+          <>
+            <div className="disp" style={{ fontSize: 14, color: "var(--brass)", marginBottom: 4 }}>Workout In Progress</div>
+            <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginBottom: 10 }}>
+              {session.planDayName || "Free workout"} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} logged so far
+            </div>
+            <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onStartWorkout()}>
+              <Dumbbell size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Resume Workout
+            </button>
+          </>
+        ) : planDay ? (
+          <>
+            <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", letterSpacing: 1, marginBottom: 4 }}>TODAY'S WORKOUT</div>
+            <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>{planDay.day}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              {planMuscles.map((m) => (
+                <span key={m} className="pill" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)", textTransform: "capitalize" }}>{m}</span>
+              ))}
+              <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--steel)" }}>{planExerciseCount} exercises</span>
+              <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--steel)" }}>~{planApproxMins} min</span>
+            </div>
+            <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onStartWorkout(activePlan.currentDayIndex)}>
+              <Dumbbell size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Start Workout
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>No Active Plan</div>
+            <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginBottom: 10 }}>
+              Ask the Coach to build you a weekly program, or just start logging a free workout.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="atlas-btn" style={{ flex: 1 }} onClick={() => onStartWorkout()}>
+                <Dumbbell size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Free Workout
+              </button>
+              <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => onNav("coach")}>
+                <MessageCircle size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Ask Coach
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {nudge && (
+        <div className="atlas-card" style={{ borderColor: "var(--warn)", background: "rgba(255,182,72,0.1)", display: "flex", alignItems: "center", gap: 8 }}>
+          <Bell size={15} color="var(--warn)" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: 12.5 }}>{nudge}</div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <div className="atlas-card" style={{ flex: 1, textAlign: "center" }}>
+          <Target size={18} color="var(--steel)" />
+          <div className="disp" style={{ fontSize: 20 }}>{GOAL_LABELS[profile.goal]}</div>
+          <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>PROGRESSION TARGET</div>
+        </div>
+        <div className="atlas-card" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, justifyContent: "center" }}>
+          <StreakRing streak={streak} size={72} />
+          <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>{streak === 0 ? "START A STREAK" : `DAY ${streak} STREAK`}</div>
+        </div>
+      </div>
+
+      <div className="atlas-card">
+        <div className="disp" style={{ fontSize: 15, marginBottom: 6 }}>Muscle Recovery</div>
+        <RecoveryMap status={status} />
+        <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 8 }}>
+          <span className="pill" style={{ background: "rgba(116,165,120,0.15)", color: "var(--good)" }}>● Ready</span>
+          <span className="pill" style={{ background: "rgba(255,182,72,0.15)", color: "var(--warn)" }}>● Partial</span>
+          <span className="pill" style={{ background: "rgba(184,91,94,0.15)", color: "var(--rest)" }}>● Resting</span>
+        </div>
+        <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>Estimate based on time since last trained — not a medical measurement.</div>
+      </div>
+
+      <div className="atlas-card">
+        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Today's Fuel</div>
+        {macroRow("CALORIES", totals.calories, targets.calories, "var(--brass)")}
+        {macroRow("PROTEIN g", totals.protein, targets.protein, "var(--steel)")}
+        {macroRow("CARBS g", totals.carbs, targets.carbs, "var(--good)")}
+        {macroRow("FAT g", totals.fat, targets.fat, "var(--warn)")}
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginTop: 4 }} onClick={() => onNav("nutrition")}>
+          <UtensilsCrossed size={14} style={{ verticalAlign: -2, marginRight: 6 }} /> Log Food
         </button>
       </div>
 
@@ -1130,79 +1232,293 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
         </div>
       )}
 
-      {nudge && (
-        <div className="atlas-card" style={{ borderColor: "var(--warn)", background: "rgba(255,182,72,0.1)", display: "flex", alignItems: "center", gap: 8 }}>
-          <Bell size={15} color="var(--warn)" style={{ flexShrink: 0 }} />
-          <div style={{ fontSize: 12.5 }}>{nudge}</div>
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 10 }}>
-        <div className="atlas-card" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, justifyContent: "center" }}>
-          <StreakRing streak={streak} size={82} />
-          <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{streak === 0 ? "START A STREAK" : `DAY ${streak} · ${7 - (streak % 7 === 0 ? 7 : streak % 7)} TO NEXT WEEK`}</div>
-        </div>
-        <div className="atlas-card" style={{ flex: 1, textAlign: "center" }}>
-          <Target size={18} color="var(--steel)" />
-          <div className="disp" style={{ fontSize: 22 }}>{GOAL_LABELS[profile.goal]}</div>
-          <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>CURRENT GOAL</div>
-        </div>
-      </div>
-
-      <div className="atlas-card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-          <div className="disp" style={{ fontSize: 15 }}>Level {gamification.level}</div>
-          <span className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>{gamification.xpIntoLevel} / 500 XP</span>
-        </div>
-        <div className="bar-track" style={{ marginBottom: 12 }}><div className="bar-fill" style={{ width: `${(gamification.xpIntoLevel / 500) * 100}%`, background: "var(--brass)" }} /></div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {gamification.badges.map((b) => (
-            <div key={b.id} title={b.label} style={{
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 3, width: 56,
-              opacity: b.earned ? 1 : 0.3,
-            }}>
-              <div style={{ fontSize: 20, filter: b.earned ? "none" : "grayscale(1)" }}>{b.icon}</div>
-              <div className="mono" style={{ fontSize: 8, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="atlas-card">
-        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Today's Fuel</div>
-        {macroRow("CALORIES", totals.calories, targets.calories, "var(--brass)")}
-        {macroRow("PROTEIN g", totals.protein, targets.protein, "var(--steel)")}
-        {macroRow("CARBS g", totals.carbs, targets.carbs, "var(--good)")}
-        {macroRow("FAT g", totals.fat, targets.fat, "var(--warn)")}
-      </div>
-
-      <div className="atlas-card">
-        <div className="disp" style={{ fontSize: 15, marginBottom: 6 }}>Muscle Recovery</div>
-        <RecoveryMap status={status} />
-        <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 8 }}>
-          <span className="pill" style={{ background: "rgba(116,165,120,0.15)", color: "var(--good)" }}>● Ready</span>
-          <span className="pill" style={{ background: "rgba(255,182,72,0.15)", color: "var(--warn)" }}>● Partial</span>
-          <span className="pill" style={{ background: "rgba(184,91,94,0.15)", color: "var(--rest)" }}>● Resting</span>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 10 }}>
-        <button className="atlas-btn" style={{ flex: 1 }} onClick={() => onNav("train")}>
-          <Dumbbell size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Start Workout
-        </button>
-        <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => onNav("nutrition")}>
-          <UtensilsCrossed size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Log Food
-        </button>
-      </div>
-
       <div className="atlas-card">
         <div className="disp" style={{ fontSize: 15, marginBottom: 8 }}>Log Bodyweight</div>
         <div style={{ display: "flex", gap: 8 }}>
-          <input className="atlas-input" type="number" placeholder={`${profile.weightKg} kg`} value={weightInput} onChange={(e) => setWeightInput(e.target.value)} />
-          <button className="atlas-btn" onClick={() => { if (weightInput) { onLogWeight(+weightInput); setWeightInput(""); } }}>
+          <input className="atlas-input" type="number" placeholder={`${profile.weightKg} kg`} value={weightInput} onChange={(e) => setWeightInput(e.target.value)} aria-label="Bodyweight in kilograms" />
+          <button className="atlas-btn" onClick={() => { if (weightInput) { onLogWeight(+weightInput); setWeightInput(""); } }} aria-label="Save bodyweight">
             <Check size={16} />
           </button>
         </div>
+      </div>
+
+      {/* Achievements — deliberately last and de-emphasized until there's real activity to show,
+          per feedback that a full badge grid crowds Home before a new account has done anything. */}
+      <div className="atlas-card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+          <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)" }}>Level {gamification.level}</div>
+          <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{gamification.xpIntoLevel} / 500 XP</span>
+        </div>
+        <div className="bar-track" style={{ marginBottom: workouts.length > 0 ? 12 : 0 }}><div className="bar-fill" style={{ width: `${(gamification.xpIntoLevel / 500) * 100}%`, background: "var(--brass)" }} /></div>
+        {workouts.length > 0 ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {gamification.badges.map((b) => (
+              <div key={b.id} title={b.label} style={{
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 3, width: 56,
+                opacity: b.earned ? 1 : 0.3,
+              }}>
+                <div style={{ fontSize: 20, filter: b.earned ? "none" : "grayscale(1)" }}>{b.icon}</div>
+                <div className="mono" style={{ fontSize: 8, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 8 }}>Log your first workout to start earning achievements.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Profile / Settings                                                   */
+/* ------------------------------------------------------------------ */
+
+const LEGAL_COPY = {
+  privacy: {
+    title: "Privacy",
+    body: "Your workouts, nutrition logs, bodyweight history and profile are stored in your own account and are never shared with other users. AI features (Coach, food scanner, Meals Near You) send the minimum context needed to Anthropic's Claude API to generate a response. Payment is handled entirely by Stripe — Asc3end never sees or stores your card details.",
+  },
+  terms: {
+    title: "Terms",
+    body: "Asc3end is provided as-is to help you plan and track training and nutrition. Premium features are billed monthly through Stripe and can be cancelled anytime from Manage Billing below; access continues until the end of the paid period.",
+  },
+  disclaimer: {
+    title: "Disclaimer",
+    body: "Asc3end is not a medical, dietetic, or licensed coaching service. Muscle recovery estimates, macro targets, and AI Coach guidance are general-purpose estimates, not personalized medical or nutrition advice. Talk to a doctor or registered dietitian before making significant changes to training or diet, especially if you have an existing health condition.",
+  },
+  support: {
+    title: "Support",
+    body: "Something broken or confusing? Email support and describe what you were doing when it happened — screenshots help.",
+  },
+};
+
+function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose }) {
+  const [edit, setEdit] = useState({
+    name: profile.name || "", age: profile.age, gender: profile.gender,
+    heightCm: profile.heightCm, weightKg: profile.weightKg,
+    goal: profile.goal, experience: profile.experience, trainingDays: profile.trainingDays,
+  });
+  const [savedFlash, setSavedFlash] = useState(false);
+  const setNumber = (k, raw) => setEdit((f) => ({ ...f, [k]: raw === "" ? 0 : +raw.replace(/^0+(?=\d)/, "") }));
+
+  const [overrideOn, setOverrideOn] = useState(!!profile.macroOverride);
+  const currentTargets = profile.targets || computeTargets(profile);
+  const [overrideForm, setOverrideForm] = useState(profile.macroOverride || currentTargets);
+
+  const [pw, setPw] = useState({ next: "", confirm: "" });
+  const [pwStatus, setPwStatus] = useState(null); // null | "saving" | "success" | { error }
+
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
+  const [legalOpen, setLegalOpen] = useState(null);
+
+  const saveIdentity = async () => {
+    const name = edit.name.trim();
+    if (!name) return;
+    const next = { ...profile, ...edit, name };
+    if (!profile.macroOverride) next.targets = computeTargets(next);
+    await onUpdateProfile(next);
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 2200);
+  };
+
+  const saveOverride = async () => {
+    if (overrideOn) {
+      const clean = {
+        calories: +overrideForm.calories || 0, protein: +overrideForm.protein || 0,
+        carbs: +overrideForm.carbs || 0, fat: +overrideForm.fat || 0,
+      };
+      await onUpdateProfile({ macroOverride: clean, targets: clean });
+    } else {
+      await onUpdateProfile({ macroOverride: null, targets: computeTargets(profile) });
+    }
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 2200);
+  };
+
+  const changePassword = async () => {
+    if (pw.next.length < 6) { setPwStatus({ error: "Password must be at least 6 characters." }); return; }
+    if (pw.next !== pw.confirm) { setPwStatus({ error: "Passwords don't match." }); return; }
+    setPwStatus("saving");
+    const { error } = await supabase.auth.updateUser({ password: pw.next });
+    if (error) setPwStatus({ error: error.message || "Couldn't update password." });
+    else { setPwStatus("success"); setPw({ next: "", confirm: "" }); }
+  };
+
+  const exportData = () => {
+    const payload = { exportedAt: new Date().toISOString(), profile, workouts, nutrition, weightlog, customExercises };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `asc3end-export-${todayStr()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const row = (label, control) => (
+    <div style={{ marginBottom: 12 }}>
+      <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", display: "block", marginBottom: 4 }}>{label}</label>
+      {control}
+    </div>
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 40, overflowY: "auto", padding: "24px 18px 60px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+        <div className="disp" style={{ fontSize: 24 }}>Profile & Settings</div>
+        <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close settings"><X size={16} /></button>
+      </div>
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <div className="disp" style={{ fontSize: 15, marginBottom: 12 }}>About You</div>
+        {row("NAME", <input className="atlas-input" value={edit.name} onChange={(e) => setEdit((f) => ({ ...f, name: e.target.value }))} />)}
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>{row("AGE", <input type="number" className="atlas-input" value={edit.age} onChange={(e) => setNumber("age", e.target.value)} />)}</div>
+          <div style={{ flex: 1 }}>
+            {row("GENDER", (
+              <select className="atlas-input" value={edit.gender} onChange={(e) => setEdit((f) => ({ ...f, gender: e.target.value }))}>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+                <option value="prefer_not_say">Prefer not to say</option>
+              </select>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>{row("HEIGHT (CM)", <input type="number" className="atlas-input" value={edit.heightCm} onChange={(e) => setNumber("heightCm", e.target.value)} />)}</div>
+          <div style={{ flex: 1 }}>{row("WEIGHT (KG)", <input type="number" className="atlas-input" value={edit.weightKg} onChange={(e) => setNumber("weightKg", e.target.value)} />)}</div>
+        </div>
+
+        <div className="disp" style={{ fontSize: 13, color: "var(--ink-dim)", margin: "10px 0 10px" }}>Training Preferences</div>
+        {row("GOAL", (
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {Object.entries(GOAL_LABELS).map(([k, label]) => (
+              <button key={k} onClick={() => setEdit((f) => ({ ...f, goal: k }))} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: edit.goal === k ? "var(--brass-soft)" : "transparent", color: edit.goal === k ? "var(--brass)" : "var(--ink-dim)" }}>{label}</button>
+            ))}
+          </div>
+        ))}
+        {row("EXPERIENCE", (
+          <select className="atlas-input" value={edit.experience} onChange={(e) => setEdit((f) => ({ ...f, experience: e.target.value }))}>
+            <option value="beginner">Beginner (0-1yr)</option>
+            <option value="intermediate">Intermediate (1-5yr)</option>
+            <option value="advanced">Advanced (5yr+)</option>
+          </select>
+        ))}
+        {row(`TRAINING DAYS / WEEK: ${edit.trainingDays}`, (
+          <input type="range" min="2" max="6" value={edit.trainingDays} onChange={(e) => setEdit((f) => ({ ...f, trainingDays: +e.target.value }))} style={{ width: "100%" }} />
+        ))}
+        <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 10 }}>
+          Coaching style is set from the Coach tab — it's tied to how the AI talks about your plan, not your saved profile.
+        </div>
+        <button className="atlas-btn" style={{ width: "100%" }} onClick={saveIdentity} disabled={!edit.name.trim()}>Save Changes</button>
+      </div>
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div className="disp" style={{ fontSize: 15 }}>Nutrition Targets</div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} className="mono">
+            <input type="checkbox" checked={overrideOn} onChange={(e) => { setOverrideOn(e.target.checked); if (e.target.checked) setOverrideForm(profile.macroOverride || currentTargets); }} />
+            <span style={{ fontSize: 11, color: "var(--ink-dim)" }}>Set manually</span>
+          </label>
+        </div>
+        {!overrideOn ? (
+          <div className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+            Calculated from your stats: {currentTargets.calories} kcal · {currentTargets.protein}g protein · {currentTargets.carbs}g carbs · {currentTargets.fat}g fat
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            {["calories", "protein", "carbs", "fat"].map((k) => (
+              <div key={k} style={{ flex: "1 1 45%" }}>
+                {row(k.toUpperCase(), <input type="number" className="atlas-input" value={overrideForm[k]} onChange={(e) => setOverrideForm((f) => ({ ...f, [k]: e.target.value === "" ? "" : +e.target.value }))} />)}
+              </div>
+            ))}
+          </div>
+        )}
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginTop: 4 }} onClick={saveOverride}>Save Targets</button>
+      </div>
+
+      {savedFlash && <div className="mono" style={{ fontSize: 12, color: "var(--brass)", textAlign: "center", marginBottom: 16 }}>Saved.</div>}
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Account</div>
+        {row("EMAIL", <div className="mono" style={{ fontSize: 13 }}>{authUser?.email || "—"}</div>)}
+
+        {row("SUBSCRIPTION", isPremium ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span className="mono" style={{ fontSize: 12, color: "var(--brass)" }}><Sparkles size={12} style={{ verticalAlign: -2, marginRight: 4 }} />Premium Active</span>
+            <button onClick={onManageBilling} disabled={billingLoading === "portal"} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>
+              {billingLoading === "portal" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : "Manage Billing"}
+            </button>
+          </div>
+        ) : (
+          <button onClick={onUpgrade} disabled={billingLoading === "checkout"} className="atlas-btn" style={{ width: "100%" }}>
+            {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
+            Upgrade to Premium — $9.99/mo
+          </button>
+        ))}
+        {billingError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 4 }}>{billingError}</div>}
+
+        <div className="disp" style={{ fontSize: 13, color: "var(--ink-dim)", margin: "14px 0 8px" }}>Change Password</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <input className="atlas-input" type="password" placeholder="New password" value={pw.next} onChange={(e) => setPw((f) => ({ ...f, next: e.target.value }))} />
+          <input className="atlas-input" type="password" placeholder="Confirm new password" value={pw.confirm} onChange={(e) => setPw((f) => ({ ...f, confirm: e.target.value }))} />
+          {pwStatus?.error && <div className="mono" style={{ fontSize: 11, color: "var(--rest)" }}>{pwStatus.error}</div>}
+          {pwStatus === "success" && <div className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>Password updated.</div>}
+          <button className="atlas-btn-ghost" onClick={changePassword} disabled={pwStatus === "saving" || !pw.next}>
+            {pwStatus === "saving" ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
+            Update Password
+          </button>
+        </div>
+
+        <div className="disp" style={{ fontSize: 13, color: "var(--ink-dim)", margin: "14px 0 8px" }}>Your Data</div>
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginBottom: 8 }} onClick={exportData}>
+          <Copy size={13} style={{ verticalAlign: -2, marginRight: 6 }} /> Export My Data (JSON)
+        </button>
+        <button className="atlas-btn-ghost" style={{ width: "100%" }} onClick={onLogOut}>Log Out</button>
+      </div>
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <div className="disp" style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 10 }}>Legal</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {Object.entries(LEGAL_COPY).map(([k, v]) => (
+            <button key={k} onClick={() => setLegalOpen(k)} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: "transparent", color: "var(--ink-dim)" }}>{v.title}</button>
+          ))}
+        </div>
+        {legalOpen && (
+          <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
+            <div className="disp" style={{ fontSize: 12, marginBottom: 6 }}>{LEGAL_COPY[legalOpen].title}</div>
+            <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6 }}>{LEGAL_COPY[legalOpen].body}</div>
+          </div>
+        )}
+      </div>
+
+      <div className="atlas-card" style={{ borderColor: "var(--rest)" }}>
+        <div className="disp" style={{ fontSize: 13, color: "var(--rest)", marginBottom: 8 }}>Danger Zone</div>
+        {!showDelete ? (
+          <button onClick={() => setShowDelete(true)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--rest)", fontSize: 12, padding: 0 }}>
+            Delete Account
+          </button>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 10 }}>
+              This permanently deletes your account and all workouts, nutrition logs, and weight history. This can't be undone. Type DELETE to confirm.
+            </div>
+            <input className="atlas-input" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="DELETE" style={{ marginBottom: 10 }} />
+            {deleteAccountError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 8 }}>{deleteAccountError}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => { setShowDelete(false); setDeleteConfirmText(""); }} disabled={deleteAccountLoading}>Cancel</button>
+              <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} disabled={deleteConfirmText !== "DELETE" || deleteAccountLoading} onClick={onDeleteAccount}>
+                {deleteAccountLoading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Permanently Delete"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1212,7 +1528,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
 /* Train                                                                */
 /* ------------------------------------------------------------------ */
 
-function Train({ profile, workouts, session, setSession, onFinish, customExercises, onAddCustomExercise }) {
+function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise }) {
   const [picker, setPicker] = useState(false);
   const [search, setSearch] = useState("");
   const [muscleFilter, setMuscleFilter] = useState("all");
@@ -1231,7 +1547,16 @@ function Train({ profile, workouts, session, setSession, onFinish, customExercis
   const [customEquip, setCustomEquip] = useState(EQUIPMENT_TYPES[0]);
   const [customError, setCustomError] = useState(null);
   const [typeIn, setTypeIn] = useState({});
+  const [reviewing, setReviewing] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const restAlertedRef = useRef(false);
+
+  // A brand-new session (or returning to none) should never inherit the previous session's
+  // review/discard-confirmation UI state.
+  useEffect(() => {
+    setReviewing(false);
+    setConfirmDiscard(false);
+  }, [session?.id]);
 
   useEffect(() => {
     if (!prToast) return;
@@ -1268,7 +1593,7 @@ function Train({ profile, workouts, session, setSession, onFinish, customExercis
       <div style={{ padding: "24px 18px" }}>
         <div className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Train</div>
         <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18 }}>Log today's session and let the coach handle progression.</div>
-        <button className="atlas-btn" style={{ width: "100%", padding: 16, fontSize: 15 }} onClick={() => setSession({ id: uid(), date: todayStr(), startedAt: Date.now(), restEndAt: null, exercises: [] })}>
+        <button className="atlas-btn" style={{ width: "100%", padding: 16, fontSize: 15 }} onClick={() => onStartWorkout()}>
           <Plus size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Start Workout
         </button>
 
@@ -1376,6 +1701,9 @@ function Train({ profile, workouts, session, setSession, onFinish, customExercis
     return weight > prevMax;
   };
 
+  const totalSets = session.exercises.reduce((s, e) => s + e.sets.length, 0);
+  const totalVolume = session.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + st.weight * st.reps, 0), 0);
+
   return (
     <div style={{ padding: "24px 18px" }}>
       {prToast && (
@@ -1395,11 +1723,24 @@ function Train({ profile, workouts, session, setSession, onFinish, customExercis
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
-          <div className="disp" style={{ fontSize: 24 }}>Today's Session</div>
+          <div className="disp" style={{ fontSize: 24 }}>{session.planDayName || "Today's Session"}</div>
           <div className="mono" style={{ fontSize: 13, color: "var(--steel)" }}>⏱ {fmtClock((now - session.startedAt) / 1000)} elapsed</div>
         </div>
-        <button className="atlas-btn-ghost" onClick={() => setSession(null)} style={{ padding: "6px 10px" }}>Cancel</button>
+        <button className="atlas-btn-ghost" onClick={() => setConfirmDiscard(true)} style={{ padding: "6px 10px" }}>Cancel</button>
       </div>
+
+      {confirmDiscard && !reviewing && (
+        <div className="atlas-card" style={{ marginBottom: 14, borderColor: "var(--rest)", background: "rgba(255,107,129,0.08)" }}>
+          <div className="disp" style={{ fontSize: 14, color: "var(--rest)", marginBottom: 6 }}>Discard this workout?</div>
+          <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 12 }}>
+            {session.exercises.length === 0 ? "Nothing's been logged yet." : `You've logged ${session.exercises.reduce((s, e) => s + e.sets.length, 0)} set(s). This can't be undone.`}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDiscard(false)}>Keep Going</button>
+            <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} onClick={onDiscard}>Discard Workout</button>
+          </div>
+        </div>
+      )}
 
       {session.restEndAt && now < session.restEndAt && (
         <div className="atlas-card" style={{ marginBottom: 14, borderColor: "var(--steel)", background: "rgba(47,217,184,0.08)" }}>
@@ -1461,7 +1802,12 @@ function Train({ profile, workouts, session, setSession, onFinish, customExercis
             )}
             <div style={{ display: "flex", gap: 6, alignItems: "flex-start", marginTop: 8, marginBottom: 10 }}>
               <TrendingUp size={13} color="var(--brass)" style={{ marginTop: 2, flexShrink: 0 }} />
-              <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>{suggestion.text}</div>
+              <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+                {suggestion.text}
+                {ex.targetSets && ex.targetReps && (
+                  <span style={{ color: "var(--warn)" }}> · Plan target: {ex.targetSets} × {ex.targetReps}{ex.sets.length > 0 ? ` (${ex.sets.length}/${ex.targetSets} done)` : ""}</span>
+                )}
+              </div>
             </div>
 
             {ex.sets.map((s, i) => (
@@ -1600,9 +1946,62 @@ function Train({ profile, workouts, session, setSession, onFinish, customExercis
       )}
 
       {session.exercises.length > 0 && (
-        <button className="atlas-btn" style={{ width: "100%", marginTop: 18, padding: 14 }} onClick={() => onFinish(session)}>
+        <button className="atlas-btn" style={{ width: "100%", marginTop: 18, padding: 14 }} onClick={() => setReviewing(true)}>
           Finish Workout
         </button>
+      )}
+
+      {reviewing && (
+        <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 50, overflowY: "auto", padding: "24px 18px" }}>
+          <div className="disp" style={{ fontSize: 22, marginBottom: 4 }}>Workout Summary</div>
+          <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 18 }}>
+            ⏱ {fmtClock((now - session.startedAt) / 1000)} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} · {totalSets} set{totalSets === 1 ? "" : "s"} · {Math.round(totalVolume)}kg volume
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+            {session.exercises.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-dim)" }}>No exercises logged.</div>}
+            {session.exercises.map((ex) => (
+              <div key={ex.name} className="atlas-card">
+                <div className="disp" style={{ fontSize: 14, marginBottom: 6 }}>{ex.name}</div>
+                {ex.sets.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>No sets logged.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {ex.sets.map((s, i) => (
+                      <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+                        {s.weight}kg × {s.reps}{s.type && s.type !== "normal" ? ` (${SET_TYPE_LABELS[s.type]})` : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {finishError && <div className="mono" style={{ color: "var(--rest)", fontSize: 12, marginBottom: 12 }}>{finishError}</div>}
+
+          {confirmDiscard ? (
+            <div className="atlas-card" style={{ marginBottom: 12, borderColor: "var(--rest)", background: "rgba(255,107,129,0.08)" }}>
+              <div className="disp" style={{ fontSize: 14, color: "var(--rest)", marginBottom: 6 }}>Discard this workout?</div>
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 12 }}>This can't be undone.</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDiscard(false)}>Keep Going</button>
+                <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} onClick={onDiscard}>Discard Workout</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button className="atlas-btn" style={{ width: "100%", padding: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} disabled={finishingWorkout} onClick={() => onFinish(session)}>
+                {finishingWorkout && <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />}
+                {finishingWorkout ? "Saving…" : "Save Workout"}
+              </button>
+              <button className="atlas-btn-ghost" style={{ width: "100%" }} disabled={finishingWorkout} onClick={() => setReviewing(false)}>Continue Editing</button>
+              <button onClick={() => setConfirmDiscard(true)} disabled={finishingWorkout} className="mono" style={{ background: "none", border: "none", cursor: finishingWorkout ? "default" : "pointer", color: "var(--ink-dim)", fontSize: 12, padding: 6, textAlign: "center" }}>
+                Discard Workout
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1699,9 +2098,21 @@ function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage
 
   const [planError, setPlanError] = useState(null);
   const [exDetail, setExDetail] = useState(null);
+  const [planActivated, setPlanActivated] = useState(!!profile.activePlan);
+  const GEN_PHASES = ["Analysing your goal…", "Selecting your split…", "Balancing weekly volume…", "Choosing exercises…", "Finalising your plan…"];
+  const [genPhase, setGenPhase] = useState(0);
+
+  useEffect(() => {
+    if (!genLoading) { setGenPhase(0); return; }
+    const t = setInterval(() => setGenPhase((p) => Math.min(p + 1, GEN_PHASES.length - 1)), 3000);
+    return () => clearInterval(t);
+  }, [genLoading]);
+
   const generatePlan = async () => {
+    if (genLoading) return; // prevent duplicate simultaneous requests
     setGenLoading(true);
     setPlanError(null);
+    setPlanActivated(false);
     try {
       const prompt = `Build a ${profile.trainingDays}-day weekly workout split for this athlete:
 Goal: ${GOAL_LABELS[profile.goal]}
@@ -1720,6 +2131,12 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     }
     onUsageChange?.();
     setGenLoading(false);
+  };
+
+  const activatePlan = () => {
+    if (!plan?.days?.length) return;
+    onUpdateProfile({ activePlan: { days: plan.days, currentDayIndex: 0, activatedAt: new Date().toISOString() } });
+    setPlanActivated(true);
   };
 
   const sendMessage = async (overrideText) => {
@@ -1814,7 +2231,8 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
             {genLoading ? "Building..." : plan ? "Regenerate" : "Generate"}
           </button>
         </div>
-        {plan && (
+        {genLoading && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8 }}>{GEN_PHASES[genPhase]}</div>}
+        {plan && !genLoading && (
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 12 }}>
             {plan.days.map((d, i) => (
               <div key={i} style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
@@ -1823,10 +2241,20 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
               </div>
             ))}
             <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", fontStyle: "italic" }}>Tap any exercise for form cues.</div>
+            {planActivated ? (
+              <div className="pill mono" style={{ background: "var(--brass-soft)", color: "var(--brass)", alignSelf: "flex-start" }}>✓ Active plan — see it on Home</div>
+            ) : (
+              <button className="atlas-btn" style={{ width: "100%", marginTop: 4 }} onClick={activatePlan}>Activate Plan</button>
+            )}
           </div>
         )}
-        {planError && <div style={{ fontSize: 12, color: "var(--rest)", marginTop: 8 }}>⚠️ {planError}</div>}
-        {!plan && !planError && <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 8 }}>Generate a personalised split based on your goal and schedule.</div>}
+        {planError && !genLoading && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 12, color: "var(--rest)" }}>⚠️ {planError}</div>
+            <button onClick={generatePlan} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: 0, marginTop: 4 }}>Retry</button>
+          </div>
+        )}
+        {!plan && !planError && !genLoading && <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 8 }}>Generate a personalised split based on your goal and schedule.</div>}
       </div>
 
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 2 }}>
@@ -2225,6 +2653,9 @@ Respond with ONLY this JSON, nothing else:
         {mealError && <div style={{ fontSize: 11, color: "var(--rest)", marginTop: 8 }}>{mealError}</div>}
         {mealResults && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+            <div className="mono" style={{ fontSize: 9.5, color: "var(--ink-dim)", lineHeight: 1.5, background: "var(--bg-elev2)", borderRadius: 8, padding: "6px 8px" }}>
+              AI-estimated from web search, not a live/verified feed — prices, hours and menu items can be out of date. Double-check before you go.
+            </div>
             {mealResults.map((p, i) => (
               <div key={i} style={{ borderTop: p.isBestValue ? "1px solid var(--good)" : "1px solid var(--line)", paddingTop: 10, background: p.isBestValue ? "rgba(126,217,87,0.06)" : "transparent", borderRadius: p.isBestValue ? 8 : 0, padding: p.isBestValue ? "10px 8px 8px" : "10px 0 0" }}>
                 {p.isBestValue && (
@@ -2233,7 +2664,7 @@ Respond with ONLY this JSON, nothing else:
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    {p.price != null && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--good)" }}>{p.currency || "$"}{Number(p.price).toFixed(2)}</span>}
+                    {p.price != null && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--good)" }}>~{p.currency || "$"}{Number(p.price).toFixed(2)}</span>}
                     {p.distanceKm != null && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--brass)" }}>{p.distanceKm < 1 ? `${Math.round(p.distanceKm * 1000)}m` : `${p.distanceKm.toFixed(1)}km`}</span>}
                   </div>
                 </div>
@@ -2321,6 +2752,8 @@ export default function App() {
   const [customExercises, setCustomExercises] = useState([]);
   const [tab, setTab] = useState("dashboard");
   const [session, setSession] = useState(null);
+  const [finishingWorkout, setFinishingWorkout] = useState(false);
+  const [finishError, setFinishError] = useState(null);
   // undefined = not checked yet, null = no row (never subscribed), object = { status, current_period_end }.
   // Never set directly from checkout success — only the Stripe webhook (server-side) is trusted
   // to write this, so a user can't just flip themselves to "active" from the browser.
@@ -2333,6 +2766,9 @@ export default function App() {
   // customer on file yet).
   const [billingError, setBillingError] = useState(null);
   const [billingLoading, setBillingLoading] = useState(null); // null | "checkout" | "portal"
+  const [showProfile, setShowProfile] = useState(false);
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthUser(session?.user ?? null));
@@ -2462,13 +2898,58 @@ export default function App() {
     await saveKey(KEYS.weightlog, wl);
   };
 
+  // Idempotent by construction: once `session` is cleared, a second call (e.g. a double-click
+  // on Finish before the first click's state update commits) is a no-op instead of a duplicate
+  // history entry. If the save itself fails, the active session is left untouched — nothing is
+  // lost, and the caller gets a retryable error instead of a silently-dropped workout.
   const finishWorkout = async (s) => {
-    const next = [...workouts, s];
+    if (finishingWorkout || !session) return null;
+    setFinishingWorkout(true);
+    setFinishError(null);
+    const completed = { ...s, completedAt: new Date().toISOString() };
+    const next = [...workouts, completed];
+    const savedWorkout = await saveKey(KEYS.workouts, next);
+    if (!savedWorkout) {
+      setFinishError("Couldn't save your workout — check your connection and try again. Nothing was lost.");
+      setFinishingWorkout(false);
+      return null;
+    }
     setWorkouts(next);
-    await saveKey(KEYS.workouts, next);
+    if (profile?.activePlan && s.plannedDayIndex != null && s.plannedDayIndex === profile.activePlan.currentDayIndex) {
+      const nextIndex = (profile.activePlan.currentDayIndex + 1) % profile.activePlan.days.length;
+      const updatedProfile = { ...profile, activePlan: { ...profile.activePlan, currentDayIndex: nextIndex } };
+      if (await saveKey(KEYS.profile, updatedProfile)) setProfile(updatedProfile);
+    }
+    setSession(null);
+    await saveKey(KEYS.session, null);
+    setFinishingWorkout(false);
+    setTab("dashboard");
+    return completed;
+  };
+
+  const discardWorkout = async () => {
     setSession(null);
     await saveKey(KEYS.session, null);
     setTab("dashboard");
+  };
+
+  // Centralizes both "start today's scheduled workout" (Home/Train, when an active plan exists)
+  // and "start an empty workout" (freeform) so both paths share one idempotency guard — starting
+  // never clobbers an already-active session.
+  const startWorkout = (plannedDayIndex) => {
+    if (session) { setTab("train"); return; }
+    const plan = profile?.activePlan;
+    const day = plannedDayIndex != null && plan?.days ? plan.days[plannedDayIndex] : null;
+    const exercises = day
+      ? day.muscleGroups.flatMap((mg) => mg.exercises.map((e) => ({
+          name: e.name, sets: [], supersetWith: null, targetSets: e.sets, targetReps: e.reps,
+        })))
+      : [];
+    setSession({
+      id: uid(), date: todayStr(), startedAt: Date.now(), restEndAt: null, exercises,
+      planDayName: day?.day || null, plannedDayIndex: plannedDayIndex ?? null,
+    });
+    setTab("train");
   };
 
   const addFood = async (f) => {
@@ -2498,6 +2979,37 @@ export default function App() {
     const next = { ...profile, ...patch };
     setProfile(next);
     await saveKey(KEYS.profile, next);
+  };
+
+  const deleteAccount = async () => {
+    setDeleteAccountLoading(true);
+    setDeleteAccountError(null);
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const res = await fetch("/api/delete-account", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authSession.access_token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteAccountError(data.error || "Couldn't delete your account — try again.");
+        setDeleteAccountLoading(false);
+        return;
+      }
+      await supabase.auth.signOut();
+      setShowProfile(false);
+      setProfile(null);
+      setWorkouts([]);
+      setNutrition([]);
+      setWeightlog([]);
+      setCustomExercises([]);
+      setSession(null);
+      setSubscription(undefined);
+      setTab("dashboard");
+    } catch (e) {
+      setDeleteAccountError("Couldn't reach the server — check your connection and try again.");
+    }
+    setDeleteAccountLoading(false);
   };
 
   if (authUser === undefined || (authUser && !loaded)) {
@@ -2538,24 +3050,36 @@ export default function App() {
   return (
     <div className="atlas-root">
       <GlobalStyle />
-      {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} />}
-      {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
-      {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
-      {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onDelete={deleteFood} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
-      {tab === "progress" && (
-        <Suspense fallback={<div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}><Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} /></div>}>
-          <Progress profile={profile} workouts={workouts} weightlog={weightlog} />
-        </Suspense>
-      )}
+      {showProfile ? (
+        <Profile
+          profile={profile} authUser={authUser} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises}
+          isPremium={isPremium} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={startCheckout}
+          billingLoading={billingLoading} billingError={billingError} onLogOut={logOut}
+          onDeleteAccount={deleteAccount} deleteAccountLoading={deleteAccountLoading} deleteAccountError={deleteAccountError}
+          onClose={() => setShowProfile(false)}
+        />
+      ) : (
+        <>
+          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
+          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
+          {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
+          {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onDelete={deleteFood} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
+          {tab === "progress" && (
+            <Suspense fallback={<div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}><Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} /></div>}>
+              <Progress profile={profile} workouts={workouts} weightlog={weightlog} />
+            </Suspense>
+          )}
 
-      <nav className="atlas-nav">
-        {navItems.map((n) => (
-          <button key={n.id} className={`atlas-nav-item ${tab === n.id ? "active" : ""}`} onClick={() => setTab(n.id)}>
-            <n.icon size={19} />
-            {n.label}
-          </button>
-        ))}
-      </nav>
+          <nav className="atlas-nav">
+            {navItems.map((n) => (
+              <button key={n.id} className={`atlas-nav-item ${tab === n.id ? "active" : ""}`} onClick={() => setTab(n.id)}>
+                <n.icon size={19} />
+                {n.label}
+              </button>
+            ))}
+          </nav>
+        </>
+      )}
     </div>
   );
 }
