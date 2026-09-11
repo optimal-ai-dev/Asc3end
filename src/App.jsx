@@ -14,6 +14,7 @@ import { suggestNextTarget, evaluatePR, computeGamification } from "./lib/workou
 import { computeTargets } from "./lib/nutritionMath";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION } from "./lib/legal";
 import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./lib/subscription";
+import { FEATURES, FREE_TRIAL_LIMIT, remainingTrialUses } from "./lib/entitlements";
 import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
 
@@ -24,10 +25,6 @@ const Progress = lazy(() => import("./Progress"));
 /* ------------------------------------------------------------------ */
 /* Constants & helpers                                                 */
 /* ------------------------------------------------------------------ */
-
-// Must match FREE_TRIAL_LIMIT in api/claude.js — this copy is only for display (e.g. "3 free
-// conversations left"); the actual limit is enforced server-side, not by this constant.
-const FREE_TRIAL_LIMIT = 5;
 
 const KEYS = {
   profile: "atlas:profile",
@@ -2148,7 +2145,7 @@ function Paywall({ feature, onUpgrade }) {
 }
 
 function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage, onUsageChange }) {
-  const coachRemaining = Math.max(0, FREE_TRIAL_LIMIT - (usage?.coach || 0));
+  const coachRemaining = remainingTrialUses(FEATURES.COACH, usage || {});
   // Bug: this used to read `profile.plan`, a field nothing ever wrote — the real field is
   // `profile.activePlan` (set by activatePlan below), so a fresh mount of Coach always started
   // with no plan showing here even when Home was actively running one. Reconstruct the same
@@ -2817,7 +2814,7 @@ function FoodScanner({ onAdd, onClose }) {
 }
 
 function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, isPremium, onUpgrade, usage, onUsageChange }) {
-  const mealsRemaining = Math.max(0, FREE_TRIAL_LIMIT - (usage?.meals || 0));
+  const mealsRemaining = remainingTrialUses(FEATURES.MEALS, usage || {});
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);

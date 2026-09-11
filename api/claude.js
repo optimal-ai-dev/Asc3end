@@ -17,16 +17,14 @@
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { computeSubscriptionState, isEntitled } from "../src/lib/subscription.js";
+import { canAccessFeature, FEATURES, FREE_TRIAL_LIMIT } from "../src/lib/entitlements.js";
 
 // Vercel's Hobby plan defaults serverless functions to a 10-second execution limit — nowhere
 // near enough for web-search-augmented Claude calls (Meals Near You), which can legitimately
 // take 10-20+ seconds. Without this, Vercel kills the function mid-request regardless of the
 // frontend's own timeout, and the client sees a generic failure that looks like "the app is slow".
 export const config = { maxDuration: 60 };
-
-const PREMIUM_ONLY_FEATURES = new Set(["scanner"]);
-const TRIAL_FEATURES = new Set(["coach", "meals"]);
-export const FREE_TRIAL_LIMIT = 5;
 
 // This endpoint is reachable directly by anyone with a valid bearer token (not only through the
 // app's own frontend — a modified client or a stolen token can call it with an arbitrary body),
@@ -51,9 +49,25 @@ function validateAnthropicBody(body) {
   return null;
 }
 
-async function isPremiumUser(userId) {
-  const { data: sub } = await supabaseAdmin.from("subscriptions").select("status").eq("user_id", userId).maybeSingle();
-  return !!(sub && (sub.status === "active" || sub.status === "trialing"));
+// Selects the newer cancel_at_period_end/plan columns with a fallback to the original 3-column
+// shape if they don't exist yet on this database (matches the same defensive read App.jsx's
+// refreshSubscription does) — without this, a database that hasn't had the Phase 4/5 migration
+// applied yet would make the wider select error out, `sub` come back null, and every demo/paid
+// user would suddenly read as "free" and lose Coach/Meals access entirely.
+async function getSubscriptionState(userId) {
+  let { data: sub, error } = await supabaseAdmin
+    .from("subscriptions")
+    .select("status, stripe_customer_id, current_period_end, cancel_at_period_end, plan")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) {
+    ({ data: sub } = await supabaseAdmin
+      .from("subscriptions")
+      .select("status, stripe_customer_id, current_period_end")
+      .eq("user_id", userId)
+      .maybeSingle());
+  }
+  return computeSubscriptionState(sub || null);
 }
 
 export default async function handler(req, res) {
@@ -94,37 +108,32 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: { message: validationError } });
   }
 
-  let premiumChecked = false;
-  let premium = false;
-
-  if (PREMIUM_ONLY_FEATURES.has(feature)) {
-    premium = await isPremiumUser(user.id);
-    premiumChecked = true;
-    if (!premium) {
-      return res.status(402).json({ error: { message: "This feature requires Asc3end Premium.", code: "premium_required" } });
-    }
-  }
-
+  const isTrialFeature = feature === FEATURES.COACH || feature === FEATURES.MEALS;
   let usageCountBeforeThisCall = null; // set only when this call should increment usage after success
-  if (TRIAL_FEATURES.has(feature)) {
-    if (!premiumChecked) premium = await isPremiumUser(user.id);
-    if (!premium) {
+
+  if (feature === FEATURES.SCANNER || isTrialFeature) {
+    const subscriptionState = await getSubscriptionState(user.id);
+    let currentUsage = 0;
+    if (isTrialFeature && !isEntitled(subscriptionState)) {
       const { data: usage } = await supabaseAdmin
         .from("feature_usage")
         .select("count")
         .eq("user_id", user.id)
         .eq("feature", feature)
         .maybeSingle();
-      const current = usage?.count || 0;
-      if (current >= FREE_TRIAL_LIMIT) {
-        return res.status(402).json({
-          error: {
-            message: `You've used all ${FREE_TRIAL_LIMIT} free ${feature === "coach" ? "coach conversations" : "meal searches"} — upgrade to keep going.`,
-            code: "premium_required",
-          },
-        });
-      }
-      usageCountBeforeThisCall = current;
+      currentUsage = usage?.count || 0;
+    }
+    if (!canAccessFeature(subscriptionState, feature, { [feature]: currentUsage })) {
+      const message = feature === FEATURES.SCANNER
+        ? "This feature requires Asc3end Premium."
+        : `You've used all ${FREE_TRIAL_LIMIT} free ${feature === "coach" ? "coach conversations" : "meal searches"} — upgrade to keep going.`;
+      return res.status(402).json({ error: { message, code: "premium_required" } });
+    }
+    // Only a non-entitled caller of a trial feature spends one of their free uses — an entitled
+    // (demo/paid) caller's feature_usage row is never read or incremented, matching the pre-Phase-6
+    // behavior of only tracking usage for people the trial actually applies to.
+    if (isTrialFeature && !isEntitled(subscriptionState)) {
+      usageCountBeforeThisCall = currentUsage;
     }
   }
 
