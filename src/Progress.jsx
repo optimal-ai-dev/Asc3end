@@ -85,12 +85,18 @@ function transformationSummary(weightlog, workouts) {
   const weightChange = +(last.weight - first.weight).toFixed(1);
   if (days < 3) return { kind: "tooSoon", days, weightChange };
   const weeks = Math.max(1, Math.round(days / 7));
+  // Only sessions with at least one set carrying a real weight count — an exercise added to a
+  // session but never actually logged (sets: []) must not feed Math.max(...[]), which would
+  // silently produce -Infinity.
+  const validWeights = (e) => e.sets.map((s) => s.weight).filter((w) => Number.isFinite(w) && w > 0);
   const lifts = ["bench", "squat", "deadlift"].map((k) => {
     const name = STRENGTH_STANDARDS[k].exercise;
-    const history = workouts.filter((w) => w.exercises.some((e) => e.name === name)).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const history = workouts
+      .filter((w) => w.exercises.some((e) => e.name === name && validWeights(e).length > 0))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
     if (history.length < 2) return null;
-    const earliest = Math.max(...history[0].exercises.find((e) => e.name === name).sets.map((s) => s.weight));
-    const latest = Math.max(...history[history.length - 1].exercises.find((e) => e.name === name).sets.map((s) => s.weight));
+    const earliest = Math.max(...validWeights(history[0].exercises.find((e) => e.name === name)));
+    const latest = Math.max(...validWeights(history[history.length - 1].exercises.find((e) => e.name === name)));
     return { name: name.split(" (")[0], change: +(latest - earliest).toFixed(1) };
   }).filter(Boolean);
   return { kind: "trend", weightChange, weeks, lifts };
@@ -108,14 +114,18 @@ export default function Progress({ profile, workouts, weightlog }) {
   [...weightlog].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((w) => weightByDate.set(w.date, w.weight));
   const weightData = [...weightByDate.entries()].map(([date, weight]) => ({ date: fmtDate(date), weight })).slice(-20);
 
+  // A session's exercise entry can carry an empty sets array (added to the workout but never
+  // logged) — excluded here so it can't feed Math.max(...[]) and chart a -Infinity point.
+  const hasLoggedSets = (e) => e.sets.some((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
   const sessionsForSelected = workouts
-    .filter((w) => w.exercises.some((e) => e.name === selected))
+    .filter((w) => w.exercises.some((e) => e.name === selected && hasLoggedSets(e)))
     .sort((a, b) => new Date(a.date) - new Date(b.date));
   const strengthData = sessionsForSelected.map((w) => {
-    const ex = w.exercises.find((e) => e.name === selected);
-    const top = Math.max(...ex.sets.map((s) => s.weight));
-    const best1RM = Math.max(...ex.sets.map((s) => estimate1RM(s.weight, s.reps)));
-    const volume = ex.sets.reduce((s, st) => s + st.weight * st.reps, 0);
+    const ex = w.exercises.find((e) => e.name === selected && hasLoggedSets(e));
+    const validSets = ex.sets.filter((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
+    const top = Math.max(...validSets.map((s) => s.weight));
+    const best1RM = Math.max(...validSets.map((s) => estimate1RM(s.weight, s.reps)));
+    const volume = validSets.reduce((s, st) => s + st.weight * st.reps, 0);
     return { date: fmtDate(w.date), weight: Math.round(top), "1rm": Math.round(best1RM), volume: Math.round(volume) };
   });
   const METRIC_META = {
@@ -181,11 +191,12 @@ export default function Progress({ profile, workouts, weightlog }) {
                   <span className="mono" style={{ color: "var(--brass)" }}>{r.tier}</span>
                 </div>
                 <div className="bar-track"><div className="bar-fill" style={{ width: `${r.percentile}%`, background: "var(--steel)" }} /></div>
-                <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 2 }}>Stronger than ~{r.percentile}% of lifters at your bodyweight</div>
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10, fontStyle: "italic" }}>Rough estimate based on bodyweight ratios, not a certified standard.</div>
+          <div style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10, fontStyle: "italic" }}>
+            Tier is Asc3end's own illustrative bodyweight-ratio scale (Beginner → Elite) — not a certified strength standard or a claim about the population of real lifters.
+          </div>
         </div>
       )}
 

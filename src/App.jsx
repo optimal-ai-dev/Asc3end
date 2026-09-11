@@ -45,6 +45,14 @@ async function loadKey(key) {
 // a workout) can react to failure — most callers still just fire-and-forget this and that's fine.
 async function saveKey(key, value) {
   try {
+    // user_data.value is `jsonb not null` — storage.set upserting a JS null (e.g. "clear the
+    // active session") always fails the column's NOT NULL constraint and silently no-ops via
+    // storage.set's own catch, leaving the stale row in place. Delete the row instead whenever
+    // the caller means "clear this key".
+    if (value === null || value === undefined) {
+      const result = await storage.delete(key);
+      return result !== null;
+    }
     const result = await storage.set(key, JSON.stringify(value));
     return result !== null;
   } catch (e) {
@@ -487,14 +495,18 @@ function lookupExercise(name) {
 
 function suggestNextTarget(workouts, exerciseName, goal) {
   const [lo, hi] = REP_RANGES[goal] || REP_RANGES.general;
+  // Only exercise entries with at least one set carrying a real weight/reps count as history —
+  // an exercise added to a session but never actually logged (sets: []) must not be treated as
+  // a real data point, or Math.max(...[]) below silently produces -Infinity.
+  const hasValidSets = (e) => e.sets.some((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
   const history = workouts
-    .filter((w) => w.exercises.some((e) => e.name === exerciseName))
+    .filter((w) => w.exercises.some((e) => e.name === exerciseName && hasValidSets(e)))
     .sort((a, b) => new Date(b.date) - new Date(a.date));
   if (history.length === 0) {
     return { text: `No history yet. Pick a weight you can control for ${lo}-${hi} reps and log it.`, weight: null };
   }
-  const last = history[0].exercises.find((e) => e.name === exerciseName);
-  const sets = last.sets;
+  const last = history[0].exercises.find((e) => e.name === exerciseName && hasValidSets(e));
+  const sets = last.sets.filter((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
   const topWeight = Math.max(...sets.map((s) => s.weight));
   const allHitTop = sets.every((s) => s.weight === topWeight && s.reps >= hi);
   if (allHitTop) {
@@ -1056,7 +1068,7 @@ function evaluatePR(historySets, weight, reps) {
   return { isPR: false };
 }
 
-function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile }) {
+function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
   const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
   const [selectedMuscle, setSelectedMuscle] = useState(null);
@@ -1235,13 +1247,16 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Sparkles size={16} color="var(--brass)" />
-              <span className="disp" style={{ fontSize: 13 }}>Premium Active</span>
+              <span className="disp" style={{ fontSize: 13 }}>{isDemoEntitlement ? "Asc3end+ Demo Access" : "Premium Active"}</span>
             </div>
-            <button onClick={onManageBilling} disabled={billingLoading === "portal"} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>
-              {billingLoading === "portal" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : "Manage"}
-            </button>
+            {!isDemoEntitlement && (
+              <button onClick={onManageBilling} disabled={billingLoading === "portal"} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>
+                {billingLoading === "portal" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : "Manage"}
+              </button>
+            )}
           </div>
-          {billingError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginTop: 8 }}>{billingError}</div>}
+          {isDemoEntitlement && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8 }}>Billing management is unavailable for demo accounts.</div>}
+          {!isDemoEntitlement && billingError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginTop: 8 }}>{billingError}</div>}
         </div>
       ) : (
         <div className="atlas-card" style={{ border: "1px solid var(--brass)", background: "var(--brass-soft)", padding: 0 }}>
@@ -1321,7 +1336,7 @@ const LEGAL_COPY = {
   },
 };
 
-function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose }) {
+function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, isDemoEntitlement, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose }) {
   const [edit, setEdit] = useState({
     name: profile.name || "", age: profile.age, gender: profile.gender,
     heightCm: profile.heightCm, weightKg: profile.weightKg,
@@ -1479,11 +1494,16 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
         {row("EMAIL", <div className="mono" style={{ fontSize: 13 }}>{authUser?.email || "—"}</div>)}
 
         {row("SUBSCRIPTION", isPremium ? (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span className="mono" style={{ fontSize: 12, color: "var(--brass)" }}><Sparkles size={12} style={{ verticalAlign: -2, marginRight: 4 }} />Premium Active</span>
-            <button onClick={onManageBilling} disabled={billingLoading === "portal"} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>
-              {billingLoading === "portal" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : "Manage Billing"}
-            </button>
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span className="mono" style={{ fontSize: 12, color: "var(--brass)" }}><Sparkles size={12} style={{ verticalAlign: -2, marginRight: 4 }} />{isDemoEntitlement ? "Asc3end+ Demo Access" : "Premium Active"}</span>
+              {!isDemoEntitlement && (
+                <button onClick={onManageBilling} disabled={billingLoading === "portal"} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>
+                  {billingLoading === "portal" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : "Manage Billing"}
+                </button>
+              )}
+            </div>
+            {isDemoEntitlement && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 6 }}>Billing management is unavailable for demo accounts.</div>}
           </div>
         ) : (
           <>
@@ -1584,6 +1604,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const [typeIn, setTypeIn] = useState({});
   const [reviewing, setReviewing] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [sessionPRs, setSessionPRs] = useState([]);
   const restAlertedRef = useRef(false);
 
   // A brand-new session (or returning to none) should never inherit the previous session's
@@ -1591,6 +1612,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   useEffect(() => {
     setReviewing(false);
     setConfirmDiscard(false);
+    setSessionPRs([]);
   }, [session?.id]);
 
   useEffect(() => {
@@ -1709,6 +1731,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
     if (pr.isPR) {
       setPrToast({ exName, weight: w, reps: r, type: pr.type });
       playPRSound();
+      setSessionPRs((prev) => [...prev, { exName, weight: w, reps: r, type: pr.type }]);
     }
     if (isFirstSetEver) logEvent("first_set_logged", { exercise: exName });
   };
@@ -1740,6 +1763,13 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
 
   const totalSets = session.exercises.reduce((s, e) => s + e.sets.length, 0);
   const totalVolume = session.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + st.weight * st.reps, 0), 0);
+  const musclesTrained = [...new Set(session.exercises.map((ex) => allExercises.find((e) => e.name === ex.name)?.muscle).filter(Boolean))];
+  const skippedExercises = session.exercises.filter((ex) => ex.sets.length === 0);
+  const targetSetsTotal = session.exercises.reduce((s, ex) => s + (ex.targetSets || 0), 0);
+  const mostSetsIncomplete = targetSetsTotal > 0 && totalSets < targetSetsTotal * 0.5;
+  // Mirrors the base-workout + volume components of computeGamification's XP formula (the streak
+  // bonus isn't attributable to a single workout, so it's left out of this per-workout figure).
+  const xpEarned = session.exercises.length > 0 ? 50 + Math.round(totalVolume / 20) : 0;
 
   return (
     <div style={{ padding: "24px 18px" }}>
@@ -1991,17 +2021,51 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
       {reviewing && (
         <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 50, overflowY: "auto", padding: "24px 18px" }}>
           <div className="disp" style={{ fontSize: 22, marginBottom: 4 }}>Workout Summary</div>
-          <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 18 }}>
+          <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 10 }}>
             ⏱ {fmtClock((now - session.startedAt) / 1000)} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} · {totalSets} set{totalSets === 1 ? "" : "s"} · {Math.round(totalVolume)}kg volume
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+            <span className="pill mono" style={{ background: "var(--brass-soft)", color: "var(--brass)" }}>+{xpEarned} XP</span>
+            {musclesTrained.map((m) => (
+              <span key={m} className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)", textTransform: "capitalize" }}>{m}</span>
+            ))}
+          </div>
+
+          {sessionPRs.length > 0 && (
+            <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--brass)" }}>
+              <div className="disp" style={{ fontSize: 13, color: "var(--brass)", marginBottom: 8 }}><Trophy size={13} style={{ verticalAlign: -2, marginRight: 5 }} />{sessionPRs.length} New PR{sessionPRs.length === 1 ? "" : "s"}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {sessionPRs.map((pr, i) => (
+                  <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+                    {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {mostSetsIncomplete && (
+            <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--warn)", background: "rgba(255,165,61,0.08)" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <AlertTriangle size={15} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.5 }}>
+                  You logged {totalSets} of {targetSetsTotal} planned sets for {session.planDayName || "this workout"}. Saving now will record it as done — you can always start another session to finish the rest.
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
             {session.exercises.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-dim)" }}>No exercises logged.</div>}
             {session.exercises.map((ex) => (
               <div key={ex.name} className="atlas-card">
-                <div className="disp" style={{ fontSize: 14, marginBottom: 6 }}>{ex.name}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div className="disp" style={{ fontSize: 14 }}>{ex.name}</div>
+                  {ex.sets.length === 0 && <span className="pill mono" style={{ background: "rgba(255,107,129,0.12)", color: "var(--rest)" }}>Skipped</span>}
+                </div>
                 {ex.sets.length === 0 ? (
-                  <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>No sets logged.</div>
+                  <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>No sets logged — added to this workout but never completed.</div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     {ex.sets.map((s, i) => (
@@ -2013,6 +2077,17 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
                 )}
               </div>
             ))}
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", display: "block", marginBottom: 4 }}>NOTES (OPTIONAL)</label>
+            <textarea
+              className="atlas-input"
+              style={{ resize: "vertical", minHeight: 60, fontFamily: "inherit" }}
+              placeholder="How did it feel? Anything to remember for next time…"
+              value={session.notes || ""}
+              onChange={(e) => setSession((s) => ({ ...s, notes: e.target.value }))}
+            />
           </div>
 
           {finishError && <div className="mono" style={{ color: "var(--rest)", fontSize: 12, marginBottom: 12 }}>{finishError}</div>}
@@ -2156,7 +2231,11 @@ function Paywall({ feature, onUpgrade }) {
 
 function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage, onUsageChange }) {
   const coachRemaining = Math.max(0, FREE_TRIAL_LIMIT - (usage?.coach || 0));
-  const [plan, setPlan] = useState(profile.plan || null);
+  // Bug: this used to read `profile.plan`, a field nothing ever wrote — the real field is
+  // `profile.activePlan` (set by activatePlan below), so a fresh mount of Coach always started
+  // with no plan showing here even when Home was actively running one. Reconstruct the same
+  // `{ days }` shape generatePlan produces so the Weekly Plan card reflects reality on load.
+  const [plan, setPlan] = useState(profile.activePlan ? { days: profile.activePlan.days } : null);
   const [genLoading, setGenLoading] = useState(false);
   const [messages, setMessages] = useState([
     { role: "assistant", content: `Hey ${profile.name || "there"}, I'm your coach. Ask me anything about training, recovery, or your plan.` },
@@ -2213,19 +2292,30 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     logEvent("plan_activated", { days: plan.days.length });
   };
 
+  // Deactivating clears the schedule Home reads from (activePlan) but keeps `plan` visible here
+  // so the athlete can see what they had and re-activate it without regenerating from scratch.
+  const deactivatePlan = () => {
+    onUpdateProfile({ activePlan: null });
+    setPlanActivated(false);
+  };
+
   const sendMessage = async (overrideText) => {
-    const text = overrideText ?? input;
+    // overrideText is only ever meant to be a string (a retry's saved input) — guard against a
+    // stray non-string argument (e.g. a click event handed straight to onClick) instead of letting
+    // it silently fall through to `.trim()` and crash.
+    const safeOverride = typeof overrideText === "string" ? overrideText : undefined;
+    const text = safeOverride ?? input;
     if (!text.trim()) return;
     setLastFailedInput(null);
     // On retry, drop the trailing error bubble first — otherwise it both looks stale once the
     // retry succeeds, and gets sent back to Claude as if it were real conversation history.
-    const base = overrideText && messages[messages.length - 1]?.isError ? messages.slice(0, -1) : messages;
+    const base = safeOverride && messages[messages.length - 1]?.isError ? messages.slice(0, -1) : messages;
     const userMsg = { role: "user", content: text };
-    const newMessages = overrideText ? base : [...base, userMsg];
+    const newMessages = safeOverride ? base : [...base, userMsg];
     setMessages(newMessages);
     setInput("");
     setSending(true);
-    logEvent("coach_message_sent", { isRetry: !!overrideText });
+    logEvent("coach_message_sent", { isRetry: !!safeOverride });
     try {
       const recent = workouts.slice(-3).map((w) => `${w.date}: ${w.exercises.map((e) => e.name).join(", ")}`).join(" | ");
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
@@ -2317,7 +2407,10 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
             ))}
             <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", fontStyle: "italic" }}>Tap any exercise for form cues.</div>
             {planActivated ? (
-              <div className="pill mono" style={{ background: "var(--brass-soft)", color: "var(--brass)", alignSelf: "flex-start" }}>✓ Active plan — see it on Home</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div className="pill mono" style={{ background: "var(--brass-soft)", color: "var(--brass)" }}>✓ Active plan — see it on Home</div>
+                <button onClick={deactivatePlan} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0 }}>Deactivate</button>
+              </div>
             ) : (
               <button className="atlas-btn" style={{ width: "100%", marginTop: 4 }} onClick={activatePlan}>Activate Plan</button>
             )}
@@ -2358,7 +2451,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <input className="atlas-input" placeholder="Ask your coach…" value={input} onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()} />
-        <button className="atlas-btn" style={{ padding: "10px 14px" }} onClick={sendMessage} disabled={sending} aria-label="Send message"><Send size={16} /></button>
+        <button className="atlas-btn" style={{ padding: "10px 14px" }} onClick={() => sendMessage()} disabled={sending} aria-label="Send message"><Send size={16} /></button>
       </div>
 
       {exDetail && <CoachExercisePopup ex={exDetail} onClose={() => setExDetail(null)} />}
@@ -2387,6 +2480,33 @@ function FoodScanner({ onAdd, onClose }) {
   const streamRef = useRef(null);
   const scanLoopRef = useRef(null);
   const fileInputRef = useRef(null);
+  const dialogRef = useRef(null);
+  const triggerRef = useRef(typeof document !== "undefined" ? document.activeElement : null);
+
+  // Basic modal focus trap: focus something inside on open, cycle Tab/Shift+Tab within the
+  // dialog instead of letting it escape into the page behind it, close on Escape, and return
+  // focus to whatever opened the scanner once it closes.
+  useEffect(() => {
+    const focusable = () => Array.from(
+      dialogRef.current?.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])') || []
+    ).filter((el) => !el.disabled && el.offsetParent !== null);
+    focusable()[0]?.focus();
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key !== "Tab") return;
+      const els = focusable();
+      if (els.length === 0) return;
+      const first = els[0], last = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      triggerRef.current?.focus?.();
+    };
+  }, []);
 
   const stopCamera = () => {
     if (scanLoopRef.current) { clearInterval(scanLoopRef.current); scanLoopRef.current = null; }
@@ -2524,7 +2644,7 @@ function FoodScanner({ onAdd, onClose }) {
   } : null;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(10,11,13,0.95)", zIndex: 50, display: "flex", flexDirection: "column", padding: 18, maxWidth: 480, margin: "0 auto" }}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Scan food" style={{ position: "fixed", inset: 0, background: "rgba(10,11,13,0.95)", zIndex: 50, display: "flex", flexDirection: "column", padding: 18, maxWidth: 480, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div className="disp" style={{ fontSize: 18 }}>Scan Food</div>
         <button onClick={() => { stopCamera(); onClose(); }} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="Close scanner"><X size={20} color="var(--ink)" /></button>
@@ -2618,6 +2738,13 @@ function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, fav
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const backgroundRef = useRef(null);
+  // React 18 doesn't recognize `inert` as a boolean HTML attribute (that's new in React 19), so
+  // passing it as a JSX prop silently renders nothing — set the DOM property directly instead,
+  // which every modern browser reflects to the real attribute regardless of React's version.
+  useEffect(() => {
+    if (backgroundRef.current) backgroundRef.current.inert = scannerOpen;
+  }, [scannerOpen]);
   const [locationInput, setLocationInput] = useState("");
   const [mealTiming, setMealTiming] = useState("post");
   const [findingMeals, setFindingMeals] = useState(false);
@@ -2762,6 +2889,9 @@ Respond with ONLY this JSON, nothing else:
         </div>
       ))}
 
+      {/* Hidden from assistive tech and keyboard focus while the scanner dialog is open, so
+          screen readers and Tab navigation can't reach content buried behind it. */}
+      <div ref={backgroundRef} aria-hidden={scannerOpen || undefined}>
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         {["calories", "protein", "carbs", "fat"].map((k) => (
           <div key={k} style={{ marginBottom: 8 }}>
@@ -2952,6 +3082,7 @@ Respond with ONLY this JSON, nothing else:
           );
         })}
       </div>
+      </div>
     </div>
   );
 }
@@ -3010,7 +3141,12 @@ export default function App() {
       if (w) setWorkouts(w);
       if (n) setNutrition(n);
       if (wl) setWeightlog(wl);
-      if (sess) { setSession(sess); setTab("train"); }
+      // Defense in depth against the stale-session bug: if a session was already saved into
+      // history (its id shows up in `workouts`), it's a leftover from a completed workout that
+      // never got cleared, not a real in-progress one — discard it and finish clearing the row.
+      const isAlreadyCompleted = sess && (w || []).some((wk) => wk.id === sess.id);
+      if (sess && !isAlreadyCompleted) { setSession(sess); setTab("train"); }
+      else if (isAlreadyCompleted) { saveKey(KEYS.session, null); }
       if (ce) setCustomExercises(ce);
       if (fav) setFavorites(fav);
       setLoaded(true);
@@ -3019,7 +3155,7 @@ export default function App() {
 
   const refreshSubscription = async () => {
     if (!authUser) return null;
-    const { data } = await supabase.from("subscriptions").select("status, current_period_end").eq("user_id", authUser.id).maybeSingle();
+    const { data } = await supabase.from("subscriptions").select("status, current_period_end, stripe_customer_id").eq("user_id", authUser.id).maybeSingle();
     setSubscription(data || null);
     return data || null;
   };
@@ -3061,6 +3197,11 @@ export default function App() {
   }, [authUser]);
 
   const isPremium = subscription && (subscription.status === "active" || subscription.status === "trialing");
+  // Premium with no Stripe customer on file can only happen from a manually-granted (demo/comp)
+  // entitlement — a real subscription always gets a stripe_customer_id from the checkout webhook.
+  // Distinguishing this avoids the confusing "Premium Active" + "No subscription found for this
+  // account" combo that shows up the moment such an account taps Manage Billing.
+  const isDemoEntitlement = !!(isPremium && !subscription.stripe_customer_id);
 
   const startCheckout = async () => {
     setBillingError(null);
@@ -3311,14 +3452,14 @@ export default function App() {
       {showProfile ? (
         <Profile
           profile={profile} authUser={authUser} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises}
-          isPremium={isPremium} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={startCheckout}
+          isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={startCheckout}
           billingLoading={billingLoading} billingError={billingError} onLogOut={logOut}
           onDeleteAccount={deleteAccount} deleteAccountLoading={deleteAccountLoading} deleteAccountError={deleteAccountError}
           onClose={() => setShowProfile(false)}
         />
       ) : (
         <>
-          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
+          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
           {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
