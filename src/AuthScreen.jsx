@@ -13,8 +13,8 @@ import GlobalStyle from "./GlobalStyle";
  * No onAuthed callback here on purpose — App.jsx listens for supabase.auth.onAuthStateChange()
  * and swaps this screen out automatically once a session exists.
  */
-export default function AuthScreen() {
-  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot" | "forgot-sent"
+export default function AuthScreen({ initialMode = "login", onBack }) {
+  const [mode, setMode] = useState(initialMode); // "login" | "signup" | "forgot" | "forgot-sent"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
@@ -57,6 +57,11 @@ export default function AuthScreen() {
     <div className="atlas-root" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 }}>
       <GlobalStyle />
       <div className="atlas-card" style={{ width: "100%", maxWidth: 360 }}>
+        {onBack && (
+          <button type="button" onClick={onBack} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0, marginBottom: 14 }}>
+            ← Back
+          </button>
+        )}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 24 }}>
           <div
             style={{

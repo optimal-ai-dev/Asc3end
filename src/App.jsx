@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
 import AuthScreen from "./AuthScreen";
+import Landing from "./Landing";
+import LegalPage from "./LegalPage";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
@@ -15,6 +17,7 @@ import { computeTargets } from "./lib/nutritionMath";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION } from "./lib/legal";
 import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./lib/subscription";
 import { FEATURES, FREE_TRIAL_LIMIT, remainingTrialUses } from "./lib/entitlements";
+import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, PRICING_FAQ } from "./lib/pricingContent";
 import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
 
@@ -2092,15 +2095,6 @@ function MuscleGroupBlock({ muscleGroups, onTapExercise }) {
 /* Shared upsell shown in place of a gated feature — Coach entirely, or an inline slot inside
    Nutrition for the scanner / Meals Near You. Subscription status is only ever set by the
    Stripe webhook, so this button just starts Checkout; it never grants access itself. */
-const FEATURE_COMPARISON = [
-  { label: "Workout logging", free: true, premium: true },
-  { label: "Nutrition tracking", free: true, premium: true },
-  { label: "Progress & strength analytics", free: true, premium: true },
-  { label: "AI Coach chat & plans", free: `${FREE_TRIAL_LIMIT} free`, premium: "Unlimited" },
-  { label: "Meals Near You", free: `${FREE_TRIAL_LIMIT} free`, premium: "Unlimited" },
-  { label: "Food scanner (photo/barcode)", free: false, premium: true },
-];
-
 function FeatureComparisonTable() {
   const cell = (v) => v === true ? <Check size={13} color="var(--good)" /> : v === false ? <X size={13} color="var(--ink-dim)" /> : <span className="mono" style={{ fontSize: 10 }}>{v}</span>;
   return (
@@ -2143,17 +2137,6 @@ function Paywall({ feature, onUpgrade }) {
     </div>
   );
 }
-
-const MONTHLY_PRICE = 9.99;
-const ANNUAL_PRICE = 79.99;
-const ANNUAL_SAVINGS_PCT = Math.round((1 - ANNUAL_PRICE / (MONTHLY_PRICE * 12)) * 100);
-
-const PRICING_FAQ = [
-  { q: "Can I cancel anytime?", a: "Yes. Cancel from Profile > Manage Billing whenever you like — you keep Asc3end+ until the end of the period you already paid for, then it reverts to the Free plan automatically. No phone calls, no retention flow." },
-  { q: "What happens when my free trial ends?", a: "If you start a trial, your card is charged automatically when it ends unless you cancel first. You'll keep full access the whole time you're deciding." },
-  { q: "Is my payment information secure?", a: "Payments are handled entirely by Stripe — Asc3end never sees or stores your card number." },
-  { q: "Can I switch between monthly and annual?", a: "Yes, any time from Profile > Manage Billing, which opens Stripe's own billing portal." },
-];
 
 function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLoading, billingError, onClose, initialFeature }) {
   const [plan, setPlan] = useState("monthly");
@@ -3425,6 +3408,8 @@ export default function App() {
   const [billingLoading, setBillingLoading] = useState(null); // null | "checkout" | "portal"
   const [showProfile, setShowProfile] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
+  const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "signup"
+  const [publicLegalDoc, setPublicLegalDoc] = useState(null);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState(null);
   // True while the user has followed a password-reset email link — Supabase signs them into a
@@ -3804,10 +3789,22 @@ export default function App() {
   }
 
   if (!authUser) {
+    if (publicLegalDoc) {
+      return <LegalPage docKey={publicLegalDoc} onClose={() => setPublicLegalDoc(null)} />;
+    }
+    if (authView === "landing") {
+      return (
+        <Landing
+          onStartFree={() => setAuthView("signup")}
+          onLogIn={() => setAuthView("login")}
+          onOpenLegal={setPublicLegalDoc}
+        />
+      );
+    }
     return (
       <>
         <GlobalStyle />
-        <AuthScreen />
+        <AuthScreen initialMode={authView} onBack={() => setAuthView("landing")} />
       </>
     );
   }

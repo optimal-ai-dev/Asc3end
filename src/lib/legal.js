@@ -10,6 +10,15 @@
 // section.
 export const LEGAL_DOCUMENT_VERSION = "2026-09-12-draft-1";
 
+// Client-safe (VITE_-prefixed) since this is meant to be publicly displayed, not a secret. Left
+// unset until the app owner configures a real, monitored inbox — shown honestly as "not yet
+// configured" rather than a fabricated address or a bracketed [INSERT EMAIL] placeholder, either
+// of which would be worse than admitting the gap.
+export const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || null;
+const supportLine = SUPPORT_EMAIL
+  ? `Email ${SUPPORT_EMAIL} and describe what you were doing when it happened — screenshots help.`
+  : "Support email not yet configured by the app owner — set VITE_SUPPORT_EMAIL. In the meantime, use the in-app Support area.";
+
 export const LEGAL_COPY = {
   privacy: {
     title: "Privacy Policy",
@@ -37,10 +46,12 @@ export const LEGAL_COPY = {
   },
   support: {
     title: "Support",
-    body: "Something broken or confusing? Use the in-app Support area, or email support and describe what you were doing when it happened — screenshots help.",
+    body: `Something broken or confusing? ${supportLine}`,
   },
   contact: {
     title: "Contact",
-    body: "For account, billing, privacy, or general questions, use the in-app Support area or the support email listed there.",
+    body: SUPPORT_EMAIL
+      ? `For account, billing, privacy, or general questions, email ${SUPPORT_EMAIL}.`
+      : "For account, billing, privacy, or general questions: support email not yet configured by the app owner — set VITE_SUPPORT_EMAIL.",
   },
 };
