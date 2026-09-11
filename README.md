@@ -83,6 +83,27 @@ create policy "Users can read their own usage" on feature_usage
   for select using (auth.uid() = user_id);
 ```
 
+### `analytics_events` table (lightweight product analytics)
+Written directly from the client — the RLS policy only allows a user to insert rows with their own
+`user_id` (no update/delete/select policy, since nothing in-app reads these back). Query from the
+Supabase SQL editor or a dashboard tool when you want to look at product usage.
+```sql
+create table analytics_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users not null,
+  name text not null,
+  props jsonb not null default '{}',
+  created_at timestamptz default now()
+);
+alter table analytics_events enable row level security;
+create policy "Users can insert their own events" on analytics_events
+  for insert with check (auth.uid() = user_id);
+```
+Logged from `src/lib/analytics.js`'s `logEvent(name, props)`, fire-and-forget so a failed or slow
+write never blocks a real user action. Instrumented at: `signup_completed`, `onboarding_completed`,
+`plan_generated`, `plan_activated`, `workout_started`, `first_set_logged`, `workout_completed`,
+`coach_message_sent`, `food_logged`, `paywall_viewed`, `subscription_started`.
+
 ## Paywall
 Free: workout logging, nutrition tracking (manual entry + quick add + AI macro estimate).
 Premium ($9.99/mo): unlimited AI Coach, the food scanner (photo/barcode), and Meals Near You.

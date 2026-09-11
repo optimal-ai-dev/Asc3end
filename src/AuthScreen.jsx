@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Loader2, Dumbbell } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { logEvent } from "./lib/analytics";
 import GlobalStyle from "./GlobalStyle";
 
 /*
@@ -32,6 +33,8 @@ export default function AuthScreen() {
         if (!data.session) {
           setNotice("Check your inbox to confirm your email, then log in.");
           setMode("login");
+        } else {
+          logEvent("signup_completed", {});
         }
       } else {
         const { error: err } = await supabase.auth.signInWithPassword({ email, password });

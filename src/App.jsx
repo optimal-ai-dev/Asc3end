@@ -8,6 +8,7 @@ import {
 import GlobalStyle from "./GlobalStyle";
 import AuthScreen from "./AuthScreen";
 import { supabase } from "./lib/supabase";
+import { logEvent } from "./lib/analytics";
 import { storage } from "./lib/storage";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
@@ -1688,6 +1689,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const addSet = (exName) => {
     const w = +weightIn[exName]; const r = +repsIn[exName];
     if (!w || !r) return;
+    const isFirstSetEver = workouts.length === 0 && session.exercises.every((e) => e.sets.length === 0);
     const setType = typeIn[exName] || "normal";
     const historySets = [
       ...workouts.flatMap((wk) => wk.exercises.filter((e) => e.name === exName).flatMap((e) => e.sets)),
@@ -1708,6 +1710,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
       setPrToast({ exName, weight: w, reps: r, type: pr.type });
       playPRSound();
     }
+    if (isFirstSetEver) logEvent("first_set_logged", { exercise: exName });
   };
 
   const toggleSuperset = (exNameA, exNameB) => {
@@ -2130,6 +2133,7 @@ function FeatureComparisonTable() {
 
 function Paywall({ feature, onUpgrade }) {
   const [showComparison, setShowComparison] = useState(false);
+  useEffect(() => { logEvent("paywall_viewed", { feature }); }, [feature]);
   const COPY = {
     coach: { title: "AI Coach is Premium", blurb: "Personalized training plans, a chat coach that knows your history, and real-time form feedback." },
     scanner: { title: "Food Scanner is Premium", blurb: "Snap a photo or scan a barcode to log food in seconds instead of typing it in by hand." },
@@ -2193,6 +2197,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}`, "coach");
       const parsed = extractJSON(text);
       setPlan(parsed);
+      logEvent("plan_generated", { trainingDays: profile.trainingDays, coachingStyle: profile.coachingStyle || "balanced" });
     } catch (e) {
       setPlan(null);
       setPlanError(e.message || "Couldn't build a plan just now — try again.");
@@ -2205,6 +2210,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     if (!plan?.days?.length) return;
     onUpdateProfile({ activePlan: { days: plan.days, currentDayIndex: 0, activatedAt: new Date().toISOString() } });
     setPlanActivated(true);
+    logEvent("plan_activated", { days: plan.days.length });
   };
 
   const sendMessage = async (overrideText) => {
@@ -2219,6 +2225,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     setMessages(newMessages);
     setInput("");
     setSending(true);
+    logEvent("coach_message_sent", { isRetry: !!overrideText });
     try {
       const recent = workouts.slice(-3).map((w) => `${w.date}: ${w.exercises.map((e) => e.name).join(", ")}`).join(" | ");
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
@@ -3011,9 +3018,10 @@ export default function App() {
   }, [authUser]);
 
   const refreshSubscription = async () => {
-    if (!authUser) return;
+    if (!authUser) return null;
     const { data } = await supabase.from("subscriptions").select("status, current_period_end").eq("user_id", authUser.id).maybeSingle();
     setSubscription(data || null);
+    return data || null;
   };
 
   const refreshUsage = async () => {
@@ -3038,9 +3046,15 @@ export default function App() {
     if (params.get("checkout") !== "success" || !authUser) return;
     window.history.replaceState(null, "", window.location.pathname);
     let attempts = 0;
+    let fired = false;
     const interval = setInterval(async () => {
       attempts++;
-      await refreshSubscription();
+      const data = await refreshSubscription();
+      if (!fired && data && (data.status === "active" || data.status === "trialing")) {
+        fired = true;
+        logEvent("subscription_started", { status: data.status });
+        clearInterval(interval);
+      }
       if (attempts >= 6) clearInterval(interval); // ~12s of polling, then give up quietly
     }, 2000);
     return () => clearInterval(interval);
@@ -3112,6 +3126,7 @@ export default function App() {
     const wl = [{ date: todayStr(), weight: form.weightKg }];
     setWeightlog(wl);
     await saveKey(KEYS.weightlog, wl);
+    logEvent("onboarding_completed", { goal: form.goal, experience: form.experience, trainingDays: form.trainingDays });
   };
 
   // Idempotent by construction: once `session` is cleared, a second call (e.g. a double-click
@@ -3140,6 +3155,11 @@ export default function App() {
     await saveKey(KEYS.session, null);
     setFinishingWorkout(false);
     setTab("dashboard");
+    logEvent("workout_completed", {
+      exerciseCount: completed.exercises.length,
+      setCount: completed.exercises.reduce((n, e) => n + e.sets.length, 0),
+      planned: completed.plannedDayIndex != null,
+    });
     return completed;
   };
 
@@ -3166,12 +3186,14 @@ export default function App() {
       planDayName: day?.day || null, plannedDayIndex: plannedDayIndex ?? null,
     });
     setTab("train");
+    logEvent("workout_started", { planned: plannedDayIndex != null });
   };
 
   const addFood = async (f) => {
     const next = [...nutrition, f];
     setNutrition(next);
     await saveKey(KEYS.nutrition, next);
+    logEvent("food_logged", { count: 1 });
   };
   // Adds several entries as one state update — copyYesterday calling addFood in a loop would have
   // each call close over the same stale `nutrition`, so every add but the last would be lost.
@@ -3179,6 +3201,7 @@ export default function App() {
     const next = [...nutrition, ...items];
     setNutrition(next);
     await saveKey(KEYS.nutrition, next);
+    logEvent("food_logged", { count: items.length });
   };
   const deleteFood = async (id) => {
     const next = nutrition.filter((f) => f.id !== id);
