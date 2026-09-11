@@ -426,6 +426,39 @@ function mealMacroGuidance(goal, timing) {
   return { ...g, protein: [Math.round(g.protein[0] * 1.05), Math.round(g.protein[1] * 1.1)], note: "supports post-training recovery" };
 }
 
+/* Picks the "Best Value" nearby-meal option deterministically rather than trusting the model's own
+   self-assessment — scores macro fit against the person's target range, distance, and price, so the
+   badge means the same thing every time instead of being whatever the AI happened to call out. */
+function scoreBestMeal(places, guidance) {
+  if (!places.length) return -1;
+  const macroFit = (p) => {
+    const ranges = [[p.calories, guidance.calories], [p.protein, guidance.protein], [p.carbs, guidance.carbs], [p.fat, guidance.fat]];
+    const scores = ranges.map(([val, [lo, hi]]) => {
+      if (val == null) return 0.5;
+      if (val >= lo && val <= hi) return 1;
+      const span = hi - lo || 1;
+      const dist = val < lo ? lo - val : val - hi;
+      return Math.max(0, 1 - dist / span);
+    });
+    return scores.reduce((a, b) => a + b, 0) / scores.length;
+  };
+  const normInverted = (values) => {
+    const nums = values.map((v) => (v == null ? null : v));
+    const present = nums.filter((v) => v != null);
+    if (present.length === 0) return nums.map(() => 0.5);
+    const min = Math.min(...present), max = Math.max(...present);
+    return nums.map((v) => (v == null ? 0.5 : max === min ? 1 : 1 - (v - min) / (max - min)));
+  };
+  const distScores = normInverted(places.map((p) => p.distanceKm));
+  const priceScores = normInverted(places.map((p) => p.price));
+  let bestIdx = 0, bestScore = -Infinity;
+  places.forEach((p, i) => {
+    const score = macroFit(p) * 0.5 + distScores[i] * 0.25 + priceScores[i] * 0.25;
+    if (score > bestScore) { bestScore = score; bestIdx = i; }
+  });
+  return bestIdx;
+}
+
 /* Matches an AI-generated exercise name against the real exercise library, exact first then fuzzy,
    so exercises the coach suggests can link to real form cues and pose demonstrations. */
 function lookupExercise(name) {
@@ -2043,13 +2076,22 @@ function Nutrition({ profile, nutrition, onAdd, onDelete, isPremium, onUpgrade, 
     try {
       const g = mealMacroGuidance(profile.goal, mealTiming);
       const timingNote = mealTiming === "pre" ? "a pre-workout meal, eaten 1-3 hours before training" : "a post-workout meal to support recovery";
+      const now = new Date();
+      const dayName = now.toLocaleDateString(undefined, { weekday: "long" });
+      const timeLabel = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+      const hour = now.getHours();
+      const dayPart = hour < 11 ? "morning (breakfast)" : hour < 15 ? "midday (lunch)" : hour < 21 ? "evening (dinner)" : "late night (light/snack)";
       const system = `You are a nutrition search assistant. Perform exactly ONE web search, then immediately respond — do not search again or refine your query. You must respond with ONLY a single valid JSON object — no preamble, no markdown fences, no explanation of your search, no citations. Just the JSON object and nothing else, even though you have access to web search to inform your answer.`;
-      const prompt = `Find 4 real, currently open food places near "${locationText}" — mix it up across fast food, casual/local restaurants, and cafes where possible. This is for ${timingNote}.
-Person's goal: ${GOAL_LABELS[profile.goal]} (${g.rationale}). For each place, name ONE specific menu item that roughly fits: ${g.calories[0]}-${g.calories[1]} kcal, ${g.protein[0]}-${g.protein[1]}g protein, ${g.carbs[0]}-${g.carbs[1]}g carbs, ${g.fat[0]}-${g.fat[1]}g fat (your best real estimate, doesn't need to hit the range exactly).
+      const prompt = `Find 4 real food places near "${locationText}" that are OPEN RIGHT NOW and still serving food — mix it up across fast food, casual/local restaurants, and cafes where possible. Do not include any place that would be closed at this time, and do not suggest a menu item that isn't actually served at this hour.
+
+It is currently ${dayName}, ${timeLabel} (${dayPart}) at that location. The item you pick for each place MUST match what's actually served at this time of day — e.g. do not suggest a breakfast-only item if it's the afternoon or evening, and don't suggest a heavy dinner item if it's the middle of the day, unless that place genuinely serves it all day.
+
+This is for ${timingNote}. Person's goal: ${GOAL_LABELS[profile.goal]} (${g.rationale}). For each place, name ONE specific menu item that roughly fits: ${g.calories[0]}-${g.calories[1]} kcal, ${g.protein[0]}-${g.protein[1]}g protein, ${g.carbs[0]}-${g.carbs[1]}g carbs, ${g.fat[0]}-${g.fat[1]}g fat (your best real estimate, doesn't need to hit the range exactly).
+Also give your best real-world price estimate for that item in local currency, and the local currency symbol (e.g. "$", "£", "€").
 Estimate each place's approximate straight-line distance in km from "${locationText}".
 Write one short sentence (max 2) per place stating the macros and why it fits their goal, in your own words — never quote menus or reviews.
 Respond with ONLY this JSON, nothing else:
-{"places":[{"name":"","cuisine":"","distanceKm":0.0,"item":"","calories":0,"protein":0,"carbs":0,"fat":0,"note":""}]}`;
+{"places":[{"name":"","cuisine":"","distanceKm":0.0,"item":"","price":0.0,"currency":"$","calories":0,"protein":0,"carbs":0,"fat":0,"note":""}]}`;
       const text = await callClaude(
         [{ role: "user", content: prompt }],
         1800,
@@ -2062,7 +2104,8 @@ Respond with ONLY this JSON, nothing else:
       const parsed = extractJSON(text);
       if (!Array.isArray(parsed.places) || parsed.places.length === 0) throw new Error("No places came back — try a more specific location.");
       const places = parsed.places.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
-      setMealResults(places);
+      const bestIdx = scoreBestMeal(places, g);
+      setMealResults(places.map((p, i) => ({ ...p, isBestValue: i === bestIdx })));
     } catch (e) {
       setMealError(e.message && e.message !== "No JSON found in response" && e.message !== "Incomplete JSON in response"
         ? e.message
@@ -2146,10 +2189,16 @@ Respond with ONLY this JSON, nothing else:
         {mealResults && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
             {mealResults.map((p, i) => (
-              <div key={i} style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+              <div key={i} style={{ borderTop: p.isBestValue ? "1px solid var(--good)" : "1px solid var(--line)", paddingTop: 10, background: p.isBestValue ? "rgba(126,217,87,0.06)" : "transparent", borderRadius: p.isBestValue ? 8 : 0, padding: p.isBestValue ? "10px 8px 8px" : "10px 0 0" }}>
+                {p.isBestValue && (
+                  <span className="pill mono" style={{ background: "var(--good)", color: "#0F2E0A", marginBottom: 5, display: "inline-block" }}>★ BEST VALUE</span>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
-                  {p.distanceKm != null && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--brass)", flexShrink: 0 }}>{p.distanceKm < 1 ? `${Math.round(p.distanceKm * 1000)}m` : `${p.distanceKm.toFixed(1)}km`}</span>}
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    {p.price != null && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--good)" }}>{p.currency || "$"}{Number(p.price).toFixed(2)}</span>}
+                    {p.distanceKm != null && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--brass)" }}>{p.distanceKm < 1 ? `${Math.round(p.distanceKm * 1000)}m` : `${p.distanceKm.toFixed(1)}km`}</span>}
+                  </div>
                 </div>
                 <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 1 }}>{p.cuisine}</div>
                 <div style={{ fontSize: 13, color: "var(--steel)", marginTop: 5 }}>{p.item}</div>
