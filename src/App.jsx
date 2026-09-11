@@ -16,6 +16,10 @@ import { storage } from "./lib/storage";
 /* Constants & helpers                                                 */
 /* ------------------------------------------------------------------ */
 
+// Must match FREE_TRIAL_LIMIT in api/claude.js — this copy is only for display (e.g. "3 free
+// conversations left"); the actual limit is enforced server-side, not by this constant.
+const FREE_TRIAL_LIMIT = 5;
+
 const KEYS = {
   profile: "atlas:profile",
   workouts: "atlas:workouts",
@@ -1677,7 +1681,8 @@ function Paywall({ feature, onUpgrade }) {
   );
 }
 
-function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade }) {
+function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage, onUsageChange }) {
+  const coachRemaining = Math.max(0, FREE_TRIAL_LIMIT - (usage?.coach || 0));
   const [plan, setPlan] = useState(profile.plan || null);
   const [genLoading, setGenLoading] = useState(false);
   const [messages, setMessages] = useState([
@@ -1710,6 +1715,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       setPlan(null);
       setPlanError(e.message || "Couldn't build a plan just now — try again.");
     }
+    onUsageChange?.();
     setGenLoading(false);
   };
 
@@ -1741,10 +1747,11 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: `⚠️ ${e.message || "Something went wrong reaching the coach. Try again in a moment."}` }]);
     }
+    onUsageChange?.();
     setSending(false);
   };
 
-  if (!isPremium) {
+  if (!isPremium && coachRemaining <= 0) {
     return (
       <div style={{ padding: "24px 18px" }}>
         <div className="disp" style={{ fontSize: 26, marginBottom: 16 }}>Coach</div>
@@ -1755,7 +1762,12 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
 
   return (
     <div style={{ padding: "24px 18px", display: "flex", flexDirection: "column", height: "calc(100vh - 88px)" }}>
-      <div className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Coach</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+        <div className="disp" style={{ fontSize: 26 }}>Coach</div>
+        {!isPremium && (
+          <span className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>{coachRemaining} free {coachRemaining === 1 ? "message" : "messages"} left</span>
+        )}
+      </div>
       <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 8 }}>COACHING STYLE</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
         {Object.entries(COACHING_STYLES).map(([key, s]) => {
@@ -2027,7 +2039,8 @@ function FoodScanner({ onAdd, onClose }) {
   );
 }
 
-function Nutrition({ profile, nutrition, onAdd, onDelete, isPremium, onUpgrade }) {
+function Nutrition({ profile, nutrition, onAdd, onDelete, isPremium, onUpgrade, usage, onUsageChange }) {
+  const mealsRemaining = Math.max(0, FREE_TRIAL_LIMIT - (usage?.meals || 0));
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -2095,6 +2108,7 @@ Respond with ONLY this JSON, nothing else:
         ? e.message
         : "Couldn't find nearby places just now — try a more specific location (suburb or city), or try again.");
     }
+    onUsageChange?.();
     setFindingMeals(false);
   };
 
@@ -2140,13 +2154,18 @@ Respond with ONLY this JSON, nothing else:
         ))}
       </div>
 
-      {!isPremium ? (
+      {!isPremium && mealsRemaining <= 0 ? (
         <div style={{ marginBottom: 16 }}><Paywall feature="meals" onUpgrade={onUpgrade} /></div>
       ) : (
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-          <MapPin size={15} color="var(--brass)" />
-          <div className="disp" style={{ fontSize: 14 }}>Meals Near You</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <MapPin size={15} color="var(--brass)" />
+            <div className="disp" style={{ fontSize: 14 }}>Meals Near You</div>
+          </div>
+          {!isPremium && (
+            <span className="mono" style={{ fontSize: 10, color: "var(--brass)" }}>{mealsRemaining} free left</span>
+          )}
         </div>
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           <button onClick={() => setMealTiming("pre")} className="pill" style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid var(--line)", background: mealTiming === "pre" ? "var(--brass-soft)" : "transparent", color: mealTiming === "pre" ? "var(--brass)" : "var(--ink-dim)" }}>Pre-Workout</button>
@@ -2385,6 +2404,9 @@ export default function App() {
   // Never set directly from checkout success — only the Stripe webhook (server-side) is trusted
   // to write this, so a user can't just flip themselves to "active" from the browser.
   const [subscription, setSubscription] = useState(undefined);
+  // Free-trial counters for Coach / Meals Near You ({ coach, meals }, each 0-5). Read-only from
+  // here — the real count lives server-side in api/claude.js, this is just for display/local gating.
+  const [usage, setUsage] = useState({ coach: 0, meals: 0 });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthUser(session?.user ?? null));
@@ -2417,9 +2439,19 @@ export default function App() {
     setSubscription(data || null);
   };
 
+  const refreshUsage = async () => {
+    const { data: { session: authSession } } = await supabase.auth.getSession();
+    if (!authSession) return;
+    try {
+      const res = await fetch("/api/usage", { headers: { Authorization: `Bearer ${authSession.access_token}` } });
+      if (res.ok) setUsage(await res.json());
+    } catch (e) { /* leave last-known usage in place */ }
+  };
+
   useEffect(() => {
-    if (!authUser) { setSubscription(undefined); return; }
+    if (!authUser) { setSubscription(undefined); setUsage({ coach: 0, meals: 0 }); return; }
     refreshSubscription();
+    refreshUsage();
   }, [authUser]);
 
   // After returning from Stripe Checkout, the webhook that actually activates the subscription
@@ -2566,8 +2598,8 @@ export default function App() {
       <GlobalStyle />
       {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} onUpgrade={startCheckout} onManageBilling={openBillingPortal} />}
       {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
-      {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} />}
-      {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onDelete={deleteFood} isPremium={isPremium} onUpgrade={startCheckout} />}
+      {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
+      {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onDelete={deleteFood} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
       {tab === "progress" && <Progress profile={profile} workouts={workouts} weightlog={weightlog} />}
 
       <nav className="atlas-nav">

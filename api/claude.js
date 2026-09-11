@@ -7,14 +7,24 @@
 // key from https://console.anthropic.com has its own separate billing and much higher limits,
 // scaled to what you're willing to pay for as the app owner.
 //
-// Every call must be authenticated (a signed-in Supabase user) — this closes the previous
-// TODO ("anyone can call this for free"). Calls tagged with a premium `feature` additionally
-// require an active/trialing row in the `subscriptions` table, which is how the Stripe paywall
-// is actually enforced — hiding buttons in the UI alone would not stop a direct API call.
+// Every call must be authenticated (a signed-in Supabase user) — this closes a previous gap
+// where anyone could call this for free. The Stripe paywall is enforced HERE, not just by
+// hiding buttons in the UI, which a direct API call would bypass entirely:
+//   - "scanner" (the food scanner) always requires an active subscription.
+//   - "coach" and "meals" (Meals Near You) are free for FREE_TRIAL_LIMIT uses each, tracked
+//     per-user in the `feature_usage` table, then require a subscription.
+//   - "estimate" (manual food entry's macro estimate) is unlimited and free for everyone.
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 
-const PREMIUM_FEATURES = new Set(["coach", "scanner", "meals"]);
+const PREMIUM_ONLY_FEATURES = new Set(["scanner"]);
+const TRIAL_FEATURES = new Set(["coach", "meals"]);
+export const FREE_TRIAL_LIMIT = 5;
+
+async function isPremiumUser(userId) {
+  const { data: sub } = await supabaseAdmin.from("subscriptions").select("status").eq("user_id", userId).maybeSingle();
+  return !!(sub && (sub.status === "active" || sub.status === "trialing"));
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -32,15 +42,37 @@ export default async function handler(req, res) {
 
   const { feature, ...body } = req.body || {};
 
-  if (PREMIUM_FEATURES.has(feature)) {
-    const { data: sub } = await supabaseAdmin
-      .from("subscriptions")
-      .select("status")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    const isPremium = sub && (sub.status === "active" || sub.status === "trialing");
-    if (!isPremium) {
+  let premiumChecked = false;
+  let premium = false;
+
+  if (PREMIUM_ONLY_FEATURES.has(feature)) {
+    premium = await isPremiumUser(user.id);
+    premiumChecked = true;
+    if (!premium) {
       return res.status(402).json({ error: { message: "This feature requires Asc3end Premium.", code: "premium_required" } });
+    }
+  }
+
+  let usageCountBeforeThisCall = null; // set only when this call should increment usage after success
+  if (TRIAL_FEATURES.has(feature)) {
+    if (!premiumChecked) premium = await isPremiumUser(user.id);
+    if (!premium) {
+      const { data: usage } = await supabaseAdmin
+        .from("feature_usage")
+        .select("count")
+        .eq("user_id", user.id)
+        .eq("feature", feature)
+        .maybeSingle();
+      const current = usage?.count || 0;
+      if (current >= FREE_TRIAL_LIMIT) {
+        return res.status(402).json({
+          error: {
+            message: `You've used all ${FREE_TRIAL_LIMIT} free ${feature === "coach" ? "coach conversations" : "meal searches"} — upgrade to keep going.`,
+            code: "premium_required",
+          },
+        });
+      }
+      usageCountBeforeThisCall = current;
     }
   }
 
@@ -55,6 +87,16 @@ export default async function handler(req, res) {
       body: JSON.stringify(body),
     });
     const data = await response.json();
+    // Only spend a free-trial use on an actual successful call — a network hiccup or Anthropic
+    // error shouldn't cost the user one of their 5 free tries.
+    if (response.ok && usageCountBeforeThisCall !== null) {
+      await supabaseAdmin.from("feature_usage").upsert({
+        user_id: user.id,
+        feature,
+        count: usageCountBeforeThisCall + 1,
+        updated_at: new Date().toISOString(),
+      });
+    }
     res.status(response.status).json(data);
   } catch (e) {
     res.status(500).json({ error: { message: "Proxy request failed" } });

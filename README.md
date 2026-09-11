@@ -67,17 +67,38 @@ create policy "Users can read their own subscription" on subscriptions
   for select using (auth.uid() = user_id);
 ```
 
+### `feature_usage` table (free-trial counters)
+Same pattern as `subscriptions` — only the server (via `SUPABASE_SERVICE_ROLE_KEY`) writes to this;
+users can only read their own rows, so they can't reset their own trial count from the client.
+```sql
+create table feature_usage (
+  user_id uuid references auth.users not null,
+  feature text not null,
+  count int not null default 0,
+  updated_at timestamptz default now(),
+  primary key (user_id, feature)
+);
+alter table feature_usage enable row level security;
+create policy "Users can read their own usage" on feature_usage
+  for select using (auth.uid() = user_id);
+```
+
 ## Paywall
 Free: workout logging, nutrition tracking (manual entry + quick add + AI macro estimate).
-Premium ($9.99/mo): AI Coach, food scanner (photo/barcode), Meals Near You.
+Premium ($9.99/mo): unlimited AI Coach, the food scanner (photo/barcode), and Meals Near You.
+
+Free trial: everyone gets `FREE_TRIAL_LIMIT` (5, set in `api/claude.js`) free uses each of the AI
+Coach and Meals Near You before hitting the paywall — tracked per-user in `feature_usage`. The food
+scanner has no free trial; it's Premium-only from the first use.
 
 Gating happens in two places, both required — hiding a button in the UI alone would not stop
 someone from calling the API directly:
-- **Frontend**: `App.jsx` loads `isPremium` from the `subscriptions` table and passes it to
-  `Coach`/`Nutrition`, which show a `Paywall` upsell in place of the gated feature.
-- **Backend**: `api/claude.js` checks the caller's `subscriptions` row (via the service-role key)
-  for any request tagged with a premium `feature` (`coach`, `scanner`, `meals`) before proxying to
-  Anthropic — this is the actual enforcement.
+- **Frontend**: `App.jsx` loads `isPremium` and `usage` (`{ coach, meals }` counts from `/api/usage`)
+  and passes them to `Coach`/`Nutrition`, which show remaining free uses and swap in the `Paywall`
+  once exhausted.
+- **Backend**: `api/claude.js` is the real enforcement — it checks the caller's `subscriptions` row
+  for `scanner` (always Premium), and checks + increments `feature_usage` for `coach`/`meals` (free
+  up to the limit, then Premium) before proxying to Anthropic.
 
 ## Optional
 Add simple per-user rate limiting in `api/claude.js` so one heavy user can't run up the app's bill.
