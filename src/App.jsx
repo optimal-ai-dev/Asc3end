@@ -2672,24 +2672,43 @@ function FoodScanner({ onAdd, onClose }) {
     setLoading(false);
   };
 
+  // Downscales any drawImage-able source (a live <video> frame or a loaded <img>) to a capped
+  // resolution before encoding — a full-resolution phone photo can be several MB, which is both
+  // slower to upload and larger than it needs to be for the model to read the label/plate. This
+  // is the actual file-upload size/type validation for the scanner: constrain what leaves the
+  // browser rather than trust an arbitrary file's size.
+  const MAX_IMAGE_DIM = 1024;
+  const downscaleToBase64 = (source, naturalWidth, naturalHeight) => {
+    const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(naturalWidth, naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(naturalWidth * scale);
+    canvas.height = Math.round(naturalHeight * scale);
+    canvas.getContext("2d").drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+  };
+
   const capturePhoto = async () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video, 0, 0);
-    const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+    const base64 = downscaleToBase64(video, video.videoWidth, video.videoHeight);
     stopCamera();
     await analyzeImage(base64);
   };
 
+  const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15MB — generous for a phone photo, rejects anything absurd before it's even read
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    if (!file.type.startsWith("image/")) { setError("Please choose an image file."); return; }
+    if (file.size > MAX_UPLOAD_BYTES) { setError("That image is too large — try a smaller photo."); return; }
     const reader = new FileReader();
-    reader.onload = () => analyzeImage(reader.result.split(",")[1]);
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => analyzeImage(downscaleToBase64(img, img.naturalWidth, img.naturalHeight));
+      img.onerror = () => setError("Couldn't read that image — try a different file.");
+      img.src = reader.result;
+    };
     reader.onerror = () => setError("Couldn't read that image — try a different file.");
     reader.readAsDataURL(file);
   };

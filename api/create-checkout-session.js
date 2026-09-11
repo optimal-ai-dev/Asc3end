@@ -5,6 +5,7 @@
 
 import { stripe } from "../lib/stripe.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
+import { checkRateLimit } from "../lib/rateLimit.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -18,6 +19,11 @@ export default async function handler(req, res) {
   const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
   if (authError || !user) {
     return res.status(401).json({ error: "Sign in required." });
+  }
+
+  const rl = await checkRateLimit(user.id, "create-checkout-session", { windowSeconds: 60, maxRequests: 5 });
+  if (!rl.allowed) {
+    return res.status(429).json({ error: "Too many requests — please wait a moment and try again." });
   }
 
   try {

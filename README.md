@@ -104,6 +104,57 @@ write never blocks a real user action. Instrumented at: `signup_completed`, `onb
 `plan_generated`, `plan_activated`, `workout_started`, `first_set_logged`, `workout_completed`,
 `coach_message_sent`, `food_logged`, `paywall_viewed`, `subscription_started`.
 
+### `rate_limits` table + `increment_rate_limit` function (server-side rate limiting)
+Only ever touched by API routes using `SUPABASE_SERVICE_ROLE_KEY` (via `lib/rateLimit.js`) — no
+client policies, since nothing in the browser should read or write this. Fixed-window counters:
+each `(user_id, endpoint, window_start)` triple is one row, incremented atomically by the RPC
+function (a plain supabase-js `.upsert()` can't express "increment the existing value").
+```sql
+create table rate_limits (
+  user_id uuid not null,
+  endpoint text not null,
+  window_start timestamptz not null,
+  count int not null default 1,
+  primary key (user_id, endpoint, window_start)
+);
+alter table rate_limits enable row level security;
+-- no policies — service_role bypasses RLS entirely, and nothing else should touch this table.
+
+create or replace function increment_rate_limit(p_user_id uuid, p_endpoint text, p_window_start timestamptz)
+returns int
+language plpgsql
+security definer
+as $$
+declare
+  new_count int;
+begin
+  insert into rate_limits (user_id, endpoint, window_start, count)
+  values (p_user_id, p_endpoint, p_window_start, 1)
+  on conflict (user_id, endpoint, window_start)
+  do update set count = rate_limits.count + 1
+  returning count into new_count;
+  return new_count;
+end;
+$$;
+```
+Old rows are never automatically deleted — harmless (each is tiny, and window_start naturally
+ages out of relevance), but if it ever matters, a scheduled `delete from rate_limits where
+window_start < now() - interval '1 day'` is enough.
+
+### `processed_webhook_events` table (Stripe webhook idempotency)
+Stripe can and does redeliver the same event (retries on a slow response, network blips). Every
+event id is inserted here before processing; a primary-key conflict means "already handled this
+one" and the handler short-circuits instead of reprocessing.
+```sql
+create table processed_webhook_events (
+  event_id text primary key,
+  event_type text,
+  processed_at timestamptz default now()
+);
+alter table processed_webhook_events enable row level security;
+-- no policies — service_role only.
+```
+
 ## Paywall
 Free: workout logging, nutrition tracking (manual entry + quick add + AI macro estimate).
 Premium ($9.99/mo): unlimited AI Coach, the food scanner (photo/barcode), and Meals Near You.

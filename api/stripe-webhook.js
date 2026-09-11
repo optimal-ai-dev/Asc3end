@@ -51,6 +51,23 @@ export default async function handler(req, res) {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  // Idempotency: Stripe can and does deliver the same event more than once (retries on a slow
+  // response, network blips, etc.) — record the event id before processing, and if it's already
+  // there, this is a redelivery. Insert-with-primary-key-conflict is the check: two concurrent
+  // deliveries of the same event can only have one insert succeed.
+  const { error: dedupeError } = await supabaseAdmin
+    .from("processed_webhook_events")
+    .insert({ event_id: event.id, event_type: event.type });
+  if (dedupeError) {
+    if (dedupeError.code === "23505") { // unique_violation — already processed this event id
+      return res.status(200).json({ received: true, duplicate: true });
+    }
+    console.error("webhook dedupe insert failed", dedupeError.message);
+    // Fail open on infra errors here rather than silently dropping a real billing event —
+    // worst case a very rare redelivery gets processed twice, which upsertFromSubscription
+    // already tolerates (it's a full replace of the row, not an increment).
+  }
+
   try {
     switch (event.type) {
       case "customer.subscription.created":
