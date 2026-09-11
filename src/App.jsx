@@ -2043,7 +2043,7 @@ function Nutrition({ profile, nutrition, onAdd, onDelete, isPremium, onUpgrade, 
     try {
       const g = mealMacroGuidance(profile.goal, mealTiming);
       const timingNote = mealTiming === "pre" ? "a pre-workout meal, eaten 1-3 hours before training" : "a post-workout meal to support recovery";
-      const system = `You are a nutrition search assistant. You must respond with ONLY a single valid JSON object — no preamble, no markdown fences, no explanation of your search, no citations. Just the JSON object and nothing else, even though you have access to web search to inform your answer.`;
+      const system = `You are a nutrition search assistant. Perform exactly ONE web search, then immediately respond — do not search again or refine your query. You must respond with ONLY a single valid JSON object — no preamble, no markdown fences, no explanation of your search, no citations. Just the JSON object and nothing else, even though you have access to web search to inform your answer.`;
       const prompt = `Find 4 real, currently open food places near "${locationText}" — mix it up across fast food, casual/local restaurants, and cafes where possible. This is for ${timingNote}.
 Person's goal: ${GOAL_LABELS[profile.goal]} (${g.rationale}). For each place, name ONE specific menu item that roughly fits: ${g.calories[0]}-${g.calories[1]} kcal, ${g.protein[0]}-${g.protein[1]}g protein, ${g.carbs[0]}-${g.carbs[1]}g carbs, ${g.fat[0]}-${g.fat[1]}g fat (your best real estimate, doesn't need to hit the range exactly).
 Estimate each place's approximate straight-line distance in km from "${locationText}".
@@ -2053,7 +2053,9 @@ Respond with ONLY this JSON, nothing else:
       const text = await callClaude(
         [{ role: "user", content: prompt }],
         1800,
-        [{ type: "web_search_20250305", name: "web_search" }],
+        // max_uses caps this at one search round instead of Claude iterating with several —
+        // multi-round searches were pushing real requests past 30+ seconds.
+        [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
         system,
         "meals"
       );
@@ -2136,9 +2138,10 @@ Respond with ONLY this JSON, nothing else:
           </button>
         </div>
         <button className="atlas-btn" style={{ width: "100%" }} onClick={() => locationInput && findNearbyMeals(locationInput)} disabled={findingMeals || !locationInput}>
-          {findingMeals ? <Loader2 size={14} style={{ verticalAlign: -2 }} /> : <Search size={14} style={{ verticalAlign: -2, marginRight: 6 }} />}
+          {findingMeals ? <Loader2 size={14} style={{ verticalAlign: -2, marginRight: 6, animation: "spin 1s linear infinite" }} /> : <Search size={14} style={{ verticalAlign: -2, marginRight: 6 }} />}
           {findingMeals ? "Searching…" : "Find Meals"}
         </button>
+        {findingMeals && <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 6, textAlign: "center" }}>Searching the web for real nearby options — can take up to 15-20 seconds.</div>}
         {mealError && <div style={{ fontSize: 11, color: "var(--rest)", marginTop: 8 }}>{mealError}</div>}
         {mealResults && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
@@ -2394,7 +2397,7 @@ export default function App() {
     return (
       <div className="atlas-root" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
         <GlobalStyle />
-        <Loader2 size={20} color="var(--brass)" />
+        <Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} />
       </div>
     );
   }
