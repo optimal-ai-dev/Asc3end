@@ -24,6 +24,10 @@ import { supabase } from "./supabase";
  */
 export const storage = {
   async get(key) {
+    // Always re-derives the current session's user rather than caching one — this is the actual
+    // account-isolation boundary for every read: switching authenticated users (log out, log in
+    // as someone else) can never keep serving the previous user's rows, because there is no
+    // previous user_id sitting in memory here to reuse.
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     const { data, error } = await supabase
@@ -54,3 +58,42 @@ export const storage = {
     return { key, deleted: true };
   },
 };
+
+/* ------------------------------------------------------------------ */
+/* Typed key helpers — JSON (de)serialization + the null->delete fix    */
+/* ------------------------------------------------------------------ */
+
+// Reads a stored JSON value back out, or null if it's missing, corrupted, or the read itself
+// failed. This is the "malformed stored data cannot crash the app" guarantee: a hand-edited or
+// truncated row in user_data (or a network hiccup) degrades to "as if never saved", not a thrown
+// exception that takes the rest of the app down with it.
+export async function loadKey(key) {
+  try {
+    const r = await storage.get(key);
+    if (!r) return null;
+    const parsed = JSON.parse(r.value);
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Returns true/false so callers that need to know whether a save actually landed (e.g. finishing
+// a workout) can react to failure — most callers still just fire-and-forget this and that's fine.
+export async function saveKey(key, value) {
+  try {
+    // user_data.value is `jsonb not null` — storage.set upserting a JS null (e.g. "clear the
+    // active session") always fails the column's NOT NULL constraint and silently no-ops via
+    // storage.set's own catch, leaving the stale row in place. Delete the row instead whenever
+    // the caller means "clear this key".
+    if (value === null || value === undefined) {
+      const result = await storage.delete(key);
+      return result !== null;
+    }
+    const result = await storage.set(key, JSON.stringify(value));
+    return result !== null;
+  } catch (e) {
+    console.error("storage error", e);
+    return false;
+  }
+}

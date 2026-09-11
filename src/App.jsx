@@ -9,7 +9,11 @@ import GlobalStyle from "./GlobalStyle";
 import AuthScreen from "./AuthScreen";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
-import { storage } from "./lib/storage";
+import { loadKey, saveKey } from "./lib/storage";
+import { suggestNextTarget, evaluatePR, computeGamification } from "./lib/workoutMath";
+import { computeTargets } from "./lib/nutritionMath";
+import { isStaleSession, isValidSession } from "./lib/session";
+import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
 // people who actually open the Progress tab, instead of loading on every page for everyone.
@@ -32,34 +36,6 @@ const KEYS = {
   customExercises: "atlas:customExercises",
   favorites: "atlas:favorites",
 };
-
-async function loadKey(key) {
-  try {
-    const r = await storage.get(key);
-    return r ? JSON.parse(r.value) : null;
-  } catch (e) {
-    return null;
-  }
-}
-// Returns true/false so callers that need to know whether a save actually landed (e.g. finishing
-// a workout) can react to failure — most callers still just fire-and-forget this and that's fine.
-async function saveKey(key, value) {
-  try {
-    // user_data.value is `jsonb not null` — storage.set upserting a JS null (e.g. "clear the
-    // active session") always fails the column's NOT NULL constraint and silently no-ops via
-    // storage.set's own catch, leaving the stale row in place. Delete the row instead whenever
-    // the caller means "clear this key".
-    if (value === null || value === undefined) {
-      const result = await storage.delete(key);
-      return result !== null;
-    }
-    const result = await storage.set(key, JSON.stringify(value));
-    return result !== null;
-  } catch (e) {
-    console.error("storage error", e);
-    return false;
-  }
-}
 
 /* Each exercise references a movement-pattern "pose" — this drives both the form-cue text (POSE_TIPS)
    and the human figure illustration (POSES/PoseFigure) so every variation gets a real visual demo. */
@@ -356,13 +332,6 @@ const GOAL_LABELS = {
   general: "General Fitness",
 };
 
-const REP_RANGES = {
-  muscle_growth: [8, 12],
-  strength: [4, 6],
-  fat_loss: [10, 15],
-  general: [8, 12],
-};
-
 const QUOTES = [
   "One more rep than yesterday.",
   "Discipline shows up when motivation clocks out.",
@@ -407,32 +376,6 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function computeTargets(p) {
-  // A manually-set override (Profile > Nutrition) always wins over the calculated targets —
-  // recalculating body metrics should never silently clobber a target the user chose on purpose.
-  if (p.macroOverride) return p.macroOverride;
-  const bmr =
-    p.gender === "female"
-      ? 10 * p.weightKg + 6.25 * p.heightCm - 5 * p.age - 161
-      : 10 * p.weightKg + 6.25 * p.heightCm - 5 * p.age + 5;
-  const tdee = bmr * 1.55;
-  let calories = tdee;
-  if (p.goal === "fat_loss") calories -= 500;
-  if (p.goal === "muscle_growth") calories += 250;
-  if (p.goal === "strength") calories += 100;
-
-  const proteinPerKg = p.goal === "fat_loss" ? 2.0 : p.goal === "general" ? 1.6 : 1.8;
-  const protein = proteinPerKg * p.weightKg;
-  const fat = (calories * 0.25) / 9;
-  const carbs = (calories - protein * 4 - fat * 9) / 4;
-
-  return {
-    calories: Math.round(calories),
-    protein: Math.round(protein),
-    carbs: Math.round(Math.max(carbs, 0)),
-    fat: Math.round(fat),
-  };
-}
 
 /* Per-meal macro targets used to steer the nearby-meals search toward the person's goal */
 function mealMacroGuidance(goal, timing) {
@@ -493,36 +436,6 @@ function lookupExercise(name) {
   return fuzzy || null;
 }
 
-function suggestNextTarget(workouts, exerciseName, goal) {
-  const [lo, hi] = REP_RANGES[goal] || REP_RANGES.general;
-  // Only exercise entries with at least one set carrying a real weight/reps count as history —
-  // an exercise added to a session but never actually logged (sets: []) must not be treated as
-  // a real data point, or Math.max(...[]) below silently produces -Infinity.
-  const hasValidSets = (e) => e.sets.some((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
-  const history = workouts
-    .filter((w) => w.exercises.some((e) => e.name === exerciseName && hasValidSets(e)))
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-  if (history.length === 0) {
-    return { text: `No history yet. Pick a weight you can control for ${lo}-${hi} reps and log it.`, weight: null };
-  }
-  const last = history[0].exercises.find((e) => e.name === exerciseName && hasValidSets(e));
-  const sets = last.sets.filter((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
-  const topWeight = Math.max(...sets.map((s) => s.weight));
-  const allHitTop = sets.every((s) => s.weight === topWeight && s.reps >= hi);
-  if (allHitTop) {
-    const nextWeight = Math.round((topWeight + topWeight * 0.025) / 2.5) * 2.5;
-    return {
-      text: `Last time you hit ${hi}+ reps across the board at ${topWeight}kg. Move up to ${nextWeight}kg and aim for ${lo} reps.`,
-      weight: nextWeight,
-    };
-  }
-  const lowestSet = sets.reduce((a, b) => (a.reps < b.reps ? a : b));
-  return {
-    text: `Stay at ${topWeight}kg. Push for ${Math.min(lowestSet.reps + 1, hi)}+ reps on your weakest set.`,
-    weight: topWeight,
-  };
-}
-
 function muscleRecovery(workouts, customExercises = []) {
   const now = Date.now();
   const status = {};
@@ -548,24 +461,6 @@ function muscleRecovery(workouts, customExercises = []) {
     status[m].hoursUntilReady = Number.isFinite(h) ? Math.max(0, Math.round(48 - h)) : 0;
   });
   return status;
-}
-
-/* Gamification: XP from logged activity, badges from milestones already in the data */
-function computeGamification(workouts, streak) {
-  const totalVolume = workouts.reduce((s, w) => s + w.exercises.reduce((s2, e) => s2 + e.sets.reduce((s3, st) => s3 + st.weight * st.reps, 0), 0), 0);
-  const xp = workouts.length * 50 + Math.round(totalVolume / 20) + streak * 10;
-  const level = Math.floor(xp / 500) + 1;
-  const xpIntoLevel = xp % 500;
-  const badges = [
-    { id: "first", label: "First Session", earned: workouts.length >= 1, icon: "🏁" },
-    { id: "ten", label: "10 Workouts", earned: workouts.length >= 10, icon: "🔟" },
-    { id: "twentyfive", label: "25 Workouts", earned: workouts.length >= 25, icon: "💯" },
-    { id: "streak7", label: "7 Day Streak", earned: streak >= 7, icon: "🔥" },
-    { id: "streak30", label: "30 Day Streak", earned: streak >= 30, icon: "🚀" },
-    { id: "vol10k", label: "10,000kg Lifted", earned: totalVolume >= 10000, icon: "🏋️" },
-    { id: "vol100k", label: "100,000kg Lifted", earned: totalVolume >= 100000, icon: "🏆" },
-  ];
-  return { xp, level, xpIntoLevel, totalVolume: Math.round(totalVolume), badges };
 }
 
 /* Evidence-based technique guidance (Androulakis Korakakis et al., 2023, J Funct Morphol Kinesiol —
@@ -1057,15 +952,6 @@ function playRestDoneSound() {
       osc.stop(t + 0.2);
     });
   } catch (e) { /* audio unavailable, fail silently */ }
-}
-
-function evaluatePR(historySets, weight, reps) {
-  const maxWeightEver = historySets.length ? Math.max(...historySets.map((s) => s.weight)) : 0;
-  if (weight > maxWeightEver) return { isPR: true, type: "weight" };
-  const sameWeightSets = historySets.filter((s) => s.weight === weight);
-  const maxRepsAtWeight = sameWeightSets.length ? Math.max(...sameWeightSets.map((s) => s.reps)) : 0;
-  if (sameWeightSets.length > 0 && reps > maxRepsAtWeight) return { isPR: true, type: "reps" };
-  return { isPR: false };
 }
 
 function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile }) {
@@ -3249,6 +3135,13 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [finishingWorkout, setFinishingWorkout] = useState(false);
   const [finishError, setFinishError] = useState(null);
+  // A ref, not just the `finishingWorkout` state, guards finishWorkout against a genuine
+  // double-click: two click events dispatched in the same tick both close over the same
+  // pre-update `finishingWorkout` value (React only commits the state update — and thus the
+  // button's `disabled` attribute — between event handler invocations, not necessarily before a
+  // second synchronous click is processed). A ref updates immediately and outside any render
+  // cycle, so the second call's read of it is guaranteed to see the first call's write.
+  const finishingRef = useRef(false);
   // undefined = not checked yet, null = no row (never subscribed), object = { status, current_period_end }.
   // Never set directly from checkout success — only the Stripe webhook (server-side) is trusted
   // to write this, so a user can't just flip themselves to "active" from the browser.
@@ -3280,18 +3173,32 @@ export default function App() {
       const [p, w, n, wl, sess, ce, fav] = await Promise.all([
         loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises), loadKey(KEYS.favorites),
       ]);
-      if (p) setProfile(p);
-      if (w) setWorkouts(w);
-      if (n) setNutrition(n);
-      if (wl) setWeightlog(wl);
+      // Each array-shaped key is validated item-by-item before being trusted — a corrupted or
+      // partially-written row (or a schema left over from an old app version) degrades to
+      // "drop the bad items" instead of handing a malformed item into code downstream that
+      // assumes every item has certain fields and crashing the whole app. (Verified live: an
+      // exercise object missing `.name` crashed Train's search via `e.name.toLowerCase()`.)
+      const workouts = sanitizeList(w, isValidWorkout);
+      const nutrition = sanitizeList(n, isValidFoodEntry);
+      const weightlog = sanitizeList(wl, isValidWeightEntry);
+      const customExercises = sanitizeList(ce, isValidCustomExercise);
+      const favorites = sanitizeList(fav, isValidFavorite);
+      if (p && typeof p === "object") setProfile(p);
+      setWorkouts(workouts);
+      setNutrition(nutrition);
+      setWeightlog(weightlog);
       // Defense in depth against the stale-session bug: if a session was already saved into
       // history (its id shows up in `workouts`), it's a leftover from a completed workout that
       // never got cleared, not a real in-progress one — discard it and finish clearing the row.
-      const isAlreadyCompleted = sess && (w || []).some((wk) => wk.id === sess.id);
-      if (sess && !isAlreadyCompleted) { setSession(sess); setTab("train"); }
-      else if (isAlreadyCompleted) { saveKey(KEYS.session, null); }
-      if (ce) setCustomExercises(ce);
-      if (fav) setFavorites(fav);
+      // isValidSession also rejects malformed/truncated session data (missing fields, wrong
+      // types) so a corrupted row can't crash Train when it reads session.exercises/.startedAt.
+      const validSess = isValidSession(sess) ? sess : null;
+      const stale = validSess && isStaleSession(validSess, workouts);
+      if (validSess && !stale) { setSession(validSess); setTab("train"); }
+      else if (validSess && stale) { saveKey(KEYS.session, null); }
+      else if (sess) { saveKey(KEYS.session, null); } // sess existed but failed validation — clear the corrupt row
+      setCustomExercises(customExercises);
+      setFavorites(favorites);
       setLoaded(true);
     })();
   }, [authUser]);
@@ -3418,7 +3325,8 @@ export default function App() {
   // history entry. If the save itself fails, the active session is left untouched — nothing is
   // lost, and the caller gets a retryable error instead of a silently-dropped workout.
   const finishWorkout = async (s) => {
-    if (finishingWorkout || !session) return null;
+    if (finishingRef.current || !session) return null;
+    finishingRef.current = true;
     setFinishingWorkout(true);
     setFinishError(null);
     const completed = { ...s, completedAt: new Date().toISOString() };
@@ -3426,6 +3334,7 @@ export default function App() {
     const savedWorkout = await saveKey(KEYS.workouts, next);
     if (!savedWorkout) {
       setFinishError("Couldn't save your workout — check your connection and try again. Nothing was lost.");
+      finishingRef.current = false;
       setFinishingWorkout(false);
       return null;
     }
@@ -3437,6 +3346,7 @@ export default function App() {
     }
     setSession(null);
     await saveKey(KEYS.session, null);
+    finishingRef.current = false;
     setFinishingWorkout(false);
     setTab("dashboard");
     logEvent("workout_completed", {

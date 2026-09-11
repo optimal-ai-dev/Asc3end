@@ -6,6 +6,11 @@ import react from "@vitejs/plugin-react";
 // from a CDN (Vercel/Netlify) loads in a fraction of the time an interpreted artifact does.
 export default defineConfig({
   plugins: [react()],
+  test: {
+    environment: "jsdom",
+    globals: true,
+    include: ["src/**/*.test.js", "src/**/*.test.jsx"],
+  },
   build: {
     // Splits vendor code (React, Supabase) into its own cacheable chunk so repeat visits only
     // re-download the small app-specific bundle, not everything every time. recharts is
