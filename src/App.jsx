@@ -12,6 +12,7 @@ import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
 import { suggestNextTarget, evaluatePR, computeGamification } from "./lib/workoutMath";
 import { computeTargets } from "./lib/nutritionMath";
+import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION } from "./lib/legal";
 import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
 
@@ -612,6 +613,8 @@ async function callClaude(messages, maxTokens = 1000, tools = null, system = nul
 
 function Onboarding({ onComplete }) {
   const [step, setStep] = useState(0);
+  const [agreedToLegal, setAgreedToLegal] = useState(false);
+  const [legalOpen, setLegalOpen] = useState(null);
   const [form, setForm] = useState({
     name: "", age: 25, gender: "male", heightCm: 175, weightKg: 75,
     goal: "muscle_growth", experience: "intermediate", trainingDays: 4,
@@ -695,10 +698,36 @@ function Onboarding({ onComplete }) {
         </div>
       ),
     },
+    {
+      title: "Before we start",
+      body: (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.6, marginBottom: 4 }}>
+            Asc3end gives general fitness and nutrition information, not medical advice — quick summary below, full documents linked from Profile once you're in.
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["terms", "privacy", "disclaimer"].map((k) => (
+              <button key={k} onClick={() => setLegalOpen(legalOpen === k ? null : k)} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: "transparent", color: "var(--ink-dim)" }}>{LEGAL_COPY[k].title}</button>
+            ))}
+          </div>
+          {legalOpen && (
+            <div style={{ padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
+              <div className="disp" style={{ fontSize: 12, marginBottom: 6 }}>{LEGAL_COPY[legalOpen].title}</div>
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6 }}>{LEGAL_COPY[legalOpen].body}</div>
+            </div>
+          )}
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", marginTop: 8 }}>
+            <input type="checkbox" checked={agreedToLegal} onChange={(e) => setAgreedToLegal(e.target.checked)} style={{ marginTop: 3 }} />
+            <span style={{ fontSize: 13, lineHeight: 1.5 }}>I agree to the Terms of Use and Privacy Policy, and understand Asc3end is not medical advice.</span>
+          </label>
+        </div>
+      ),
+    },
   ];
 
   const isLast = step === steps.length - 1;
   const nameMissing = step === 0 && !form.name.trim();
+  const legalNotAgreed = isLast && !agreedToLegal;
 
   return (
     <div className="atlas-root" style={{ padding: "40px 20px", paddingBottom: 40 }}>
@@ -719,9 +748,9 @@ function Onboarding({ onComplete }) {
         <button
           className="atlas-btn"
           style={{ flex: 1 }}
-          disabled={nameMissing}
+          disabled={nameMissing || legalNotAgreed}
           onClick={() => {
-            if (isLast) onComplete(form);
+            if (isLast) onComplete({ ...form, legalAcceptedVersion: LEGAL_DOCUMENT_VERSION, legalAcceptedAt: new Date().toISOString() });
             else setStep(step + 1);
           }}
         >
@@ -729,6 +758,7 @@ function Onboarding({ onComplete }) {
         </button>
       </div>
       {nameMissing && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Enter your name to continue.</div>}
+      {legalNotAgreed && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Accept the Terms and Privacy Policy to continue.</div>}
     </div>
   );
 }
@@ -1203,25 +1233,6 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
 /* Profile / Settings                                                   */
 /* ------------------------------------------------------------------ */
 
-const LEGAL_COPY = {
-  privacy: {
-    title: "Privacy",
-    body: "Your workouts, nutrition logs, bodyweight history and profile are stored in your own account and are never shared with other users. AI features (Coach, food scanner, Meals Near You) send the minimum context needed to Anthropic's Claude API to generate a response. Payment is handled entirely by Stripe — Asc3end never sees or stores your card details.",
-  },
-  terms: {
-    title: "Terms",
-    body: "Asc3end is provided as-is to help you plan and track training and nutrition. Premium features are billed monthly through Stripe and can be cancelled anytime from Manage Billing below; access continues until the end of the paid period.",
-  },
-  disclaimer: {
-    title: "Disclaimer",
-    body: "Asc3end is not a medical, dietetic, or licensed coaching service. Muscle recovery estimates, macro targets, and AI Coach guidance are general-purpose estimates, not personalized medical or nutrition advice. Talk to a doctor or registered dietitian before making significant changes to training or diet, especially if you have an existing health condition.",
-  },
-  support: {
-    title: "Support",
-    body: "Something broken or confusing? Email support and describe what you were doing when it happened — screenshots help.",
-  },
-};
-
 function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, isDemoEntitlement, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose }) {
   const [edit, setEdit] = useState({
     name: profile.name || "", age: profile.age, gender: profile.gender,
@@ -1241,6 +1252,9 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
 
   const [showDelete, setShowDelete] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [reauthPassword, setReauthPassword] = useState("");
+  const [reauthError, setReauthError] = useState(null);
+  const [reauthing, setReauthing] = useState(false);
 
   const [legalOpen, setLegalOpen] = useState(null);
 
@@ -1275,6 +1289,19 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
     const { error } = await supabase.auth.updateUser({ password: pw.next });
     if (error) setPwStatus({ error: error.message || "Couldn't update password." });
     else { setPwStatus("success"); setPw({ next: "", confirm: "" }); }
+  };
+
+  // Requires re-entering the current password immediately before an irreversible account
+  // deletion ("recent authentication"), rather than trusting however-old the existing session
+  // happens to be — the type-DELETE text alone only guards against a misclick, not against
+  // someone else acting on an already-open, unattended session.
+  const confirmDelete = async () => {
+    setReauthError(null);
+    setReauthing(true);
+    const { error } = await supabase.auth.signInWithPassword({ email: authUser?.email, password: reauthPassword });
+    setReauthing(false);
+    if (error) { setReauthError("Incorrect password."); return; }
+    onDeleteAccount();
   };
 
   const exportData = () => {
@@ -1448,14 +1475,16 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
         ) : (
           <div>
             <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 10 }}>
-              This permanently deletes your account and all workouts, nutrition logs, and weight history. This can't be undone. Type DELETE to confirm.
+              This permanently deletes your account and all workouts, nutrition logs, and weight history. This can't be undone. Type DELETE and enter your password to confirm.
             </div>
             <input className="atlas-input" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="DELETE" style={{ marginBottom: 10 }} />
+            <input className="atlas-input" type="password" autoComplete="current-password" value={reauthPassword} onChange={(e) => { setReauthPassword(e.target.value); setReauthError(null); }} placeholder="Current password" style={{ marginBottom: 10 }} aria-label="Current password, to confirm it's really you" />
+            {reauthError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 8 }}>{reauthError}</div>}
             {deleteAccountError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 8 }}>{deleteAccountError}</div>}
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => { setShowDelete(false); setDeleteConfirmText(""); }} disabled={deleteAccountLoading}>Cancel</button>
-              <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} disabled={deleteConfirmText !== "DELETE" || deleteAccountLoading} onClick={onDeleteAccount}>
-                {deleteAccountLoading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Permanently Delete"}
+              <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => { setShowDelete(false); setDeleteConfirmText(""); setReauthPassword(""); setReauthError(null); }} disabled={deleteAccountLoading || reauthing}>Cancel</button>
+              <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} disabled={deleteConfirmText !== "DELETE" || !reauthPassword || deleteAccountLoading || reauthing} onClick={confirmDelete}>
+                {deleteAccountLoading || reauthing ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Permanently Delete"}
               </button>
             </div>
           </div>
@@ -3117,6 +3146,66 @@ Respond with ONLY this JSON, nothing else:
 }
 
 /* ------------------------------------------------------------------ */
+/* Password reset                                                       */
+/* ------------------------------------------------------------------ */
+
+// Shown instead of the normal app when Supabase fires PASSWORD_RECOVERY (the user followed a
+// reset-password email link). The temporary recovery session is only ever used to call
+// updateUser({ password }) — never to read/show the rest of their account.
+function ResetPasswordScreen({ onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (password !== confirm) { setError("Passwords don't match."); return; }
+    setLoading(true);
+    const { error: err } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if (err) { setError(err.message); return; }
+    setDone(true);
+  };
+
+  return (
+    <div className="atlas-root" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 }}>
+      <div className="atlas-card" style={{ width: "100%", maxWidth: 360 }}>
+        <div className="disp" style={{ fontSize: 20, marginBottom: 4 }}>Set a new password</div>
+        {done ? (
+          <>
+            <div className="mono" style={{ color: "var(--good)", fontSize: 12, background: "rgba(126,217,87,0.1)", border: "1px solid var(--good)", borderRadius: 8, padding: "10px 12px", marginTop: 12, lineHeight: 1.6 }}>
+              Password updated. Continue into your account below.
+            </div>
+            <button onClick={onDone} className="atlas-btn" style={{ width: "100%", marginTop: 14 }}>Continue</button>
+          </>
+        ) : (
+          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>NEW PASSWORD</div>
+              <input className="atlas-input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required autoFocus />
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>CONFIRM NEW PASSWORD</div>
+              <input className="atlas-input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} minLength={6} required />
+            </div>
+            {error && (
+              <div className="mono" style={{ color: "var(--rest)", fontSize: 12, background: "rgba(255,92,122,0.1)", border: "1px solid var(--rest)", borderRadius: 8, padding: "8px 10px" }}>{error}</div>
+            )}
+            <button type="submit" className="atlas-btn" disabled={loading || !password || !confirm} style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              {loading ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : "Update Password"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* App root                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -3157,10 +3246,16 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState(null);
+  // True while the user has followed a password-reset email link — Supabase signs them into a
+  // temporary recovery session and fires the "PASSWORD_RECOVERY" auth event rather than a normal
+  // sign-in. Must gate the whole app behind a "set your new password" screen instead of dropping
+  // them straight into their account on that temporary session.
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthUser(session?.user ?? null));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
       setAuthUser(session?.user ?? null);
       if (!session) setLoaded(false);
     });
@@ -3463,6 +3558,15 @@ export default function App() {
     }
     setDeleteAccountLoading(false);
   };
+
+  if (passwordRecovery) {
+    return (
+      <>
+        <GlobalStyle />
+        <ResetPasswordScreen onDone={() => setPasswordRecovery(false)} />
+      </>
+    );
+  }
 
   if (authUser === undefined || (authUser && !loaded)) {
     return (
