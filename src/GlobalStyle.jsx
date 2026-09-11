@@ -93,6 +93,14 @@ export default function GlobalStyle() {
         width: 100%;
       }
       .atlas-input:focus { outline: none; border-color: var(--brass); }
+      .atlas-root button:focus-visible,
+      .atlas-root a:focus-visible,
+      .atlas-root input:focus-visible,
+      .atlas-root select:focus-visible,
+      .atlas-root [tabindex]:focus-visible {
+        outline: 2px solid var(--brass);
+        outline-offset: 2px;
+      }
       .atlas-nav {
         position: fixed;
         bottom: 0; left: 50%; transform: translateX(-50%);

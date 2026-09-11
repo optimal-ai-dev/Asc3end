@@ -29,6 +29,7 @@ const KEYS = {
   weightlog: "atlas:weightlog",
   session: "atlas:session",
   customExercises: "atlas:customExercises",
+  favorites: "atlas:favorites",
 };
 
 async function loadKey(key) {
@@ -385,6 +386,11 @@ function dayOfYear(d) {
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
+function yesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
@@ -507,20 +513,26 @@ function suggestNextTarget(workouts, exerciseName, goal) {
 function muscleRecovery(workouts, customExercises = []) {
   const now = Date.now();
   const status = {};
-  MUSCLE_GROUPS.forEach((m) => (status[m] = { hours: Infinity }));
+  MUSCLE_GROUPS.forEach((m) => (status[m] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
   const allEx = [...EXERCISES, ...customExercises];
   workouts.forEach((w) => {
     const t = new Date(w.date).getTime();
+    const hrs = (now - t) / 3600000;
+    const hitThisWorkout = new Set();
     w.exercises.forEach((e) => {
       const ex = allEx.find((x) => x.name === e.name);
       if (!ex) return;
-      const hrs = (now - t) / 3600000;
-      if (hrs < status[ex.muscle].hours) status[ex.muscle].hours = hrs;
+      if (hrs < status[ex.muscle].hours) { status[ex.muscle].hours = hrs; status[ex.muscle].lastDate = w.date; }
+      // "Recent" = last 7 days, used to show actual training load rather than just a single last-session snapshot.
+      if (hrs <= 168) { status[ex.muscle].recentSets += e.sets.length; hitThisWorkout.add(ex.muscle); }
     });
+    hitThisWorkout.forEach((m) => status[m].recentSessions++);
   });
   Object.keys(status).forEach((m) => {
     const h = status[m].hours;
     status[m].level = h < 24 ? "rest" : h < 48 ? "partial" : "ready";
+    // Rough estimate only — real recovery time varies by muscle, volume, intensity, sleep, and individual factors.
+    status[m].hoursUntilReady = Number.isFinite(h) ? Math.max(0, Math.round(48 - h)) : 0;
   });
   return status;
 }
@@ -849,7 +861,7 @@ function StreakRing({ streak, size = 92 }) {
   );
 }
 
-function RecoveryMap({ status }) {
+function RecoveryMap({ status, selected, onTapMuscle }) {
   const colors = { ready: "var(--good)", partial: "var(--warn)", rest: "var(--rest)" };
   return (
     <svg viewBox="0 0 100 100" style={{ width: "100%", maxWidth: 200, display: "block", margin: "0 auto" }}>
@@ -859,9 +871,9 @@ function RecoveryMap({ status }) {
         const [x, y] = MUSCLE_POSITIONS[m];
         const lvl = status[m]?.level || "ready";
         return (
-          <g key={m}>
-            <circle cx={x} cy={y} r="7" fill={colors[lvl]} opacity="0.9" />
-            <text x={x} y={y + 15} textAnchor="middle" fontSize="5" fill="var(--ink-dim)" fontFamily="Oswald">
+          <g key={m} onClick={() => onTapMuscle?.(m)} style={{ cursor: onTapMuscle ? "pointer" : "default" }}>
+            <circle cx={x} cy={y} r={selected === m ? 9 : 7} fill={colors[lvl]} opacity="0.9" stroke={selected === m ? "var(--ink)" : "none"} strokeWidth="1" />
+            <text x={x} y={y + 15} textAnchor="middle" fontSize="5" fill={selected === m ? "var(--ink)" : "var(--ink-dim)"} fontFamily="Oswald">
               {m.toUpperCase()}
             </text>
           </g>
@@ -1046,6 +1058,7 @@ function evaluatePR(historySets, weight, reps) {
 function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
   const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
+  const [selectedMuscle, setSelectedMuscle] = useState(null);
   const targets = useMemo(() => computeTargets(profile), [profile]);
   const todayFoods = nutrition.filter((n) => n.date === todayStr());
   const totals = todayFoods.reduce(
@@ -1182,13 +1195,27 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
 
       <div className="atlas-card">
         <div className="disp" style={{ fontSize: 15, marginBottom: 6 }}>Muscle Recovery</div>
-        <RecoveryMap status={status} />
+        <RecoveryMap status={status} selected={selectedMuscle} onTapMuscle={(m) => setSelectedMuscle(selectedMuscle === m ? null : m)} />
         <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 8 }}>
           <span className="pill" style={{ background: "rgba(116,165,120,0.15)", color: "var(--good)" }}>● Ready</span>
           <span className="pill" style={{ background: "rgba(255,182,72,0.15)", color: "var(--warn)" }}>● Partial</span>
           <span className="pill" style={{ background: "rgba(184,91,94,0.15)", color: "var(--rest)" }}>● Resting</span>
         </div>
-        <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>Estimate based on time since last trained — not a medical measurement.</div>
+        {selectedMuscle && (
+          <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
+            <div className="disp" style={{ fontSize: 12, textTransform: "capitalize", marginBottom: 4 }}>{selectedMuscle}</div>
+            {!Number.isFinite(status[selectedMuscle].hours) ? (
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>Not trained yet.</div>
+            ) : (
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.7 }}>
+                Last trained: {fmtDate(status[selectedMuscle].lastDate)} ({Math.round(status[selectedMuscle].hours)}h ago)<br />
+                {status[selectedMuscle].recentSets} set{status[selectedMuscle].recentSets === 1 ? "" : "s"} across {status[selectedMuscle].recentSessions} session{status[selectedMuscle].recentSessions === 1 ? "" : "s"} in the last 7 days<br />
+                {status[selectedMuscle].level === "ready" ? "Ready to train." : `Est. fully ready in ~${status[selectedMuscle].hoursUntilReady}h`}
+              </div>
+            )}
+          </div>
+        )}
+        <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>Estimate based on time since last trained — not a medical measurement. Tap a muscle for detail.</div>
       </div>
 
       <div className="atlas-card">
@@ -1300,6 +1327,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
     goal: profile.goal, experience: profile.experience, trainingDays: profile.trainingDays,
   });
   const [savedFlash, setSavedFlash] = useState(false);
+  const [showComparison, setShowComparison] = useState(false);
   const setNumber = (k, raw) => setEdit((f) => ({ ...f, [k]: raw === "" ? 0 : +raw.replace(/^0+(?=\d)/, "") }));
 
   const [overrideOn, setOverrideOn] = useState(!!profile.macroOverride);
@@ -1457,10 +1485,16 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
             </button>
           </div>
         ) : (
-          <button onClick={onUpgrade} disabled={billingLoading === "checkout"} className="atlas-btn" style={{ width: "100%" }}>
-            {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
-            Upgrade to Premium — $9.99/mo
-          </button>
+          <>
+            <button onClick={onUpgrade} disabled={billingLoading === "checkout"} className="atlas-btn" style={{ width: "100%" }}>
+              {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
+              Upgrade to Premium — $9.99/mo
+            </button>
+            <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ display: "block", width: "100%", textAlign: "center", background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "8px 0 0" }}>
+              {showComparison ? "Hide" : "See"} Free vs Premium {showComparison ? <ChevronUp size={12} style={{ verticalAlign: -2 }} /> : <ChevronDown size={12} style={{ verticalAlign: -2 }} />}
+            </button>
+            {showComparison && <FeatureComparisonTable />}
+          </>
         ))}
         {billingError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 4 }}>{billingError}</div>}
 
@@ -1816,7 +1850,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
                 <span className="mono" style={{ flex: 1 }}>{s.weight}kg × {s.reps}</span>
                 {s.type && s.type !== "normal" && <span className="pill" style={{ fontSize: 9, background: SET_TYPE_COLORS[s.type] + "22", color: SET_TYPE_COLORS[s.type] }}>{SET_TYPE_LABELS[s.type]}</span>}
                 {isPR(ex.name, s.weight) && <Trophy size={14} color="var(--brass)" />}
-                <button onClick={() => removeSet(ex.name, i)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                <button onClick={() => removeSet(ex.name, i)} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label={`Remove set ${i + 1} for ${ex.name}`}>
                   <X size={14} color="var(--ink-dim)" />
                 </button>
               </div>
@@ -1833,9 +1867,9 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
               ))}
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={(e) => setWeightIn((v) => ({ ...v, [ex.name]: e.target.value }))} />
-              <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={(e) => setRepsIn((v) => ({ ...v, [ex.name]: e.target.value }))} />
-              <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)}><Plus size={16} /></button>
+              <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={(e) => setWeightIn((v) => ({ ...v, [ex.name]: e.target.value }))} aria-label={`Weight in kg for ${ex.name}`} />
+              <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={(e) => setRepsIn((v) => ({ ...v, [ex.name]: e.target.value }))} aria-label={`Reps for ${ex.name}`} />
+              <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
             </div>
           </div>
         );
@@ -2025,7 +2059,7 @@ function CoachExercisePopup({ ex, onClose }) {
               <span className="pill" style={{ background: "rgba(255,255,255,0.06)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>{ex.equipment}</span>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={18} color="var(--ink-dim)" /></button>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="Close"><X size={18} color="var(--ink-dim)" /></button>
         </div>
         <div className="disp" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 14, marginBottom: 6 }}>Key Focus Points</div>
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
@@ -2065,7 +2099,37 @@ function MuscleGroupBlock({ muscleGroups, onTapExercise }) {
 /* Shared upsell shown in place of a gated feature — Coach entirely, or an inline slot inside
    Nutrition for the scanner / Meals Near You. Subscription status is only ever set by the
    Stripe webhook, so this button just starts Checkout; it never grants access itself. */
+const FEATURE_COMPARISON = [
+  { label: "Workout logging", free: true, premium: true },
+  { label: "Nutrition tracking", free: true, premium: true },
+  { label: "Progress & strength analytics", free: true, premium: true },
+  { label: "AI Coach chat & plans", free: `${FREE_TRIAL_LIMIT} free`, premium: "Unlimited" },
+  { label: "Meals Near You", free: `${FREE_TRIAL_LIMIT} free`, premium: "Unlimited" },
+  { label: "Food scanner (photo/barcode)", free: false, premium: true },
+];
+
+function FeatureComparisonTable() {
+  const cell = (v) => v === true ? <Check size={13} color="var(--good)" /> : v === false ? <X size={13} color="var(--ink-dim)" /> : <span className="mono" style={{ fontSize: 10 }}>{v}</span>;
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 70px", gap: 4, marginBottom: 6 }}>
+        <span />
+        <span className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", textAlign: "center" }}>FREE</span>
+        <span className="mono" style={{ fontSize: 9, color: "var(--brass)", textAlign: "center" }}>PREMIUM</span>
+      </div>
+      {FEATURE_COMPARISON.map((r) => (
+        <div key={r.label} style={{ display: "grid", gridTemplateColumns: "1fr 60px 70px", gap: 4, alignItems: "center", padding: "5px 0", borderTop: "1px solid var(--line)" }}>
+          <span style={{ fontSize: 11.5, textAlign: "left" }}>{r.label}</span>
+          <span style={{ textAlign: "center" }}>{cell(r.free)}</span>
+          <span style={{ textAlign: "center" }}>{cell(r.premium)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Paywall({ feature, onUpgrade }) {
+  const [showComparison, setShowComparison] = useState(false);
   const COPY = {
     coach: { title: "AI Coach is Premium", blurb: "Personalized training plans, a chat coach that knows your history, and real-time form feedback." },
     scanner: { title: "Food Scanner is Premium", blurb: "Snap a photo or scan a barcode to log food in seconds instead of typing it in by hand." },
@@ -2078,6 +2142,10 @@ function Paywall({ feature, onUpgrade }) {
       <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>{c.title}</div>
       <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>{c.blurb}</div>
       <button className="atlas-btn" style={{ width: "100%" }} onClick={onUpgrade}>Upgrade — $9.99/mo</button>
+      <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0, marginTop: 12 }}>
+        {showComparison ? "Hide" : "See"} full Free vs Premium comparison {showComparison ? <ChevronUp size={12} style={{ verticalAlign: -2 }} /> : <ChevronDown size={12} style={{ verticalAlign: -2 }} />}
+      </button>
+      {showComparison && <FeatureComparisonTable />}
     </div>
   );
 }
@@ -2283,7 +2351,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <input className="atlas-input" placeholder="Ask your coach…" value={input} onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()} />
-        <button className="atlas-btn" style={{ padding: "10px 14px" }} onClick={sendMessage} disabled={sending}><Send size={16} /></button>
+        <button className="atlas-btn" style={{ padding: "10px 14px" }} onClick={sendMessage} disabled={sending} aria-label="Send message"><Send size={16} /></button>
       </div>
 
       {exDetail && <CoachExercisePopup ex={exDetail} onClose={() => setExDetail(null)} />}
@@ -2306,10 +2374,12 @@ function FoodScanner({ onAdd, onClose }) {
   const [result, setResult] = useState(null);
   const [grams, setGrams] = useState(100);
   const [manualBarcode, setManualBarcode] = useState("");
+  const [cameraDenied, setCameraDenied] = useState(false);
   const barcodeSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const scanLoopRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const stopCamera = () => {
     if (scanLoopRef.current) { clearInterval(scanLoopRef.current); scanLoopRef.current = null; }
@@ -2343,7 +2413,7 @@ function FoodScanner({ onAdd, onClose }) {
   };
 
   useEffect(() => {
-    if (result) { stopCamera(); return; }
+    if (result || cameraDenied) { stopCamera(); return; }
     let cancelled = false;
     (async () => {
       try {
@@ -2362,24 +2432,19 @@ function FoodScanner({ onAdd, onClose }) {
           }, 400);
         }
       } catch (e) {
-        setError("Camera access denied or unavailable. Use manual barcode entry instead.");
+        // Covers both an explicit permission denial and no-camera-available devices — either way
+        // the live camera path is dead, so stop retrying it and surface the fallback options instead.
+        setCameraDenied(true);
+        setError(mode === "photo" ? "Camera access denied or unavailable. Upload a photo instead, or log it manually." : "Camera access denied or unavailable. Enter the barcode number instead.");
       }
     })();
     return () => { cancelled = true; stopCamera(); };
-  }, [mode, result]);
+  }, [mode, result, cameraDenied]);
 
-  const capturePhoto = async () => {
-    if (!videoRef.current) return;
+  const analyzeImage = async (base64) => {
     setLoading(true);
     setError(null);
     try {
-      const video = videoRef.current;
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d").drawImage(video, 0, 0);
-      const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
-      stopCamera();
       const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch("/api/claude", {
         method: "POST",
@@ -2422,6 +2487,28 @@ function FoodScanner({ onAdd, onClose }) {
     setLoading(false);
   };
 
+  const capturePhoto = async () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+    stopCamera();
+    await analyzeImage(base64);
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => analyzeImage(reader.result.split(",")[1]);
+    reader.onerror = () => setError("Couldn't read that image — try a different file.");
+    reader.readAsDataURL(file);
+  };
+
   const totals = result ? {
     calories: Math.round((result.per100g.calories * grams) / 100),
     protein: Math.round((result.per100g.protein * grams) / 100),
@@ -2433,7 +2520,7 @@ function FoodScanner({ onAdd, onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,11,13,0.95)", zIndex: 50, display: "flex", flexDirection: "column", padding: 18, maxWidth: 480, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div className="disp" style={{ fontSize: 18 }}>Scan Food</div>
-        <button onClick={() => { stopCamera(); onClose(); }} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} color="var(--ink)" /></button>
+        <button onClick={() => { stopCamera(); onClose(); }} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="Close scanner"><X size={20} color="var(--ink)" /></button>
       </div>
 
       {!result && (
@@ -2444,24 +2531,48 @@ function FoodScanner({ onAdd, onClose }) {
           </div>
 
           <div style={{ position: "relative", background: "#000", borderRadius: 10, overflow: "hidden", flex: 1, minHeight: 260, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <video ref={videoRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            {mode === "barcode" && <div style={{ position: "absolute", left: "10%", right: "10%", top: "40%", height: 60, border: "2px solid var(--brass)", borderRadius: 6 }} />}
+            {cameraDenied ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: 20, textAlign: "center" }}>
+                <AlertTriangle size={26} color="var(--warn)" />
+                <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>No camera access.</div>
+                <button className="atlas-btn-ghost" style={{ fontSize: 11, padding: "6px 12px" }} onClick={() => { setCameraDenied(false); setError(null); }}>
+                  Allow Camera
+                </button>
+              </div>
+            ) : (
+              <>
+                <video ref={videoRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                {mode === "barcode" && <div style={{ position: "absolute", left: "10%", right: "10%", top: "40%", height: 60, border: "2px solid var(--brass)", borderRadius: 6 }} />}
+              </>
+            )}
           </div>
 
           {error && <div style={{ fontSize: 12, color: "var(--rest)", marginTop: 10 }}>{error}</div>}
 
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} hidden aria-hidden="true" tabIndex={-1} />
+
           {mode === "photo" && (
-            <button className="atlas-btn" style={{ marginTop: 14 }} onClick={capturePhoto} disabled={loading}>
-              {loading ? "Analyzing…" : <><Camera size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Capture</>}
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button className="atlas-btn" style={{ flex: 1 }} onClick={capturePhoto} disabled={loading || cameraDenied}>
+                {loading ? "Analyzing…" : <><Camera size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Capture</>}
+              </button>
+              <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => fileInputRef.current?.click()} disabled={loading}>
+                Upload Photo
+              </button>
+            </div>
+          )}
+          {mode === "photo" && (
+            <button onClick={onClose} className="mono" style={{ display: "block", margin: "10px auto 0", background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11 }}>
+              Log it manually instead
             </button>
           )}
-          {mode === "barcode" && !barcodeSupported && (
+          {mode === "barcode" && (!barcodeSupported || cameraDenied) && (
             <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
-              <input className="atlas-input" placeholder="Enter barcode number" value={manualBarcode} onChange={(e) => setManualBarcode(e.target.value)} />
+              <input className="atlas-input" placeholder="Enter barcode number" value={manualBarcode} onChange={(e) => setManualBarcode(e.target.value)} aria-label="Barcode number" />
               <button className="atlas-btn" onClick={() => manualBarcode && lookupBarcode(manualBarcode)} disabled={loading}>{loading ? "…" : "Find"}</button>
             </div>
           )}
-          {mode === "barcode" && barcodeSupported && (
+          {mode === "barcode" && barcodeSupported && !cameraDenied && (
             <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 10, textAlign: "center" }}>Point the camera at a barcode…</div>
           )}
         </>
@@ -2495,7 +2606,7 @@ function FoodScanner({ onAdd, onClose }) {
   );
 }
 
-function Nutrition({ profile, nutrition, onAdd, onDelete, isPremium, onUpgrade, usage, onUsageChange }) {
+function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, isPremium, onUpgrade, usage, onUsageChange }) {
   const mealsRemaining = Math.max(0, FREE_TRIAL_LIMIT - (usage?.meals || 0));
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
@@ -2505,12 +2616,23 @@ function Nutrition({ profile, nutrition, onAdd, onDelete, isPremium, onUpgrade, 
   const [findingMeals, setFindingMeals] = useState(false);
   const [mealResults, setMealResults] = useState(null);
   const [mealError, setMealError] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
   const targets = computeTargets(profile);
   const today = nutrition.filter((n) => n.date === todayStr());
+  const yesterday = nutrition.filter((n) => n.date === yesterdayStr());
   const totals = today.reduce((a, f) => ({
     calories: a.calories + f.calories, protein: a.protein + f.protein,
     carbs: a.carbs + f.carbs, fat: a.fat + f.fat,
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+  // Most recently logged distinct foods (excluding today's, since those are already listed below
+  // and re-adding them from "Recent" would just be a confusing duplicate of what's on-screen).
+  const recentFoods = [...nutrition]
+    .filter((n) => n.date !== todayStr())
+    .sort((a, b) => (b.date > a.date ? 1 : -1))
+    .reduce((acc, f) => (acc.some((x) => x.name === f.name) ? acc : [...acc, f]), [])
+    .slice(0, 8);
 
   const submit = () => {
     if (!form.name || !form.calories) return;
@@ -2520,6 +2642,29 @@ function Nutrition({ profile, nutrition, onAdd, onDelete, isPremium, onUpgrade, 
       carbs: +form.carbs || 0, fat: +form.fat || 0,
     });
     setForm({ name: "", calories: "", protein: "", carbs: "", fat: "" });
+  };
+
+  const copyYesterday = () => {
+    onAddMany(yesterday.map((f) => ({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat })));
+  };
+
+  const duplicateFood = (f) => {
+    onAdd({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat });
+  };
+
+  const startEdit = (f) => {
+    setEditingId(f.id);
+    setEditForm({ name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat });
+  };
+
+  const saveEdit = () => {
+    if (!editForm.name || editForm.calories === "") return;
+    onEdit(editingId, {
+      name: editForm.name, calories: +editForm.calories || 0,
+      protein: +editForm.protein || 0, carbs: +editForm.carbs || 0, fat: +editForm.fat || 0,
+    });
+    setEditingId(null);
+    setEditForm(null);
   };
 
   const estimate = async () => {
@@ -2641,7 +2786,7 @@ Respond with ONLY this JSON, nothing else:
         </div>
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           <input className="atlas-input" placeholder="Suburb or city" value={locationInput} onChange={(e) => setLocationInput(e.target.value)} />
-          <button className="atlas-btn-ghost" style={{ padding: "8px 10px" }} onClick={useDeviceLocation} disabled={findingMeals} title="Use my location">
+          <button className="atlas-btn-ghost" style={{ padding: "8px 10px" }} onClick={useDeviceLocation} disabled={findingMeals} title="Use my location" aria-label="Use my current location">
             <Navigation size={14} color="var(--brass)" />
           </button>
         </div>
@@ -2701,20 +2846,54 @@ Respond with ONLY this JSON, nothing else:
         ))}
       </div>
 
+      {favorites.length > 0 && (
+        <>
+          <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Favorites</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {favorites.map((f) => (
+              <button key={f.name} onClick={() => onAdd({ id: uid(), date: todayStr(), ...f })}
+                className="pill" style={{ background: "var(--brass-soft)", border: "1px solid var(--brass)", cursor: "pointer", color: "var(--brass)" }}>
+                <Star size={10} style={{ verticalAlign: -1 }} /> {f.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {recentFoods.length > 0 && (
+        <>
+          <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Recent</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {recentFoods.map((f) => (
+              <button key={f.id} onClick={() => onAdd({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat })}
+                className="pill" style={{ background: "var(--bg-elev2)", border: "1px solid var(--line)", cursor: "pointer", color: "var(--ink)" }}>
+                + {f.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {yesterday.length > 0 && (
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginBottom: 16 }} onClick={copyYesterday}>
+          <Copy size={13} style={{ verticalAlign: -2, marginRight: 6 }} /> Copy Yesterday's Log ({yesterday.length} item{yesterday.length === 1 ? "" : "s"})
+        </button>
+      )}
+
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <div className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Log Custom Food</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <input className="atlas-input" placeholder="e.g. chicken rice bowl" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-          <button className="atlas-btn-ghost" style={{ padding: "8px 10px" }} onClick={estimate} disabled={estimating}>
+          <input className="atlas-input" placeholder="e.g. chicken rice bowl" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} aria-label="Food description" />
+          <button className="atlas-btn-ghost" style={{ padding: "8px 10px" }} onClick={estimate} disabled={estimating} aria-label="Estimate macros with AI" title="Estimate macros with AI">
             <Sparkles size={14} color="var(--brass)" />
           </button>
         </div>
         {estimating && <div style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 6 }}>Estimating macros…</div>}
         <div style={{ display: "flex", gap: 6 }}>
-          <input className="atlas-input" type="number" placeholder="kcal" value={form.calories} onChange={(e) => setForm((f) => ({ ...f, calories: e.target.value }))} />
-          <input className="atlas-input" type="number" placeholder="protein" value={form.protein} onChange={(e) => setForm((f) => ({ ...f, protein: e.target.value }))} />
-          <input className="atlas-input" type="number" placeholder="carbs" value={form.carbs} onChange={(e) => setForm((f) => ({ ...f, carbs: e.target.value }))} />
-          <input className="atlas-input" type="number" placeholder="fat" value={form.fat} onChange={(e) => setForm((f) => ({ ...f, fat: e.target.value }))} />
+          <input className="atlas-input" type="number" placeholder="kcal" value={form.calories} onChange={(e) => setForm((f) => ({ ...f, calories: e.target.value }))} aria-label="Calories" />
+          <input className="atlas-input" type="number" placeholder="protein" value={form.protein} onChange={(e) => setForm((f) => ({ ...f, protein: e.target.value }))} aria-label="Protein grams" />
+          <input className="atlas-input" type="number" placeholder="carbs" value={form.carbs} onChange={(e) => setForm((f) => ({ ...f, carbs: e.target.value }))} aria-label="Carbs grams" />
+          <input className="atlas-input" type="number" placeholder="fat" value={form.fat} onChange={(e) => setForm((f) => ({ ...f, fat: e.target.value }))} aria-label="Fat grams" />
         </div>
         <button className="atlas-btn" style={{ width: "100%", marginTop: 8 }} onClick={submit}>Add to Log</button>
       </div>
@@ -2722,15 +2901,49 @@ Respond with ONLY this JSON, nothing else:
       <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Today</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {today.length === 0 && <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>Nothing logged yet today.</div>}
-        {today.map((f) => (
-          <div key={f.id} className="atlas-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 10 }}>
-            <div>
-              <div style={{ fontSize: 13 }}>{f.name}</div>
-              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{f.calories}kcal · P{f.protein} C{f.carbs} F{f.fat}</div>
-            </div>
-            <button onClick={() => onDelete(f.id)} style={{ background: "none", border: "none", cursor: "pointer" }}><Trash2 size={14} color="var(--ink-dim)" /></button>
+        {today.map((f) => {
+          const isFav = favorites.some((fv) => fv.name === f.name);
+          return (
+          <div key={f.id} className="atlas-card" style={{ padding: 10 }}>
+            {editingId === f.id ? (
+              <div>
+                <input className="atlas-input" style={{ marginBottom: 6 }} value={editForm.name} onChange={(e) => setEditForm((v) => ({ ...v, name: e.target.value }))} aria-label="Edit food name" />
+                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                  <input className="atlas-input" type="number" placeholder="kcal" value={editForm.calories} onChange={(e) => setEditForm((v) => ({ ...v, calories: e.target.value }))} aria-label="Edit calories" />
+                  <input className="atlas-input" type="number" placeholder="protein" value={editForm.protein} onChange={(e) => setEditForm((v) => ({ ...v, protein: e.target.value }))} aria-label="Edit protein" />
+                  <input className="atlas-input" type="number" placeholder="carbs" value={editForm.carbs} onChange={(e) => setEditForm((v) => ({ ...v, carbs: e.target.value }))} aria-label="Edit carbs" />
+                  <input className="atlas-input" type="number" placeholder="fat" value={editForm.fat} onChange={(e) => setEditForm((v) => ({ ...v, fat: e.target.value }))} aria-label="Edit fat" />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => { setEditingId(null); setEditForm(null); }}>Cancel</button>
+                  <button className="atlas-btn" style={{ flex: 1 }} onClick={saveEdit}>Save</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 13 }}>{f.name}</div>
+                  <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{f.calories}kcal · P{f.protein} C{f.carbs} F{f.fat}</div>
+                </div>
+                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                  <button onClick={() => onToggleFavorite(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={isFav ? `Remove ${f.name} from favorites` : `Add ${f.name} to favorites`}>
+                    <Star size={14} color={isFav ? "var(--brass)" : "var(--ink-dim)"} fill={isFav ? "var(--brass)" : "none"} />
+                  </button>
+                  <button onClick={() => duplicateFood(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Duplicate ${f.name}`}>
+                    <Copy size={14} color="var(--ink-dim)" />
+                  </button>
+                  <button onClick={() => startEdit(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Edit ${f.name}`}>
+                    <Pencil size={14} color="var(--ink-dim)" />
+                  </button>
+                  <button onClick={() => onDelete(f.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Delete ${f.name}`}>
+                    <Trash2 size={14} color="var(--ink-dim)" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -2750,6 +2963,7 @@ export default function App() {
   const [nutrition, setNutrition] = useState([]);
   const [weightlog, setWeightlog] = useState([]);
   const [customExercises, setCustomExercises] = useState([]);
+  const [favorites, setFavorites] = useState([]);
   const [tab, setTab] = useState("dashboard");
   const [session, setSession] = useState(null);
   const [finishingWorkout, setFinishingWorkout] = useState(false);
@@ -2782,8 +2996,8 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return;
     (async () => {
-      const [p, w, n, wl, sess, ce] = await Promise.all([
-        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises),
+      const [p, w, n, wl, sess, ce, fav] = await Promise.all([
+        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises), loadKey(KEYS.favorites),
       ]);
       if (p) setProfile(p);
       if (w) setWorkouts(w);
@@ -2791,6 +3005,7 @@ export default function App() {
       if (wl) setWeightlog(wl);
       if (sess) { setSession(sess); setTab("train"); }
       if (ce) setCustomExercises(ce);
+      if (fav) setFavorites(fav);
       setLoaded(true);
     })();
   }, [authUser]);
@@ -2876,6 +3091,7 @@ export default function App() {
     setNutrition([]);
     setWeightlog([]);
     setCustomExercises([]);
+    setFavorites([]);
     setSession(null);
     setSubscription(undefined);
     setTab("dashboard");
@@ -2957,10 +3173,28 @@ export default function App() {
     setNutrition(next);
     await saveKey(KEYS.nutrition, next);
   };
+  // Adds several entries as one state update — copyYesterday calling addFood in a loop would have
+  // each call close over the same stale `nutrition`, so every add but the last would be lost.
+  const addFoods = async (items) => {
+    const next = [...nutrition, ...items];
+    setNutrition(next);
+    await saveKey(KEYS.nutrition, next);
+  };
   const deleteFood = async (id) => {
     const next = nutrition.filter((f) => f.id !== id);
     setNutrition(next);
     await saveKey(KEYS.nutrition, next);
+  };
+  const editFood = async (id, patch) => {
+    const next = nutrition.map((f) => (f.id === id ? { ...f, ...patch } : f));
+    setNutrition(next);
+    await saveKey(KEYS.nutrition, next);
+  };
+  const toggleFavorite = async (food) => {
+    const exists = favorites.some((f) => f.name === food.name);
+    const next = exists ? favorites.filter((f) => f.name !== food.name) : [...favorites, { name: food.name, calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat }];
+    setFavorites(next);
+    await saveKey(KEYS.favorites, next);
   };
   const logWeight = async (weight) => {
     const next = [...weightlog, { date: todayStr(), weight }];
@@ -3003,6 +3237,7 @@ export default function App() {
       setNutrition([]);
       setWeightlog([]);
       setCustomExercises([]);
+      setFavorites([]);
       setSession(null);
       setSubscription(undefined);
       setTab("dashboard");
@@ -3063,7 +3298,7 @@ export default function App() {
           {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
           {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
-          {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onDelete={deleteFood} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
+          {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (
             <Suspense fallback={<div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}><Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} /></div>}>
               <Progress profile={profile} workouts={workouts} weightlog={weightlog} />
