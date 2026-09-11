@@ -1235,7 +1235,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
 /* Profile / Settings                                                   */
 /* ------------------------------------------------------------------ */
 
-function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, isDemoEntitlement, subscriptionState, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose }) {
+function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, isDemoEntitlement, subscriptionState, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose, usage }) {
   const [edit, setEdit] = useState({
     name: profile.name || "", age: profile.age, gender: profile.gender,
     heightCm: profile.heightCm, weightKg: profile.weightKg,
@@ -1452,6 +1452,31 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
           <Copy size={13} style={{ verticalAlign: -2, marginRight: 6 }} /> Export My Data (JSON)
         </button>
         <button className="atlas-btn-ghost" style={{ width: "100%" }} onClick={onLogOut}>Log Out</button>
+      </div>
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Your AI Usage</div>
+        {isPremium ? (
+          <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Unlimited — Asc3end+</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[["AI Coach", FEATURES.COACH], ["Meals Near You", FEATURES.MEALS]].map(([label, key]) => {
+              const remaining = remainingTrialUses(key, usage || {});
+              return (
+                <div key={key}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 4 }}>
+                    <span>{label}</span>
+                    <span className="mono" style={{ color: remaining === 0 ? "var(--rest)" : "var(--ink-dim)" }}>{FREE_TRIAL_LIMIT - remaining}/{FREE_TRIAL_LIMIT} used</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 2, background: "var(--bg-elev2)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${((FREE_TRIAL_LIMIT - remaining) / FREE_TRIAL_LIMIT) * 100}%`, background: remaining === 0 ? "var(--rest)" : "var(--brass)" }} />
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 11.5, color: "var(--ink-dim)" }}>Food scanner requires Asc3end+ — no free trial.</div>
+          </div>
+        )}
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
@@ -3856,7 +3881,7 @@ export default function App() {
           isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={() => setShowPricing(true)}
           billingLoading={billingLoading} billingError={billingError} onLogOut={logOut}
           onDeleteAccount={deleteAccount} deleteAccountLoading={deleteAccountLoading} deleteAccountError={deleteAccountError}
-          onClose={() => setShowProfile(false)}
+          onClose={() => setShowProfile(false)} usage={usage}
         />
       ) : (
         <>
