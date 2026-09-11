@@ -1176,7 +1176,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       ) : (
         <div className="atlas-card" style={{ border: "1px solid var(--brass)", background: "var(--brass-soft)", padding: 0 }}>
           <button
-            onClick={onUpgrade}
+            onClick={() => onUpgrade()}
             disabled={billingLoading === "checkout"}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", textAlign: "left", width: "100%", background: "none", border: "none", padding: 16 }}
           >
@@ -1420,7 +1420,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
           </div>
         ) : (
           <>
-            <button onClick={onUpgrade} disabled={billingLoading === "checkout"} className="atlas-btn" style={{ width: "100%" }}>
+            <button onClick={() => onUpgrade()} disabled={billingLoading === "checkout"} className="atlas-btn" style={{ width: "100%" }}>
               {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
               Upgrade to Premium — $9.99/mo
             </button>
@@ -2135,7 +2135,7 @@ function Paywall({ feature, onUpgrade }) {
       <Sparkles size={26} color="var(--brass)" style={{ marginBottom: 10 }} />
       <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>{c.title}</div>
       <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>{c.blurb}</div>
-      <button className="atlas-btn" style={{ width: "100%" }} onClick={onUpgrade}>Upgrade — $9.99/mo</button>
+      <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onUpgrade()}>Upgrade — $9.99/mo</button>
       <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0, marginTop: 12 }}>
         {showComparison ? "Hide" : "See"} full Free vs Premium comparison {showComparison ? <ChevronUp size={12} style={{ verticalAlign: -2 }} /> : <ChevronDown size={12} style={{ verticalAlign: -2 }} />}
       </button>
@@ -3444,12 +3444,24 @@ export default function App() {
   const isPremium = isEntitled(subscriptionState);
   const isDemoEntitlement = subscriptionState.type === "demo";
 
-  const startCheckout = async (plan = "monthly", trial = false) => {
+  const startCheckout = async (planArg = "monthly", trial = false) => {
+    // Defensive normalization, not just a default — several call sites do `onClick={onUpgrade}`,
+    // which makes React pass the click SyntheticEvent as `planArg`. JSON.stringify-ing that event
+    // (or its DOM target, via the click-handler bug this once shipped with) throws "Converting
+    // circular structure to JSON" before the request is even sent, which the catch below then
+    // mislabels as a network error. Coercing to a known plan string here means a future call site
+    // making the same mistake fails safe (starts a monthly checkout) instead of failing silently.
+    const plan = planArg === "annual" ? "annual" : "monthly";
     setBillingError(null);
     setBillingLoading("checkout");
     logEvent("checkout_started", { plan, trial });
     try {
       const { data: { session: authSession } } = await supabase.auth.getSession();
+      if (!authSession) {
+        setBillingError("Your session has expired — please sign out and back in, then try again.");
+        setBillingLoading(null);
+        return;
+      }
       const res = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
