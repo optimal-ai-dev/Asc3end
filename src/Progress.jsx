@@ -44,13 +44,20 @@ function strengthRank(bestWeight, bodyweightKg, gender, lift) {
   };
 }
 
-/* Body transformation: earliest vs latest weight + earliest vs best per lift */
+/* Body transformation: earliest vs latest weight + earliest vs best per lift.
+   Returns a typed result so the UI can tell "not enough data yet" apart from "a real trend
+   over too short a span to call it weekly" apart from "here's your real multi-week trend" —
+   collapsing all three into one generic "Over 1 week..." sentence is what previously produced
+   a nonsensical "increased by 0kg" message from two same-day entries. */
 function transformationSummary(weightlog, workouts) {
-  if (weightlog.length < 2) return null;
+  if (weightlog.length === 0) return null; // nothing to say yet — the Bodyweight card below already prompts to log a first entry
+  if (weightlog.length === 1) return { kind: "baseline" };
   const sorted = [...weightlog].sort((a, b) => new Date(a.date) - new Date(b.date));
   const first = sorted[0], last = sorted[sorted.length - 1];
+  const days = Math.round((new Date(last.date) - new Date(first.date)) / 86400000);
   const weightChange = +(last.weight - first.weight).toFixed(1);
-  const weeks = Math.max(1, Math.round((new Date(last.date) - new Date(first.date)) / (7 * 86400000)));
+  if (days < 3) return { kind: "tooSoon", days, weightChange };
+  const weeks = Math.max(1, Math.round(days / 7));
   const lifts = ["bench", "squat", "deadlift"].map((k) => {
     const name = STRENGTH_STANDARDS[k].exercise;
     const history = workouts.filter((w) => w.exercises.some((e) => e.name === name)).sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -59,14 +66,18 @@ function transformationSummary(weightlog, workouts) {
     const latest = Math.max(...history[history.length - 1].exercises.find((e) => e.name === name).sets.map((s) => s.weight));
     return { name: name.split(" (")[0], change: +(latest - earliest).toFixed(1) };
   }).filter(Boolean);
-  return { weightChange, weeks, lifts };
+  return { kind: "trend", weightChange, weeks, lifts };
 }
 
 export default function Progress({ profile, workouts, weightlog }) {
   const exerciseNames = [...new Set(workouts.flatMap((w) => w.exercises.map((e) => e.name)))];
   const [selected, setSelected] = useState(exerciseNames[0] || "");
 
-  const weightData = weightlog.map((w) => ({ date: fmtDate(w.date), weight: w.weight })).slice(-20);
+  // Dedupe same-day entries (keep the latest) before charting — otherwise logging twice in one
+  // day plots two points with an identical x-axis label, which reads as a rendering bug.
+  const weightByDate = new Map();
+  [...weightlog].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((w) => weightByDate.set(w.date, w.weight));
+  const weightData = [...weightByDate.entries()].map(([date, weight]) => ({ date: fmtDate(date), weight })).slice(-20);
   const strengthData = workouts
     .filter((w) => w.exercises.some((e) => e.name === selected))
     .sort((a, b) => new Date(a.date) - new Date(b.date))
@@ -96,21 +107,31 @@ export default function Progress({ profile, workouts, weightlog }) {
       {transformation && (
         <div className="atlas-card" style={{ marginBottom: 16 }}>
           <div className="disp" style={{ fontSize: 14, marginBottom: 6 }}>Transformation</div>
-          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-            Over {transformation.weeks} week{transformation.weeks === 1 ? "" : "s"}, your bodyweight has {transformation.weightChange >= 0 ? "increased" : "decreased"} by <span className="mono" style={{ color: "var(--brass)" }}>{Math.abs(transformation.weightChange)}kg</span>
-            {transformation.lifts.length > 0 && (
-              <>
-                {" "}while{" "}
-                {transformation.lifts.map((l, i) => (
-                  <span key={l.name}>
-                    {i > 0 && ", "}
-                    your {l.name} has {l.change >= 0 ? "gone up" : "dropped"} <span className="mono" style={{ color: "var(--steel)" }}>{Math.abs(l.change)}kg</span>
-                  </span>
-                ))}
-                .
-              </>
-            )}
-          </div>
+          {transformation.kind === "baseline" && (
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ink-dim)" }}>Baseline recorded. Add another weigh-in to see your trend.</div>
+          )}
+          {transformation.kind === "tooSoon" && (
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ink-dim)" }}>
+              {transformation.days === 0 ? "Logged twice today" : `Only ${transformation.days} day${transformation.days === 1 ? "" : "s"} apart`} — check back in a few days for a real trend instead of a same-week snapshot.
+            </div>
+          )}
+          {transformation.kind === "trend" && (
+            <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+              Over {transformation.weeks} week{transformation.weeks === 1 ? "" : "s"}, your bodyweight has {transformation.weightChange >= 0 ? "increased" : "decreased"} by <span className="mono" style={{ color: "var(--brass)" }}>{Math.abs(transformation.weightChange)}kg</span>
+              {transformation.lifts.length > 0 && (
+                <>
+                  {" "}while{" "}
+                  {transformation.lifts.map((l, i) => (
+                    <span key={l.name}>
+                      {i > 0 && ", "}
+                      your {l.name} has {l.change >= 0 ? "gone up" : "dropped"} <span className="mono" style={{ color: "var(--steel)" }}>{Math.abs(l.change)}kg</span>
+                    </span>
+                  ))}
+                  .
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 

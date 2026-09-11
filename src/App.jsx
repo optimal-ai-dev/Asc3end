@@ -561,14 +561,14 @@ const NIPPARD_PRINCIPLES = `Follow Jeff Nippard's evidence-based coaching philos
    in TRAINING_PRINCIPLES above. */
 const COACHING_STYLES = {
   balanced: {
-    label: "Balanced (Nippard-style)",
-    blurb: "Evidence-based and flexible — a mix of rep ranges, moderate volume, sustainable long-term progress.",
+    label: "Balanced Evidence-Based",
+    blurb: "Flexible and research-grounded — a mix of rep ranges, moderate volume, sustainable long-term progress.",
     prompt: NIPPARD_PRINCIPLES,
   },
   intensity: {
-    label: "High-Intensity, Low Volume",
-    blurb: "Inspired by Mike Mentzer's Heavy Duty method — fewer, harder sets, more recovery time.",
-    prompt: `Lean toward a high-intensity, low-volume style inspired by Mike Mentzer's Heavy Duty training:
+    label: "High Intensity, Low Volume",
+    blurb: "Fewer, harder sets taken close to failure, with more recovery time between sessions.",
+    prompt: `Lean toward a high-intensity, low-volume training style:
 - Recovery is treated as the main limiting factor — prescribe fewer total sets per muscle (roughly 1-3 hard working sets per exercise) rather than high volume, reasoning that a smaller number of truly maximal-effort sets can be enough stimulus if recovery is respected.
 - Each working set should be taken to or very near true muscular failure — this is a system built on effort, not volume.
 - Favor strict form and controlled, full range of motion over speed or momentum.
@@ -576,18 +576,18 @@ const COACHING_STYLES = {
 - Note honestly when relevant: modern research suggests very low volume/frequency is not optimal for everyone, and this style suits people who are time-constrained, prone to overtraining, or want a more sustainable minimum-effective-dose approach — not a universal "best" method.`,
   },
   volume: {
-    label: "Volume-Based Periodization",
-    blurb: "Inspired by Dr. Mike Israetel / Renaissance Periodization — structured volume that builds across weeks.",
-    prompt: `Lean toward a volume-and-periodization style inspired by Dr. Mike Israetel's Renaissance Periodization framework:
+    label: "Volume-Focused Periodisation",
+    blurb: "Structured training blocks that progressively build volume across weeks, then deload.",
+    prompt: `Lean toward a volume-and-periodization training style:
 - Think in terms of volume landmarks per muscle group per week — start a training block near a maintainable volume and progressively add sets across weeks as recovery allows, rather than jumping straight to a high number.
 - Recommend a structured block: several weeks of increasing volume followed by a lighter deload week to manage accumulated fatigue.
 - Individualize based on recovery signals (soreness, performance trend, motivation) rather than a fixed universal number.
 - Generally favor moderate-to-higher per-muscle weekly volume (multiple sets across multiple sessions) over very low-volume approaches, while still respecting the athlete's actual recovery capacity and experience level.`,
   },
   aesthetic: {
-    label: "Simple & Intense (Oestreicher-style)",
-    blurb: "Inspired by Jacob Oestreicher — simple splits, few working sets pushed hard, built for physique goals.",
-    prompt: `Lean toward a simple, intensity-focused hypertrophy style inspired by Jacob Oestreicher's coaching approach:
+    label: "Simple Progressive Training",
+    blurb: "Simple splits, a small number of working sets pushed hard, repeated consistently for physique goals.",
+    prompt: `Lean toward a simple, intensity-focused hypertrophy training style:
 - Keep programming simple: a small number of working sets per exercise (around 2), typically in the 5-9 rep range, pushed close to true failure.
 - Favor sticking with the same core exercises across a training block so the athlete can master the movement and track clear strength progress on it, rather than constantly rotating exercises.
 - Use straightforward Push/Pull/Legs or Upper/Lower splits.
@@ -699,7 +699,7 @@ function Onboarding({ onComplete }) {
       body: (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>NAME</label>
-          <input className="atlas-input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Tom" />
+          <input className="atlas-input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Your name" autoFocus />
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>AGE</label>
@@ -770,6 +770,7 @@ function Onboarding({ onComplete }) {
   ];
 
   const isLast = step === steps.length - 1;
+  const nameMissing = step === 0 && !form.name.trim();
 
   return (
     <div className="atlas-root" style={{ padding: "40px 20px", paddingBottom: 40 }}>
@@ -790,6 +791,7 @@ function Onboarding({ onComplete }) {
         <button
           className="atlas-btn"
           style={{ flex: 1 }}
+          disabled={nameMissing}
           onClick={() => {
             if (isLast) onComplete(form);
             else setStep(step + 1);
@@ -798,6 +800,7 @@ function Onboarding({ onComplete }) {
           {isLast ? "Build My Plan" : "Continue"}
         </button>
       </div>
+      {nameMissing && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Enter your name to continue.</div>}
     </div>
   );
 }
@@ -1032,7 +1035,7 @@ function evaluatePR(historySets, weight, reps) {
   return { isPR: false };
 }
 
-function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, onUpgrade, onManageBilling }) {
+function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, onUpgrade, onManageBilling, billingError, billingLoading }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
   const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
   const targets = useMemo(() => computeTargets(profile), [profile]);
@@ -1098,25 +1101,33 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       </div>
 
       {isPremium ? (
-        <div className="atlas-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: "var(--brass)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Sparkles size={16} color="var(--brass)" />
-            <span className="disp" style={{ fontSize: 13 }}>Premium Active</span>
+        <div className="atlas-card" style={{ borderColor: "var(--brass)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Sparkles size={16} color="var(--brass)" />
+              <span className="disp" style={{ fontSize: 13 }}>Premium Active</span>
+            </div>
+            <button onClick={onManageBilling} disabled={billingLoading === "portal"} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>
+              {billingLoading === "portal" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : "Manage"}
+            </button>
           </div>
-          <button onClick={onManageBilling} className="atlas-btn-ghost" style={{ padding: "5px 10px", fontSize: 10 }}>Manage</button>
+          {billingError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginTop: 8 }}>{billingError}</div>}
         </div>
       ) : (
-        <button
-          onClick={onUpgrade}
-          className="atlas-card"
-          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", textAlign: "left", width: "100%", border: "1px solid var(--brass)", background: "var(--brass-soft)" }}
-        >
-          <div>
-            <div className="disp" style={{ fontSize: 13, color: "var(--brass)" }}>Upgrade to Premium</div>
-            <div style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 2 }}>AI Coach, food scanner, and Meals Near You — $9.99/mo</div>
-          </div>
-          <ChevronRight size={18} color="var(--brass)" />
-        </button>
+        <div className="atlas-card" style={{ border: "1px solid var(--brass)", background: "var(--brass-soft)", padding: 0 }}>
+          <button
+            onClick={onUpgrade}
+            disabled={billingLoading === "checkout"}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", textAlign: "left", width: "100%", background: "none", border: "none", padding: 16 }}
+          >
+            <div>
+              <div className="disp" style={{ fontSize: 13, color: "var(--brass)" }}>Upgrade to Premium</div>
+              <div style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 2 }}>AI Coach, food scanner, and Meals Near You — $9.99/mo</div>
+            </div>
+            {billingLoading === "checkout" ? <Loader2 size={18} color="var(--brass)" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} /> : <ChevronRight size={18} color="var(--brass)" style={{ flexShrink: 0 }} />}
+          </button>
+          {billingError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", padding: "0 16px 12px" }}>{billingError}</div>}
+        </div>
       )}
 
       {nudge && (
@@ -1681,6 +1692,7 @@ function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [lastFailedInput, setLastFailedInput] = useState(null);
   const scrollRef = useRef(null);
 
   useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [messages]);
@@ -1710,10 +1722,15 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     setGenLoading(false);
   };
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-    const userMsg = { role: "user", content: input };
-    const newMessages = [...messages, userMsg];
+  const sendMessage = async (overrideText) => {
+    const text = overrideText ?? input;
+    if (!text.trim()) return;
+    setLastFailedInput(null);
+    // On retry, drop the trailing error bubble first — otherwise it both looks stale once the
+    // retry succeeds, and gets sent back to Claude as if it were real conversation history.
+    const base = overrideText && messages[messages.length - 1]?.isError ? messages.slice(0, -1) : messages;
+    const userMsg = { role: "user", content: text };
+    const newMessages = overrideText ? base : [...base, userMsg];
     setMessages(newMessages);
     setInput("");
     setSending(true);
@@ -1736,10 +1753,17 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       }
       setMessages((m) => [...m, { role: "assistant", content: reply, workout: parsedWorkout }]);
     } catch (e) {
-      setMessages((m) => [...m, { role: "assistant", content: `⚠️ ${e.message || "Something went wrong reaching the coach. Try again in a moment."}` }]);
+      setLastFailedInput(text);
+      setMessages((m) => [...m, { role: "assistant", content: `⚠️ ${e.message || "Something went wrong reaching the coach. Try again in a moment."}`, isError: true }]);
     }
     onUsageChange?.();
     setSending(false);
+  };
+
+  const startNewConversation = () => {
+    setMessages([{ role: "assistant", content: `Hey ${profile.name || "there"}, I'm your coach. Ask me anything about training, recovery, or your plan.` }]);
+    setLastFailedInput(null);
+    setInput("");
   };
 
   if (!isPremium && coachRemaining <= 0) {
@@ -1755,9 +1779,16 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     <div style={{ padding: "24px 18px", display: "flex", flexDirection: "column", height: "calc(100vh - 88px)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
         <div className="disp" style={{ fontSize: 26 }}>Coach</div>
-        {!isPremium && (
-          <span className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>{coachRemaining} free {coachRemaining === 1 ? "message" : "messages"} left</span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {!isPremium && (
+            <span className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>{coachRemaining} free {coachRemaining === 1 ? "message" : "messages"} left</span>
+          )}
+          {messages.length > 1 && (
+            <button onClick={startNewConversation} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0 }} title="Start a new conversation">
+              New Chat
+            </button>
+          )}
+        </div>
       </div>
       <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 8 }}>COACHING STYLE</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
@@ -1813,6 +1844,12 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
           </div>
         ))}
         {sending && <div className="chat-bubble-ai" style={{ fontSize: 13 }}>Thinking…</div>}
+        {lastFailedInput && !sending && (
+          <div style={{ display: "flex", gap: 10, alignSelf: "flex-start", paddingLeft: 2 }}>
+            <button onClick={() => sendMessage(lastFailedInput)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: 0 }}>Retry</button>
+            <button onClick={() => { setInput(lastFailedInput); setLastFailedInput(null); }} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0 }}>Edit &amp; Resend</button>
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -2291,6 +2328,11 @@ export default function App() {
   // Free-trial counters for Coach / Meals Near You ({ coach, meals }, each 0-5). Read-only from
   // here — the real count lives server-side in api/claude.js, this is just for display/local gating.
   const [usage, setUsage] = useState({ coach: 0, meals: 0 });
+  // Surfaces a real error instead of silently doing nothing when checkout/billing-portal
+  // creation fails (e.g. network hiccup, or — as with a hand-seeded account — no Stripe
+  // customer on file yet).
+  const [billingError, setBillingError] = useState(null);
+  const [billingLoading, setBillingLoading] = useState(null); // null | "checkout" | "portal"
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthUser(session?.user ?? null));
@@ -2356,23 +2398,39 @@ export default function App() {
   const isPremium = subscription && (subscription.status === "active" || subscription.status === "trialing");
 
   const startCheckout = async () => {
-    const { data: { session: authSession } } = await supabase.auth.getSession();
-    const res = await fetch("/api/create-checkout-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
-    });
-    const data = await res.json();
-    if (data.url) window.location.href = data.url;
+    setBillingError(null);
+    setBillingLoading("checkout");
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const res = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
+      });
+      const data = await res.json();
+      if (data.url) { window.location.href = data.url; return; }
+      setBillingError(data.error || "Couldn't start checkout — try again.");
+    } catch (e) {
+      setBillingError("Couldn't reach the server — check your connection and try again.");
+    }
+    setBillingLoading(null);
   };
 
   const openBillingPortal = async () => {
-    const { data: { session: authSession } } = await supabase.auth.getSession();
-    const res = await fetch("/api/create-portal-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
-    });
-    const data = await res.json();
-    if (data.url) window.location.href = data.url;
+    setBillingError(null);
+    setBillingLoading("portal");
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const res = await fetch("/api/create-portal-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
+      });
+      const data = await res.json();
+      if (data.url) { window.location.href = data.url; return; }
+      setBillingError(data.error || "Couldn't open billing management — try again.");
+    } catch (e) {
+      setBillingError("Couldn't reach the server — check your connection and try again.");
+    }
+    setBillingLoading(null);
   };
 
   const logOut = async () => {
@@ -2480,7 +2538,7 @@ export default function App() {
   return (
     <div className="atlas-root">
       <GlobalStyle />
-      {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} onUpgrade={startCheckout} onManageBilling={openBillingPortal} />}
+      {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} onUpgrade={startCheckout} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} />}
       {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
       {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
       {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onDelete={deleteFood} isPremium={isPremium} onUpgrade={startCheckout} usage={usage} onUsageChange={refreshUsage} />}
