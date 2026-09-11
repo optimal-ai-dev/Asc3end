@@ -2250,6 +2250,10 @@ function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage
   const [planError, setPlanError] = useState(null);
   const [exDetail, setExDetail] = useState(null);
   const [planActivated, setPlanActivated] = useState(!!profile.activePlan);
+  const [editingPlan, setEditingPlan] = useState(false);
+  const [editDays, setEditDays] = useState(null);
+  const [addingToDay, setAddingToDay] = useState(null);
+  const [exSearch, setExSearch] = useState("");
   const GEN_PHASES = ["Analysing your goal…", "Selecting your split…", "Balancing weekly volume…", "Choosing exercises…", "Finalising your plan…"];
   const [genPhase, setGenPhase] = useState(0);
 
@@ -2297,6 +2301,81 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
   const deactivatePlan = () => {
     onUpdateProfile({ activePlan: null });
     setPlanActivated(false);
+  };
+
+  const startEditPlan = () => {
+    setEditDays(plan.days.map((d) => ({ day: d.day, muscleGroups: d.muscleGroups.map((mg) => ({ muscle: mg.muscle, exercises: mg.exercises.map((e) => ({ ...e })) })) })));
+    setEditingPlan(true);
+  };
+
+  const cancelEditPlan = () => {
+    setEditingPlan(false);
+    setEditDays(null);
+    setAddingToDay(null);
+    setExSearch("");
+  };
+
+  // Empty muscle groups / days (every exercise removed) are dropped on save rather than left as
+  // dead weight the athlete would have to notice and clean up themselves.
+  const saveEditPlan = () => {
+    const cleanedDays = editDays
+      .map((d) => ({ ...d, muscleGroups: d.muscleGroups.filter((mg) => mg.exercises.length > 0) }))
+      .filter((d) => d.muscleGroups.length > 0);
+    setPlan({ days: cleanedDays });
+    if (planActivated && profile.activePlan) {
+      const nextIndex = Math.min(profile.activePlan.currentDayIndex, Math.max(0, cleanedDays.length - 1));
+      onUpdateProfile({ activePlan: { ...profile.activePlan, days: cleanedDays, currentDayIndex: nextIndex } });
+    }
+    logEvent("plan_edited", { days: cleanedDays.length });
+    setEditingPlan(false);
+    setEditDays(null);
+    setAddingToDay(null);
+    setExSearch("");
+  };
+
+  const updateDayName = (dayIdx, name) => {
+    setEditDays((days) => days.map((d, i) => (i === dayIdx ? { ...d, day: name } : d)));
+  };
+
+  const updateExerciseField = (dayIdx, mgIdx, exIdx, field, value) => {
+    setEditDays((days) => days.map((d, i) => i !== dayIdx ? d : {
+      ...d,
+      muscleGroups: d.muscleGroups.map((mg, j) => j !== mgIdx ? mg : {
+        ...mg,
+        exercises: mg.exercises.map((e, k) => k !== exIdx ? e : { ...e, [field]: value }),
+      }),
+    }));
+  };
+
+  const removeExercise = (dayIdx, mgIdx, exIdx) => {
+    setEditDays((days) => days.map((d, i) => i !== dayIdx ? d : {
+      ...d,
+      muscleGroups: d.muscleGroups.map((mg, j) => j !== mgIdx ? mg : { ...mg, exercises: mg.exercises.filter((_, k) => k !== exIdx) }),
+    }));
+  };
+
+  const addExerciseToDay = (dayIdx, ex) => {
+    setEditDays((days) => days.map((d, i) => {
+      if (i !== dayIdx) return d;
+      const mgIdx = d.muscleGroups.findIndex((mg) => mg.muscle === ex.muscle);
+      if (mgIdx === -1) {
+        return { ...d, muscleGroups: [...d.muscleGroups, { muscle: ex.muscle, exercises: [{ name: ex.name, sets: 3, reps: "8-12" }] }] };
+      }
+      return {
+        ...d,
+        muscleGroups: d.muscleGroups.map((mg, j) => j !== mgIdx ? mg : { ...mg, exercises: [...mg.exercises, { name: ex.name, sets: 3, reps: "8-12" }] }),
+      };
+    }));
+    setAddingToDay(null);
+    setExSearch("");
+  };
+
+  const removeDay = (dayIdx) => {
+    setEditDays((days) => days.filter((_, i) => i !== dayIdx));
+  };
+
+  const addDay = () => {
+    setEditDays((days) => [...days, { day: `Day ${days.length + 1}`, muscleGroups: [] }]);
   };
 
   const sendMessage = async (overrideText) => {
@@ -2391,13 +2470,77 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       <div className="atlas-card" style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div className="disp" style={{ fontSize: 15 }}>Weekly Plan</div>
-          <button className="atlas-btn-ghost" style={{ padding: "6px 12px", fontSize: 11 }} onClick={generatePlan} disabled={genLoading}>
-            {genLoading ? <Loader2 size={13} className="mono" style={{ animation: "spin 1s linear infinite" }} /> : <Sparkles size={13} style={{ verticalAlign: -2, marginRight: 4 }} />}
-            {genLoading ? "Building..." : plan ? "Regenerate" : "Generate"}
-          </button>
+          {!editingPlan && (
+            <div style={{ display: "flex", gap: 6 }}>
+              {plan && (
+                <button className="atlas-btn-ghost" style={{ padding: "6px 12px", fontSize: 11 }} onClick={startEditPlan} disabled={genLoading}>
+                  <Pencil size={12} style={{ verticalAlign: -2, marginRight: 4 }} />Edit
+                </button>
+              )}
+              <button className="atlas-btn-ghost" style={{ padding: "6px 12px", fontSize: 11 }} onClick={generatePlan} disabled={genLoading}>
+                {genLoading ? <Loader2 size={13} className="mono" style={{ animation: "spin 1s linear infinite" }} /> : <Sparkles size={13} style={{ verticalAlign: -2, marginRight: 4 }} />}
+                {genLoading ? "Building..." : plan ? "Regenerate" : "Generate"}
+              </button>
+            </div>
+          )}
         </div>
         {genLoading && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8 }}>{GEN_PHASES[genPhase]}</div>}
-        {plan && !genLoading && (
+
+        {editingPlan && editDays && (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 14 }}>
+            {editDays.map((d, dayIdx) => (
+              <div key={dayIdx} style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                  <input className="atlas-input" style={{ flex: 1, fontSize: 13 }} value={d.day} onChange={(e) => updateDayName(dayIdx, e.target.value)} aria-label={`Day ${dayIdx + 1} name`} />
+                  <button onClick={() => removeDay(dayIdx)} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label={`Remove ${d.day}`}>
+                    <Trash2 size={13} color="var(--rest)" />
+                  </button>
+                </div>
+                {d.muscleGroups.map((mg, mgIdx) => (
+                  <div key={mgIdx} style={{ marginBottom: 8 }}>
+                    <div className="mono" style={{ fontSize: 10, color: "var(--brass)", textTransform: "capitalize", marginBottom: 4 }}>{mg.muscle}</div>
+                    {mg.exercises.map((ex, exIdx) => (
+                      <div key={exIdx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ flex: 1, fontSize: 12.5 }}>{ex.name}</span>
+                        <input className="atlas-input" type="number" style={{ width: 50, fontSize: 12, padding: "6px 8px" }} value={ex.sets} onChange={(e) => updateExerciseField(dayIdx, mgIdx, exIdx, "sets", +e.target.value || 0)} aria-label={`Sets for ${ex.name}`} />
+                        <input className="atlas-input" style={{ width: 60, fontSize: 12, padding: "6px 8px" }} value={ex.reps} onChange={(e) => updateExerciseField(dayIdx, mgIdx, exIdx, "reps", e.target.value)} aria-label={`Reps for ${ex.name}`} />
+                        <button onClick={() => removeExercise(dayIdx, mgIdx, exIdx)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Remove ${ex.name} from ${d.day}`}>
+                          <X size={13} color="var(--ink-dim)" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                {addingToDay === dayIdx ? (
+                  <div style={{ marginTop: 6 }}>
+                    <input autoFocus className="atlas-input" style={{ fontSize: 12, marginBottom: 6 }} placeholder="Search exercises…" value={exSearch} onChange={(e) => setExSearch(e.target.value)} aria-label="Search exercises to add" />
+                    <div style={{ maxHeight: 140, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
+                      {EXERCISES.filter((e) => e.name.toLowerCase().includes(exSearch.toLowerCase())).slice(0, 20).map((e) => (
+                        <button key={e.name} onClick={() => addExerciseToDay(dayIdx, e)} style={{ display: "flex", justifyContent: "space-between", textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 6, padding: "6px 8px", cursor: "pointer", color: "var(--ink)", fontSize: 12 }}>
+                          {e.name} <span className="mono" style={{ color: "var(--ink-dim)", textTransform: "capitalize" }}>{e.muscle}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => { setAddingToDay(null); setExSearch(""); }} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "6px 0 0" }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={() => { setAddingToDay(dayIdx); setExSearch(""); }} className="atlas-btn-ghost" style={{ width: "100%", fontSize: 11, padding: "6px 0", marginTop: 4 }}>
+                    <Plus size={12} style={{ verticalAlign: -2, marginRight: 4 }} />Add Exercise
+                  </button>
+                )}
+              </div>
+            ))}
+            <button onClick={addDay} className="atlas-btn-ghost" style={{ width: "100%" }}>
+              <Plus size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Add Day
+            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={cancelEditPlan} className="atlas-btn-ghost" style={{ flex: 1 }}>Cancel</button>
+              <button onClick={saveEditPlan} className="atlas-btn" style={{ flex: 1 }} disabled={editDays.every((d) => d.muscleGroups.every((mg) => mg.exercises.length === 0))}>Save Changes</button>
+            </div>
+          </div>
+        )}
+
+        {!editingPlan && plan && !genLoading && (
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 12 }}>
             {plan.days.map((d, i) => (
               <div key={i} style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
