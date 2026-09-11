@@ -54,6 +54,6 @@ export default async function handler(req, res) {
     res.status(200).json({ url: session.url });
   } catch (e) {
     console.error("create-checkout-session error", e);
-    res.status(500).json({ error: "Could not start checkout.", debug: e.message, debugType: e.type, debugRaw: e.raw?.message, debugCode: e.code }); // TEMP DEBUG — revert before commit
+    res.status(500).json({ error: "Could not start checkout." });
   }
 }
