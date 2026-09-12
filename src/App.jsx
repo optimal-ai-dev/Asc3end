@@ -9,6 +9,7 @@ import GlobalStyle from "./GlobalStyle";
 import AuthScreen from "./AuthScreen";
 import Landing from "./Landing";
 import LegalPage from "./LegalPage";
+import SupportPage from "./SupportPage";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
@@ -1236,7 +1237,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
 /* Profile / Settings                                                   */
 /* ------------------------------------------------------------------ */
 
-function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, isDemoEntitlement, subscriptionState, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose, usage }) {
+function Profile({ profile, authUser, workouts, nutrition, weightlog, customExercises, isPremium, isDemoEntitlement, subscriptionState, onUpdateProfile, onManageBilling, onUpgrade, billingLoading, billingError, onLogOut, onDeleteAccount, deleteAccountLoading, deleteAccountError, onClose, usage, onOpenSupport }) {
   const [edit, setEdit] = useState({
     name: profile.name || "", age: profile.age, gender: profile.gender,
     heightCm: profile.heightCm, weightKg: profile.weightKg,
@@ -1550,6 +1551,10 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
             </button>
           </>
         )}
+      </div>
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <button onClick={onOpenSupport} className="atlas-btn-ghost" style={{ width: "100%" }}>Help & Support</button>
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
@@ -3576,6 +3581,7 @@ export default function App() {
   const [billingLoading, setBillingLoading] = useState(null); // null | "checkout" | "portal"
   const [showProfile, setShowProfile] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
   const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "signup"
   const [publicLegalDoc, setPublicLegalDoc] = useState(null);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
@@ -4020,7 +4026,9 @@ export default function App() {
   return (
     <div className="atlas-root">
       <GlobalStyle />
-      {showPricing ? (
+      {showSupport ? (
+        <SupportPage onClose={() => setShowSupport(false)} />
+      ) : showPricing ? (
         <PricingPage
           subscriptionState={subscriptionState} isPremium={isPremium}
           onConfirmUpgrade={(plan, trial) => { setShowPricing(false); startCheckout(plan, trial); }}
@@ -4033,7 +4041,7 @@ export default function App() {
           isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpdateProfile={updateProfile} onManageBilling={openBillingPortal} onUpgrade={() => setShowPricing(true)}
           billingLoading={billingLoading} billingError={billingError} onLogOut={logOut}
           onDeleteAccount={deleteAccount} deleteAccountLoading={deleteAccountLoading} deleteAccountError={deleteAccountError}
-          onClose={() => setShowProfile(false)} usage={usage}
+          onClose={() => setShowProfile(false)} usage={usage} onOpenSupport={() => setShowSupport(true)}
         />
       ) : (
         <>
