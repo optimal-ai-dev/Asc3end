@@ -1807,6 +1807,13 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const [search, setSearch] = useState("");
   const [muscleFilter, setMuscleFilter] = useState("all");
   const [equipFilter, setEquipFilter] = useState("all");
+  // Progressive rendering for the exercise picker (223 entries, each an SVG PoseFigure — cheap
+  // individually, not free 223-at-once on a low-powered phone): render a capped batch and reveal
+  // more on demand instead of mounting every filtered match at once. Search/filtering itself
+  // still runs over the full list either way; only what's actually rendered is capped.
+  const EXERCISE_PAGE_SIZE = 40;
+  const [visibleExerciseCount, setVisibleExerciseCount] = useState(EXERCISE_PAGE_SIZE);
+  useEffect(() => { setVisibleExerciseCount(EXERCISE_PAGE_SIZE); }, [search, muscleFilter, equipFilter]);
   const [detailEx, setDetailEx] = useState(null);
   const [openCues, setOpenCues] = useState({});
   const [weightIn, setWeightIn] = useState({});
@@ -2238,7 +2245,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
           </button>
           <div style={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
             {filtered.length === 0 && <div style={{ fontSize: 12, color: "var(--ink-dim)", padding: 8 }}>No exercises match those filters.</div>}
-            {filtered.map((ex) => (
+            {filtered.slice(0, visibleExerciseCount).map((ex) => (
               <button key={ex.name} onClick={() => setDetailEx(ex)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "var(--ink)" }}>
                 <PoseFigure pose={ex.pose} muscle={ex.muscle} size={30} />
                 <div style={{ flex: 1 }}>
@@ -2251,6 +2258,15 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
                 <ChevronRight size={15} color="var(--ink-dim)" />
               </button>
             ))}
+            {filtered.length > visibleExerciseCount && (
+              <button
+                onClick={() => setVisibleExerciseCount((n) => n + EXERCISE_PAGE_SIZE)}
+                className="mono"
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: "8px 0", textAlign: "center" }}
+              >
+                Show {Math.min(EXERCISE_PAGE_SIZE, filtered.length - visibleExerciseCount)} more ({filtered.length - visibleExerciseCount} remaining)
+              </button>
+            )}
           </div>
         </div>
       )}
