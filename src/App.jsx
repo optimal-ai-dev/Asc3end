@@ -3399,6 +3399,45 @@ Respond with ONLY this JSON, nothing else:
 }
 
 /* ------------------------------------------------------------------ */
+/* Loading shell                                                        */
+/* ------------------------------------------------------------------ */
+
+// Shown while the initial session check ("session") or the first load of profile/workouts/
+// nutrition/etc. ("data") is in flight — replaces a bare unbranded spinner. Distinguishes the two
+// stages since they fail differently in practice (a hung session check usually means Supabase
+// Auth itself is unreachable; a hung data load means the user_data query is). After a while with
+// no result either way, offers a Retry (full reload) rather than leaving someone staring at a
+// spinner forever with no way out — loadKey() already catches its own errors and resolves to
+// null rather than rejecting, so the realistic failure mode here isn't a thrown exception, it's a
+// network call that never resolves at all (a dropped connection, an unreachable host).
+function LoadingShell({ stage }) {
+  const [showRetry, setShowRetry] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setShowRetry(true), 10000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="atlas-root" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 }}>
+      <GlobalStyle />
+      <div style={{ width: 52, height: 52, borderRadius: 14, background: "linear-gradient(135deg, var(--brass), #2BAE73)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16, boxShadow: "0 6px 18px -6px rgba(62,207,142,0.5)" }}>
+        <Dumbbell size={26} color="#072016" />
+      </div>
+      <div className="disp" style={{ fontSize: 18, marginBottom: 14 }}>Asc3end</div>
+      <div role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ink-dim)", fontSize: 13 }}>
+        <Loader2 size={16} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} />
+        <span>{stage === "session" ? "Checking your session…" : "Loading your data…"}</span>
+      </div>
+      {showRetry && (
+        <div style={{ marginTop: 22, textAlign: "center" }}>
+          <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 10 }}>This is taking longer than expected.</div>
+          <button className="atlas-btn-ghost" onClick={() => window.location.reload()}>Retry</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Password reset                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -4032,12 +4071,7 @@ export default function App() {
   }
 
   if (authUser === undefined || (authUser && !loaded)) {
-    return (
-      <div className="atlas-root" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
-        <GlobalStyle />
-        <Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} />
-      </div>
-    );
+    return <LoadingShell stage={authUser === undefined ? "session" : "data"} />;
   }
 
   if (!authUser) {
