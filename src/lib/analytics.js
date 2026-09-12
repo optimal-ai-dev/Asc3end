@@ -35,6 +35,7 @@ export const EVENT_NAMES = new Set([
   "checkout_started",       // { plan, trial }
   "checkout_failed",        // { reason }
   "subscription_activated", // { status }
+  "feedback_submitted",     // { type }
 ]);
 
 // Defense in depth: even if a future call site accidentally passes something sensitive (an

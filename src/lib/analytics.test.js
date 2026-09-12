@@ -60,7 +60,7 @@ describe("logEvent", () => {
   });
 
   it("every currently-used event name is in the catalog", () => {
-    for (const n of ["signup_completed", "onboarding_completed", "plan_generated", "plan_activated", "plan_edited", "workout_started", "first_set_logged", "workout_completed", "coach_message_sent", "food_logged", "paywall_viewed", "checkout_started", "checkout_failed", "subscription_activated"]) {
+    for (const n of ["signup_completed", "onboarding_completed", "plan_generated", "plan_activated", "plan_edited", "workout_started", "first_set_logged", "workout_completed", "coach_message_sent", "food_logged", "paywall_viewed", "checkout_started", "checkout_failed", "subscription_activated", "feedback_submitted"]) {
       expect(EVENT_NAMES.has(n)).toBe(true);
     }
   });

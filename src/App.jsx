@@ -20,6 +20,7 @@ import { FEATURES, FREE_TRIAL_LIMIT, remainingTrialUses } from "./lib/entitlemen
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, PRICING_FAQ } from "./lib/pricingContent";
 import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
+import { FEEDBACK_TYPES, MAX_MESSAGE_LENGTH, submitFeedback } from "./lib/feedback";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
 // people who actually open the Progress tab, instead of loading on every page for everyone.
@@ -1260,6 +1261,24 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
 
   const [legalOpen, setLegalOpen] = useState(null);
 
+  const [feedbackType, setFeedbackType] = useState("bug");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackStatus, setFeedbackStatus] = useState(null); // null | "sending" | "sent" | { error }
+
+  const sendFeedback = async () => {
+    setFeedbackStatus("sending");
+    const result = await submitFeedback({ type: feedbackType, message: feedbackMessage, rating: feedbackType === "rating" ? feedbackRating : undefined, page: "profile" });
+    if (result.ok) {
+      logEvent("feedback_submitted", { type: feedbackType });
+      setFeedbackStatus("sent");
+      setFeedbackMessage("");
+      setFeedbackRating(0);
+    } else {
+      setFeedbackStatus({ error: result.error });
+    }
+  };
+
   const saveIdentity = async () => {
     const name = edit.name.trim();
     if (!name) return;
@@ -1476,6 +1495,60 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
             })}
             <div style={{ fontSize: 11.5, color: "var(--ink-dim)" }}>Food scanner requires Asc3end+ — no free trial.</div>
           </div>
+        )}
+      </div>
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Send Feedback</div>
+        {feedbackStatus === "sent" ? (
+          <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Thanks — your feedback was sent.</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              {FEEDBACK_TYPES.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => { setFeedbackType(t); setFeedbackStatus(null); }}
+                  className={feedbackType === t ? "atlas-btn" : "atlas-btn-ghost"}
+                  style={{ flex: 1, padding: "7px 0", fontSize: 11, textTransform: "capitalize" }}
+                >
+                  {t === "bug" ? "Bug Report" : t === "feature" ? "Feature Idea" : "Rating"}
+                </button>
+              ))}
+            </div>
+
+            {feedbackType === "rating" && (
+              <div style={{ display: "flex", gap: 4, marginBottom: 10, justifyContent: "center" }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button key={n} onClick={() => setFeedbackRating(n)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }} aria-label={`${n} star${n > 1 ? "s" : ""}`}>
+                    <Star size={22} color={n <= feedbackRating ? "var(--brass)" : "var(--ink-dim)"} fill={n <= feedbackRating ? "var(--brass)" : "none"} />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <textarea
+              className="atlas-input"
+              rows={3}
+              placeholder={feedbackType === "bug" ? "What happened, and what did you expect instead?" : feedbackType === "feature" ? "What would help you?" : "Anything you want to add? (optional)"}
+              value={feedbackMessage}
+              onChange={(e) => setFeedbackMessage(e.target.value.slice(0, MAX_MESSAGE_LENGTH))}
+              style={{ width: "100%", resize: "vertical", marginBottom: 8 }}
+            />
+            <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", textAlign: "right", marginBottom: 8 }}>{feedbackMessage.length}/{MAX_MESSAGE_LENGTH}</div>
+
+            {feedbackStatus?.error && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 8 }}>{feedbackStatus.error}</div>}
+
+            <button
+              className="atlas-btn"
+              style={{ width: "100%" }}
+              disabled={feedbackStatus === "sending" || (feedbackType === "rating" && feedbackRating === 0 && !feedbackMessage.trim())}
+              onClick={sendFeedback}
+            >
+              {feedbackStatus === "sending" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
+              Send
+            </button>
+          </>
         )}
       </div>
 
