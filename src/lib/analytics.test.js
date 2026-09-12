@@ -60,8 +60,14 @@ describe("logEvent", () => {
   });
 
   it("every currently-used event name is in the catalog", () => {
-    for (const n of ["signup_completed", "onboarding_completed", "plan_generated", "plan_activated", "plan_edited", "workout_started", "first_set_logged", "workout_completed", "coach_message_sent", "food_logged", "paywall_viewed", "checkout_started", "checkout_failed", "subscription_activated", "feedback_submitted"]) {
+    for (const n of ["signup_completed", "onboarding_completed", "plan_generated", "plan_activated", "plan_edited", "workout_started", "first_set_logged", "workout_completed", "coach_message_sent", "food_logged", "paywall_viewed", "checkout_started", "checkout_failed", "subscription_activated", "feedback_submitted", "ai_request_completed"]) {
       expect(EVENT_NAMES.has(n)).toBe(true);
     }
+  });
+
+  it("records AI request latency/outcome with a clean, non-PII shape", async () => {
+    logEvent("ai_request_completed", { feature: "coach", durationMs: 842, ok: true, statusCode: 200 });
+    await flush();
+    expect(inserts[0].props).toEqual({ feature: "coach", durationMs: 842, ok: true, statusCode: 200 });
   });
 });

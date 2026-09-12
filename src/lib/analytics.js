@@ -18,7 +18,8 @@ import { supabase } from "./supabase";
 //   "plan_generated" | "plan_activated" | "plan_edited" |
 //   "workout_started" | "first_set_logged" | "workout_completed" |
 //   "coach_message_sent" | "food_logged" |
-//   "paywall_viewed" | "checkout_started" | "checkout_failed" | "subscription_activated"
+//   "paywall_viewed" | "checkout_started" | "checkout_failed" | "subscription_activated" |
+//   "ai_request_completed"
 // } EventName
 export const EVENT_NAMES = new Set([
   "signup_completed",       // {} — account created (email confirmation may still be pending)
@@ -36,6 +37,7 @@ export const EVENT_NAMES = new Set([
   "checkout_failed",        // { reason }
   "subscription_activated", // { status }
   "feedback_submitted",     // { type }
+  "ai_request_completed",   // { feature, durationMs, ok, statusCode } — every /api/claude call, success or failure
 ]);
 
 // Defense in depth: even if a future call site accidentally passes something sensitive (an

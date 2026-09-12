@@ -117,7 +117,15 @@ export default async function handler(req, res) {
     const subscriptionState = await getSubscriptionState(user.id);
     let currentUsage = 0;
     if (meteredFeature && !isEntitled(subscriptionState)) {
-      currentUsage = await getMonthlyUsage(user.id, feature);
+      try {
+        currentUsage = await getMonthlyUsage(user.id, feature);
+      } catch (e) {
+        // Fail CLOSED, not open: if usage can't be read, a non-entitled caller must not get an
+        // unmetered request — the alternative (defaulting to 0/unlimited) is exactly the bug this
+        // replaced, where a missing/unreachable feature_usage_monthly table silently gave every
+        // Free user unlimited Coach/Meals access.
+        return res.status(503).json({ error: { message: "Couldn't verify your usage right now — please try again in a moment." } });
+      }
     }
     if (!canAccessFeature(subscriptionState, feature, { [feature]: currentUsage })) {
       const message = feature === FEATURES.SCANNER
@@ -145,9 +153,17 @@ export default async function handler(req, res) {
     });
     const data = await response.json();
     // Only spend a monthly free use on an actual successful call — a network hiccup or
-    // Anthropic error shouldn't cost the user one of their 5 free tries for the month.
+    // Anthropic error shouldn't cost the user one of their 5 free tries for the month. A failure
+    // to RECORD the increment must not cost the user their already-generated (and already
+    // Anthropic-billed) answer — unlike a failed usage READ, this can't be exploited into
+    // unlimited access, since the next request's own read will reflect whatever's actually
+    // persisted, so it's safe to log and move on rather than fail the whole request.
     if (response.ok && usageCountBeforeThisCall !== null) {
-      await incrementMonthlyUsage(user.id, feature, usageCountBeforeThisCall);
+      try {
+        await incrementMonthlyUsage(user.id, feature, usageCountBeforeThisCall);
+      } catch (e) {
+        console.error("failed to record usage increment, serving response anyway", { feature, userId: user.id });
+      }
     }
     res.status(response.status).json(data);
   } catch (e) {

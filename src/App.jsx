@@ -15,6 +15,7 @@ import LegalPage from "./LegalPage";
 import SupportPage from "./SupportPage";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
+import { captureMessage } from "./lib/errorMonitoring";
 import { loadKey, saveKey } from "./lib/storage";
 import { suggestNextTarget, evaluatePR, computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown } from "./lib/workoutMath";
 import { getNutritionTargets } from "./lib/nutritionMath";
@@ -572,11 +573,19 @@ function extractClaudeText(data) {
   return text;
 }
 
+// Every /api/claude call (Coach chat, plan generation, food estimate, meals search) funnels
+// through here, which makes it the one place to record latency/failure for ALL AI request
+// traffic instead of instrumenting each of those call sites separately. ok:false covers both
+// network-level failures (timeout, offline) and non-2xx server responses; a graceful
+// "exceeded_limit" response is intentionally logged as ok:true since it's an expected product
+// state, not a system failure.
 async function callClaude(messages, maxTokens = 1000, tools = null, system = null, feature = "estimate") {
   const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages, feature };
   if (tools) body.tools = tools;
   if (system) body.system = system;
   const controller = new AbortController();
+  const startedAt = performance.now();
+  const record = (ok, statusCode) => logEvent("ai_request_completed", { feature, durationMs: Math.round(performance.now() - startedAt), ok, statusCode: statusCode || 0 });
   // Matches the server's maxDuration (api/claude.js) minus a safety margin — web-search calls
   // (Meals Near You) can legitimately take 10-20+ seconds, so this needs real headroom.
   const timeout = setTimeout(() => controller.abort(), 55000);
@@ -594,7 +603,10 @@ async function callClaude(messages, maxTokens = 1000, tools = null, system = nul
     });
   } catch (e) {
     clearTimeout(timeout);
-    if (e.name === "AbortError") throw new Error("The coach took too long to respond — try again.");
+    const aborted = e.name === "AbortError";
+    record(false, aborted ? 408 : 0);
+    captureMessage(`AI request failed: ${feature} — ${aborted ? "timeout" : "network error"}`);
+    if (aborted) throw new Error("The coach took too long to respond — try again.");
     throw new Error("Couldn't reach the coach — check your connection and try again.");
   }
   clearTimeout(timeout);
@@ -602,16 +614,22 @@ async function callClaude(messages, maxTokens = 1000, tools = null, system = nul
   try {
     data = await response.json();
   } catch (e) {
+    record(false, response.status);
+    captureMessage(`AI request failed: ${feature} — unparseable response (${response.status})`);
     throw new Error(`The coach hit an unexpected error (${response.status}) — try again.`);
   }
   if (response.status === 402 && data?.error?.code === "premium_required") {
+    record(true, response.status); // gated, not a failure
     const err = new Error(data.error.message || "This feature requires Asc3end Premium.");
     err.code = "premium_required";
     throw err;
   }
   if (!response.ok && data?.type !== "exceeded_limit") {
+    record(false, response.status);
+    captureMessage(`AI request failed: ${feature} — server error (${response.status})`);
     throw new Error(data?.error?.message || `The coach hit an error (${response.status}) — try again.`);
   }
+  record(true, response.status);
   return extractClaudeText(data);
 }
 
