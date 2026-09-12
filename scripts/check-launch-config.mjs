@@ -6,13 +6,20 @@
 // are informational only.
 //
 // This script is also wired into `npm run build` (see package.json) as a genuine production
-// build/configuration gate for one specific thing: VITE_SUPPORT_EMAIL. It only hard-fails the
-// BUILD (distinct from this script's own exit code when run standalone) when Vercel's own
-// VERCEL_ENV reports "production" AND the support email is unset — a local `npm run build`, a
-// Vercel preview deploy, or this script run manually are never affected by that gate, only an
-// actual production deploy is. A support page silently telling every real customer "not yet
-// configured by the app owner" is exactly the kind of unfinished-looking gap that should block a
-// production deploy loudly instead of shipping quietly.
+// build/configuration gate: it hard-fails the BUILD (distinct from this script's own exit code
+// when run standalone) when Vercel's own VERCEL_ENV reports "production" AND either (a) any
+// CRITICAL var is missing, or (b) VITE_SUPPORT_EMAIL specifically is unset. A local
+// `npm run build`, a Vercel preview deploy, or this script run manually are never affected by
+// that gate, only an actual production deploy is.
+//
+// The CRITICAL check exists because of a real gap: this script's own standalone mode always
+// treated a missing CRITICAL var as fatal, but for a long time the --build-gate mode wired into
+// the actual deploy pipeline only checked VITE_SUPPORT_EMAIL — meaning a production deploy with,
+// say, VITE_SUPABASE_URL unset would build and ship successfully, then show every visitor a
+// permanently blank white screen (createClient() throws synchronously at module-load time, before
+// React or any error handler exists to catch it — see src/lib/supabase.js and the startup
+// hardening in src/main.jsx). The "critical" list should mean something in the pipeline that
+// actually gates deploys, not just when someone remembers to run this manually.
 
 import fs from "fs";
 import path from "path";
@@ -89,9 +96,17 @@ const supportEmailMissing = !(process.env.VITE_SUPPORT_EMAIL && process.env.VITE
 console.log("\n---");
 
 if (buildGateMode) {
-  // Narrow, build-chained mode: the ONLY thing that can fail the actual `vite build` step is a
-  // production deploy missing the support email — every other gap here is informational so this
-  // never blocks local development or preview deploys over unrelated missing vars.
+  // Build-chained mode: for a real Vercel production deploy, a missing CRITICAL var or a missing
+  // VITE_SUPPORT_EMAIL both fail the build outright — every other gap here is informational so
+  // this never blocks local development or preview deploys over unrelated missing vars.
+  if (isProductionBuild && criticalMissing > 0) {
+    console.log(`✗ FAIL: ${criticalMissing} CRITICAL var(s) missing for this production deploy.`);
+    console.log("  See the CRITICAL list above for which ones and why — the app would deploy");
+    console.log("  successfully but fail at runtime (in the worst case, a permanently blank");
+    console.log("  screen for every visitor). Set them in the Vercel project's Production");
+    console.log("  environment variables, then redeploy.");
+    process.exit(1);
+  }
   if (isProductionBuild && supportEmailMissing) {
     console.log("✗ FAIL: VITE_SUPPORT_EMAIL is not set for this production deploy.");
     console.log("  The Support and Contact pages would tell every real customer \"not yet");
@@ -100,7 +115,7 @@ if (buildGateMode) {
     process.exit(1);
   }
   console.log(isProductionBuild
-    ? "✓ Production build gate: VITE_SUPPORT_EMAIL is set."
+    ? "✓ Production build gate: all CRITICAL vars and VITE_SUPPORT_EMAIL are set."
     : "✓ Build gate skipped (not a Vercel production build).");
   process.exit(0);
 }

@@ -3771,6 +3771,41 @@ function LoadingShell({ stage }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Not found — a /app/* URL that doesn't match any known route            */
+/* ------------------------------------------------------------------ */
+
+// A client-side SPA can't return a real HTTP 404 for a bad deep link — Vercel's rewrite has
+// already served index.html by the time this ever runs (see vercel.json). This is the honest
+// equivalent: a real "this page doesn't exist" screen instead of silently landing on Dashboard
+// with a broken URL still in the address bar, plus a dynamic noindex so a search engine that
+// somehow crawled a stale/bad link doesn't index this as real content.
+function NotFoundScreen({ onGoHome }) {
+  // index.html already ships a static <meta name="robots" content="index, follow">, so this
+  // updates that existing tag in place rather than appending a second one — two conflicting
+  // robots meta tags on the same page is undefined/unreliable behavior across crawlers, whereas
+  // mutating the one that's there is unambiguous and cleanly reverts on unmount.
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="robots"]');
+    const original = meta?.content;
+    if (meta) meta.content = "noindex";
+    return () => { if (meta && original !== undefined) meta.content = original; };
+  }, []);
+  return (
+    <div className="atlas-root" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 }}>
+      <GlobalStyle />
+      <div className="atlas-card" style={{ width: "100%", maxWidth: 360, textAlign: "center", padding: 28 }}>
+        <div className="disp" style={{ fontSize: 40, color: "var(--brass)", marginBottom: 8 }}>404</div>
+        <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>Page not found</div>
+        <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>
+          That link doesn't match anywhere in Asc3end — it may be out of date.
+        </div>
+        <button className="atlas-btn" style={{ width: "100%" }} onClick={onGoHome}>Go to Home</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Password reset                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -3990,6 +4025,18 @@ export default function App() {
     if (typeof window === "undefined") return false;
     return !!parseAppPath(window.location.pathname)?.settings;
   });
+  // A /app/* URL that doesn't match any known route (a stale bookmark, a typo, a link to a
+  // removed feature) previously fell through silently to the Dashboard — same content, but the
+  // broken URL stayed in the address bar with no signal anything was wrong. `tab`/`showProfile`
+  // above already default to a valid screen for exactly this reason (so a bad path can't leave
+  // the app on a blank/crashed state), but that means detecting "this path was actually invalid"
+  // has to happen separately, once, from the initial URL — not from `tab`, which is by then
+  // already a valid fallback value.
+  const [invalidPath, setInvalidPath] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const path = window.location.pathname;
+    return path.startsWith("/app/") && !parseAppPath(path);
+  });
   const [showPricing, setShowPricing] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
   const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "signup"
@@ -4107,7 +4154,11 @@ export default function App() {
   // rep without changing which route that maps to, so this doesn't spam the back button with dozens
   // of near-identical entries for one workout.
   useEffect(() => {
-    if (!authUser || !profile) return;
+    // The invalidPath guard keeps the address bar showing the actual broken URL for as long as
+    // NotFoundScreen is up, rather than this effect silently correcting it to /app/home in the
+    // background while the visible screen still says "page not found" — the whole point of a
+    // real not-found experience is that the URL and the message agree.
+    if (!authUser || !profile || invalidPath) return;
     const path = buildAppPath({ tab, showProfile, hasActiveSession: !!session });
     if (window.location.pathname !== path) {
       window.history.pushState({ tab, showProfile }, "", path);
@@ -4473,6 +4524,22 @@ export default function App() {
       <>
         <GlobalStyle />
         <Onboarding onComplete={completeOnboarding} />
+      </>
+    );
+  }
+
+  if (invalidPath) {
+    return (
+      <>
+        <GlobalStyle />
+        <NotFoundScreen
+          onGoHome={() => {
+            setInvalidPath(false);
+            setTab("dashboard");
+            setShowProfile(false);
+            window.history.replaceState(null, "", "/app/home");
+          }}
+        />
       </>
     );
   }
