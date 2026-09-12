@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList,
+  validateMacroOverride,
 } from "./validation";
 
 describe("sanitizeList — malformed stored data cannot crash the app", () => {
@@ -57,5 +58,37 @@ describe("individual shape validators", () => {
   it("isValidFavorite requires a name and a finite calories number", () => {
     expect(isValidFavorite({ name: "Protein Shake", calories: 130 })).toBe(true);
     expect(isValidFavorite({ calories: 130 })).toBe(false);
+  });
+});
+
+describe("validateMacroOverride — server-side guard on a manually-entered nutrition target", () => {
+  it("accepts a realistic manual target", () => {
+    expect(validateMacroOverride({ calories: 2800, protein: 180, carbs: 300, fat: 80 })).toBeNull();
+  });
+
+  it("rejects a missing or non-object payload", () => {
+    expect(validateMacroOverride(null)).not.toBeNull();
+    expect(validateMacroOverride(undefined)).not.toBeNull();
+    expect(validateMacroOverride("2800")).not.toBeNull();
+  });
+
+  it("rejects negative or zero calories — a modified client sending garbage must not slip through", () => {
+    expect(validateMacroOverride({ calories: -100, protein: 180, carbs: 300, fat: 80 })).not.toBeNull();
+    expect(validateMacroOverride({ calories: 0, protein: 180, carbs: 300, fat: 80 })).not.toBeNull();
+  });
+
+  it("rejects an absurdly large value outside realistic human bounds", () => {
+    expect(validateMacroOverride({ calories: 999999, protein: 180, carbs: 300, fat: 80 })).not.toBeNull();
+    expect(validateMacroOverride({ calories: 2800, protein: 99999, carbs: 300, fat: 80 })).not.toBeNull();
+  });
+
+  it("rejects non-integer and non-numeric fields", () => {
+    expect(validateMacroOverride({ calories: 2800.5, protein: 180, carbs: 300, fat: 80 })).not.toBeNull();
+    expect(validateMacroOverride({ calories: "2800", protein: 180, carbs: 300, fat: 80 })).not.toBeNull();
+    expect(validateMacroOverride({ calories: NaN, protein: 180, carbs: 300, fat: 80 })).not.toBeNull();
+  });
+
+  it("rejects a payload missing one of the four required fields", () => {
+    expect(validateMacroOverride({ calories: 2800, protein: 180, carbs: 300 })).not.toBeNull();
   });
 });

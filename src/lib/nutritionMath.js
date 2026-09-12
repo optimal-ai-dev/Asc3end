@@ -32,3 +32,21 @@ export function computeTargets(p) {
     fat: Math.round(fat),
   };
 }
+
+// THE single source of truth for "what are this athlete's nutrition targets right now" —
+// Home, Food, Profile & Settings, the Coach system prompt, and any future API all call this one
+// function instead of computeTargets() directly or reading a cached `profile.targets` snapshot.
+//
+// The previous design stored a `profile.targets` snapshot (written by onboarding and by Profile's
+// "Save Changes") *alongside* live computeTargets(profile) calls elsewhere (Home, Food) — two
+// independent sources of the same number that could silently drift apart the moment a profile
+// was updated through any path that didn't also refresh the snapshot (exactly what produced the
+// "2800 kcal in Settings vs 2891 kcal on Home" bug report). Recomputing fresh from the live
+// profile every time — never trusting a stored snapshot for calculated mode — makes that class of
+// bug structurally impossible: there is nothing left to go stale.
+//
+// @returns {{calories:number, protein:number, carbs:number, fat:number, source: "calculated"|"manual"}}
+export function getNutritionTargets(profile) {
+  const targets = computeTargets(profile);
+  return { ...targets, source: profile?.macroOverride ? "manual" : "calculated" };
+}

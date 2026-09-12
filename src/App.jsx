@@ -14,11 +14,11 @@ import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
 import { suggestNextTarget, evaluatePR, computeGamification } from "./lib/workoutMath";
-import { computeTargets } from "./lib/nutritionMath";
+import { getNutritionTargets } from "./lib/nutritionMath";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION } from "./lib/legal";
 import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./lib/subscription";
-import { FEATURES, FREE_TRIAL_LIMIT, remainingTrialUses } from "./lib/entitlements";
-import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, PRICING_FAQ } from "./lib/pricingContent";
+import { FEATURES, FREE_MONTHLY_LIMIT, remainingMonthlyUses } from "./lib/entitlements";
+import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
 import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
 import { FEEDBACK_TYPES, MAX_MESSAGE_LENGTH, submitFeedback } from "./lib/feedback";
@@ -1001,7 +1001,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
   const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
   const [selectedMuscle, setSelectedMuscle] = useState(null);
-  const targets = useMemo(() => computeTargets(profile), [profile]);
+  const targets = useMemo(() => getNutritionTargets(profile), [profile]);
   const todayFoods = nutrition.filter((n) => n.date === todayStr());
   const totals = todayFoods.reduce(
     (a, f) => ({
@@ -1258,8 +1258,9 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
   const setNumber = (k, raw) => setEdit((f) => ({ ...f, [k]: raw === "" ? 0 : +raw.replace(/^0+(?=\d)/, "") }));
 
   const [overrideOn, setOverrideOn] = useState(!!profile.macroOverride);
-  const currentTargets = profile.targets || computeTargets(profile);
+  const currentTargets = getNutritionTargets(profile);
   const [overrideForm, setOverrideForm] = useState(profile.macroOverride || currentTargets);
+  const [targetsStatus, setTargetsStatus] = useState(null); // null | "saving" | { error }
 
   const [pw, setPw] = useState({ next: "", confirm: "" });
   const [pwStatus, setPwStatus] = useState(null); // null | "saving" | "success" | { error }
@@ -1293,25 +1294,42 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
   const saveIdentity = async () => {
     const name = edit.name.trim();
     if (!name) return;
+    // No `targets` snapshot to recompute here anymore — getNutritionTargets() derives fresh from
+    // these same profile fields everywhere it's called, so there's nothing to keep in sync.
     const next = { ...profile, ...edit, name };
-    if (!profile.macroOverride) next.targets = computeTargets(next);
     await onUpdateProfile(next);
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 2200);
   };
 
+  // Routes through /api/save-nutrition-targets — the one server-authorized write path for a
+  // manual override — instead of writing straight to storage, so an out-of-range or malformed
+  // value (a modified client, a typo that slipped past the number input) is rejected server-side
+  // and never reaches local state or storage at all, rather than being "cleaned" into a 0.
   const saveOverride = async () => {
-    if (overrideOn) {
-      const clean = {
-        calories: +overrideForm.calories || 0, protein: +overrideForm.protein || 0,
-        carbs: +overrideForm.carbs || 0, fat: +overrideForm.fat || 0,
-      };
-      await onUpdateProfile({ macroOverride: clean, targets: clean });
-    } else {
-      await onUpdateProfile({ macroOverride: null, targets: computeTargets(profile) });
+    setTargetsStatus("saving");
+    const macroOverride = overrideOn
+      ? { calories: +overrideForm.calories || 0, protein: +overrideForm.protein || 0, carbs: +overrideForm.carbs || 0, fat: +overrideForm.fat || 0 }
+      : null;
+    try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const res = await fetch("/api/save-nutrition-targets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession?.access_token}` },
+        body: JSON.stringify({ macroOverride }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTargetsStatus({ error: data.error || "Couldn't save your targets — try again." });
+        return;
+      }
+      await onUpdateProfile({ macroOverride });
+      setTargetsStatus(null);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2200);
+    } catch (e) {
+      setTargetsStatus({ error: "Couldn't reach the server — check your connection and try again." });
     }
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 2200);
   };
 
   const changePassword = async () => {
@@ -1429,7 +1447,11 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
             ))}
           </div>
         )}
-        <button className="atlas-btn-ghost" style={{ width: "100%", marginTop: 4 }} onClick={saveOverride}>Save Targets</button>
+        {targetsStatus?.error && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 8 }}>{targetsStatus.error}</div>}
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginTop: 4 }} onClick={saveOverride} disabled={targetsStatus === "saving"}>
+          {targetsStatus === "saving" ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
+          Save Targets
+        </button>
       </div>
 
       {savedFlash && <div className="mono" style={{ fontSize: 12, color: "var(--brass)", textAlign: "center", marginBottom: 16 }}>Saved.</div>}
@@ -1487,24 +1509,24 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Your AI Usage</div>
         {isPremium ? (
-          <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Unlimited — Asc3end+</div>
+          <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Unlimited — Asc3end+ (fair-use limits apply)</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[["AI Coach", FEATURES.COACH], ["Meals Near You", FEATURES.MEALS]].map(([label, key]) => {
-              const remaining = remainingTrialUses(key, usage || {});
+              const remaining = remainingMonthlyUses(key, usage || {});
               return (
                 <div key={key}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 4 }}>
                     <span>{label}</span>
-                    <span className="mono" style={{ color: remaining === 0 ? "var(--rest)" : "var(--ink-dim)" }}>{FREE_TRIAL_LIMIT - remaining}/{FREE_TRIAL_LIMIT} used</span>
+                    <span className="mono" style={{ color: remaining === 0 ? "var(--rest)" : "var(--ink-dim)" }}>{FREE_MONTHLY_LIMIT - remaining}/{FREE_MONTHLY_LIMIT} used this month</span>
                   </div>
                   <div style={{ height: 4, borderRadius: 2, background: "var(--bg-elev2)", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${((FREE_TRIAL_LIMIT - remaining) / FREE_TRIAL_LIMIT) * 100}%`, background: remaining === 0 ? "var(--rest)" : "var(--brass)" }} />
+                    <div style={{ height: "100%", width: `${((FREE_MONTHLY_LIMIT - remaining) / FREE_MONTHLY_LIMIT) * 100}%`, background: remaining === 0 ? "var(--rest)" : "var(--brass)" }} />
                   </div>
                 </div>
               );
             })}
-            <div style={{ fontSize: 11.5, color: "var(--ink-dim)" }}>Food scanner requires Asc3end+ — no free trial.</div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-dim)" }}>Resets on the 1st of each month. Food scanner requires Asc3end+.</div>
           </div>
         )}
       </div>
@@ -2224,6 +2246,7 @@ function FeatureComparisonTable() {
           <span style={{ textAlign: "center" }}>{cell(r.premium)}</span>
         </div>
       ))}
+      <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8 }}>{FEATURE_COMPARISON_FOOTNOTE}</div>
     </div>
   );
 }
@@ -2354,7 +2377,7 @@ function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLo
 }
 
 function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage, onUsageChange }) {
-  const coachRemaining = remainingTrialUses(FEATURES.COACH, usage || {});
+  const coachRemaining = remainingMonthlyUses(FEATURES.COACH, usage || {});
   // Bug: this used to read `profile.plan`, a field nothing ever wrote — the real field is
   // `profile.activePlan` (set by activatePlan below), so a fresh mount of Coach always started
   // with no plan showing here even when Home was actively running one. Reconstruct the same
@@ -2522,10 +2545,13 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     try {
       const recent = workouts.slice(-3).map((w) => `${w.date}: ${w.exercises.map((e) => e.name).join(", ")}`).join(" | ");
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
+      // Same getNutritionTargets() every other screen uses — so if the Coach ever references "your
+      // target," it's the identical number Home/Food/Settings show, not a separately-derived one.
+      const targets = getNutritionTargets(profile);
       // profile.name was previously missing from this prompt entirely — Claude had no actual
       // name to address the athlete by (only the client-side synthetic greeting bubble did, and
       // that's stripped before sending), so it would invent a literal "[Name]" placeholder.
-      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Recent workouts: ${recent || "none logged"}.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_OUTPUT_RULES}`;
+      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Daily nutrition target (${targets.source}): ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat. Recent workouts: ${recent || "none logged"}.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_OUTPUT_RULES}`;
       // Strip the synthetic greeting (index 0) — it was never a real API turn, and including it
       // alongside a fake priming pair broke the API's requirement that roles strictly alternate
       // starting with "user", which is why the coach silently failed on every message before.
@@ -2569,7 +2595,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
         <div className="disp" style={{ fontSize: 26 }}>Coach</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {!isPremium && (
-            <span className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>{coachRemaining} free {coachRemaining === 1 ? "message" : "messages"} left</span>
+            <span className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>{coachRemaining} free {coachRemaining === 1 ? "message" : "messages"} left this month</span>
           )}
           {messages.length > 1 && (
             <button onClick={startNewConversation} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0 }} title="Start a new conversation">
@@ -3023,7 +3049,7 @@ function FoodScanner({ onAdd, onClose }) {
 }
 
 function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, isPremium, onUpgrade, usage, onUsageChange }) {
-  const mealsRemaining = remainingTrialUses(FEATURES.MEALS, usage || {});
+  const mealsRemaining = remainingMonthlyUses(FEATURES.MEALS, usage || {});
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -3041,7 +3067,7 @@ function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, fav
   const [mealError, setMealError] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
-  const targets = computeTargets(profile);
+  const targets = getNutritionTargets(profile);
   const today = nutrition.filter((n) => n.date === todayStr());
   const yesterday = nutrition.filter((n) => n.date === yesterdayStr());
   const totals = today.reduce((a, f) => ({
@@ -3203,7 +3229,7 @@ Respond with ONLY this JSON, nothing else:
             <div className="disp" style={{ fontSize: 14 }}>Meals Near You</div>
           </div>
           {!isPremium && (
-            <span className="mono" style={{ fontSize: 10, color: "var(--brass)" }}>{mealsRemaining} free left</span>
+            <span className="mono" style={{ fontSize: 10, color: "var(--brass)" }}>{mealsRemaining} free left this month</span>
           )}
         </div>
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
@@ -3800,8 +3826,10 @@ export default function App() {
   }, [session, loaded]);
 
   const completeOnboarding = async (form) => {
-    const targets = computeTargets(form);
-    const newProfile = { ...form, targets };
+    // No `targets` snapshot stored here — getNutritionTargets(profile) derives it fresh from
+    // these same fields everywhere it's needed, so there's nothing to compute or cache at
+    // onboarding time (and nothing that can later drift out of sync with the live profile).
+    const newProfile = { ...form };
     setProfile(newProfile);
     await saveKey(KEYS.profile, newProfile);
     const wl = [{ date: todayStr(), weight: form.weightKg }];

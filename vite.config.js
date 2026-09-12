@@ -43,7 +43,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["src/**/*.test.js", "src/**/*.test.jsx"],
+    include: ["src/**/*.test.js", "src/**/*.test.jsx", "lib/**/*.test.js"],
     // Integration tests hit the live Supabase project (real RLS policies, real throwaway users)
     // and need SUPABASE_SERVICE_ROLE_KEY — excluded from the default fast/offline `npm test` run,
     // run explicitly via `npm run test:integration`.

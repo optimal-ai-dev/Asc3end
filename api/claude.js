@@ -10,15 +10,17 @@
 // Every call must be authenticated (a signed-in Supabase user) — this closes a previous gap
 // where anyone could call this for free. The Stripe paywall is enforced HERE, not just by
 // hiding buttons in the UI, which a direct API call would bypass entirely:
-//   - "scanner" (the food scanner) always requires an active subscription.
-//   - "coach" and "meals" (Meals Near You) are free for FREE_TRIAL_LIMIT uses each, tracked
-//     per-user in the `feature_usage` table, then require a subscription.
+//   - "scanner" (the food scanner) always requires an active Asc3end+ subscription.
+//   - "coach" and "meals" (Meals Near You) are free on the Free plan up to FREE_MONTHLY_LIMIT
+//     uses each PER CALENDAR MONTH (see lib/monthlyUsage.js) — this is a standing monthly
+//     allowance, not a trial: the Free plan itself never expires and never requires a card.
 //   - "estimate" (manual food entry's macro estimate) is unlimited and free for everyone.
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { getMonthlyUsage, incrementMonthlyUsage } from "../lib/monthlyUsage.js";
 import { computeSubscriptionState, isEntitled } from "../src/lib/subscription.js";
-import { canAccessFeature, FEATURES, FREE_TRIAL_LIMIT } from "../src/lib/entitlements.js";
+import { canAccessFeature, isMeteredFeature, FEATURES, FREE_MONTHLY_LIMIT } from "../src/lib/entitlements.js";
 
 // Vercel's Hobby plan defaults serverless functions to a 10-second execution limit — nowhere
 // near enough for web-search-augmented Claude calls (Meals Near You), which can legitimately
@@ -84,9 +86,9 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: { message: "Sign in required." } });
   }
 
-  // Blanket per-user abuse/cost guard, independent of the free-trial/premium business logic
-  // below — every call to this endpoint costs real Anthropic API spend regardless of which
-  // feature it's for, so it's rate-limited as one bucket rather than per-feature.
+  // Blanket per-user abuse/cost guard, independent of the free-vs-plus business logic below —
+  // every call to this endpoint costs real Anthropic API spend regardless of which feature it's
+  // for, so it's rate-limited as one bucket rather than per-feature.
   const rl = await checkRateLimit(user.id, "claude", { windowSeconds: 60, maxRequests: 20 });
   if (!rl.allowed) {
     return res.status(429).json({ error: { message: "Too many requests — please wait a moment and try again." } });
@@ -108,31 +110,25 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: { message: validationError } });
   }
 
-  const isTrialFeature = feature === FEATURES.COACH || feature === FEATURES.MEALS;
+  const meteredFeature = isMeteredFeature(feature);
   let usageCountBeforeThisCall = null; // set only when this call should increment usage after success
 
-  if (feature === FEATURES.SCANNER || isTrialFeature) {
+  if (feature === FEATURES.SCANNER || meteredFeature) {
     const subscriptionState = await getSubscriptionState(user.id);
     let currentUsage = 0;
-    if (isTrialFeature && !isEntitled(subscriptionState)) {
-      const { data: usage } = await supabaseAdmin
-        .from("feature_usage")
-        .select("count")
-        .eq("user_id", user.id)
-        .eq("feature", feature)
-        .maybeSingle();
-      currentUsage = usage?.count || 0;
+    if (meteredFeature && !isEntitled(subscriptionState)) {
+      currentUsage = await getMonthlyUsage(user.id, feature);
     }
     if (!canAccessFeature(subscriptionState, feature, { [feature]: currentUsage })) {
       const message = feature === FEATURES.SCANNER
-        ? "This feature requires Asc3end Premium."
-        : `You've used all ${FREE_TRIAL_LIMIT} free ${feature === "coach" ? "coach conversations" : "meal searches"} — upgrade to keep going.`;
+        ? "The food scanner is an Asc3end+ feature."
+        : `You've used all ${FREE_MONTHLY_LIMIT} free ${feature === "coach" ? "coach conversations" : "meal searches"} this month — upgrade to Asc3end+ for unlimited, or check back next month.`;
       return res.status(402).json({ error: { message, code: "premium_required" } });
     }
-    // Only a non-entitled caller of a trial feature spends one of their free uses — an entitled
-    // (demo/paid) caller's feature_usage row is never read or incremented, matching the pre-Phase-6
-    // behavior of only tracking usage for people the trial actually applies to.
-    if (isTrialFeature && !isEntitled(subscriptionState)) {
+    // Only a non-entitled caller of a metered feature spends one of their monthly free uses — an
+    // entitled (demo/paid) caller's usage is never read or incremented, since Asc3end+ has no
+    // monthly cap on these features to track.
+    if (meteredFeature && !isEntitled(subscriptionState)) {
       usageCountBeforeThisCall = currentUsage;
     }
   }
@@ -148,18 +144,17 @@ export default async function handler(req, res) {
       body: JSON.stringify(body),
     });
     const data = await response.json();
-    // Only spend a free-trial use on an actual successful call — a network hiccup or Anthropic
-    // error shouldn't cost the user one of their 5 free tries.
+    // Only spend a monthly free use on an actual successful call — a network hiccup or
+    // Anthropic error shouldn't cost the user one of their 5 free tries for the month.
     if (response.ok && usageCountBeforeThisCall !== null) {
-      await supabaseAdmin.from("feature_usage").upsert({
-        user_id: user.id,
-        feature,
-        count: usageCountBeforeThisCall + 1,
-        updated_at: new Date().toISOString(),
-      });
+      await incrementMonthlyUsage(user.id, feature, usageCountBeforeThisCall);
     }
     res.status(response.status).json(data);
   } catch (e) {
-    res.status(500).json({ error: { message: "Proxy request failed" } });
+    // Structured, PII-free failure log: which feature, which user id (not email), no request/
+    // response body (which could contain the athlete's logged food/workout text or, for the
+    // scanner, image data) — enough to debug an outage without logging anything sensitive.
+    console.error("claude proxy failed", { feature, userId: user.id });
+    res.status(500).json({ error: { message: "The AI service didn't respond — please try again." } });
   }
 }

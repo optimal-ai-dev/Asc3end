@@ -78,21 +78,30 @@ that file for the full authoritative entitlement model (free / demo / paid / loa
 every premium-gated part of the app now derives from, instead of ad hoc `status === "active"`
 checks scattered around.
 
-### `feature_usage` table (free-trial counters)
-Same pattern as `subscriptions` — only the server (via `SUPABASE_SERVICE_ROLE_KEY`) writes to this;
-users can only read their own rows, so they can't reset their own trial count from the client.
+### `feature_usage_monthly` table (Free-plan monthly Coach/Meals allowance)
+The Free plan includes `FREE_MONTHLY_LIMIT` (5) Coach messages and 5 Meals Near You searches
+**per calendar month** — a standing allowance, not a trial: the Free plan itself never expires and
+never requires a card. Same pattern as `subscriptions` — only the server (via
+`SUPABASE_SERVICE_ROLE_KEY`, see `lib/monthlyUsage.js`) writes to this; users can only read their
+own rows, so they can't reset their own count from the client. Scoped by an explicit `month`
+column (`"YYYY-MM"`, UTC) so a new month is a distinct row with no cron job or explicit reset step
+required.
 ```sql
-create table feature_usage (
+create table feature_usage_monthly (
   user_id uuid references auth.users not null,
   feature text not null,
+  month text not null,
   count int not null default 0,
   updated_at timestamptz default now(),
-  primary key (user_id, feature)
+  primary key (user_id, feature, month)
 );
-alter table feature_usage enable row level security;
-create policy "Users can read their own usage" on feature_usage
+alter table feature_usage_monthly enable row level security;
+create policy "Users can read their own usage" on feature_usage_monthly
   for select using (auth.uid() = user_id);
 ```
+Supersedes the earlier `feature_usage` table (a lifetime, never-resetting counter) — if that table
+exists from before this change, it's no longer read or written anywhere and can be dropped once
+you've confirmed nothing else depends on it: `drop table if exists feature_usage;`.
 
 ### `analytics_events` table (lightweight product analytics)
 Written directly from the client — the RLS policy only allows a user to insert rows with their own
@@ -203,6 +212,23 @@ RECOMMENDED (app runs, but not launch-ready), and OPTIONAL. Exits non-zero only 
 is missing, so it's safe to wire into a pre-deploy step later without blocking on things like
 `VITE_SENTRY_DSN` that are genuinely optional.
 
+## Nutrition targets — one canonical source
+`src/lib/nutritionMath.js`'s `getNutritionTargets(profile)` is the ONLY function Home, Food,
+Profile & Settings, and the Coach system prompt call for "what are this athlete's daily targets" —
+never `computeTargets()` directly, and never a cached `profile.targets` field (removed; the old
+design stored a calculated-targets snapshot on the profile that could silently drift from a fresh
+calculation the moment the profile changed through any path that didn't also refresh it — that
+drift was a real, reported bug: Settings showing one set of numbers, Home/Food showing another,
+for the same profile). Recomputing fresh every time from live profile fields makes that class of
+bug structurally impossible.
+
+Returns `{ calories, protein, carbs, fat, source: "calculated" | "manual" }` — `source` reflects
+whether `profile.macroOverride` is set. A manual override is saved via `POST
+/api/save-nutrition-targets` (bearer-token-authenticated, rate-limited, validates ranges
+server-side via `validateMacroOverride()` in `src/lib/validation.js` before writing) rather than a
+direct client write — a modified client sending negative calories or a six-figure protein target
+is rejected before it's ever stored, not silently "cleaned" into a 0 or accepted as-is.
+
 ## Admin metrics
 `/api/admin-metrics` returns aggregate product metrics (user count, signups, subscriptions by
 status, workouts completed, feedback counts) — authorized entirely server-side against
@@ -215,21 +241,27 @@ no nav-bar link to it on purpose (no reason to surface it to regular users), but
 convenience, not the security boundary — the server-side email check is.
 
 ## Paywall
-Free: workout logging, nutrition tracking (manual entry + quick add + AI macro estimate).
-Premium ($9.99/mo): unlimited AI Coach, the food scanner (photo/barcode), and Meals Near You.
+Free (no card required, never expires): unlimited workout logging, unlimited nutrition tracking
+(manual entry + quick add + AI macro estimate), progress analytics, and `FREE_MONTHLY_LIMIT` (5,
+in `src/lib/entitlements.js`) AI Coach messages + 5 Meals Near You searches **per calendar month**.
+Asc3end+ ($9.99/mo or $79.99/yr): everything in Free, plus unlimited* Coach and Meals Near You, and
+the food scanner (photo/barcode) — Free-plan only, no monthly allowance for it at all.
 
-Free trial: everyone gets `FREE_TRIAL_LIMIT` (5, set in `api/claude.js`) free uses each of the AI
-Coach and Meals Near You before hitting the paywall — tracked per-user in `feature_usage`. The food
-scanner has no free trial; it's Premium-only from the first use.
+This is a standing monthly allowance, not a trial — never describe it as one. The Free plan itself
+never expires and never asks for a card; only choosing to upgrade to Asc3end+ involves payment. The
+allowance resets automatically every calendar month (see `feature_usage_monthly` above) with no
+cron job or manual reset needed. *"Unlimited" on Asc3end+ means no monthly cap, not literally no
+limit — every account (Free or Plus) is still subject to the same abuse/cost rate limiting in
+`lib/rateLimit.js`.
 
 Gating happens in two places, both required — hiding a button in the UI alone would not stop
 someone from calling the API directly:
-- **Frontend**: `App.jsx` loads `isPremium` and `usage` (`{ coach, meals }` counts from `/api/usage`)
-  and passes them to `Coach`/`Nutrition`, which show remaining free uses and swap in the `Paywall`
-  once exhausted.
+- **Frontend**: `App.jsx` loads `isPremium` and `usage` (`{ coach, meals }` counts for the current
+  month from `/api/usage`) and passes them to `Coach`/`Nutrition`, which show remaining monthly
+  uses and swap in the `Paywall` once exhausted.
 - **Backend**: `api/claude.js` is the real enforcement — it checks the caller's `subscriptions` row
-  for `scanner` (always Premium), and checks + increments `feature_usage` for `coach`/`meals` (free
-  up to the limit, then Premium) before proxying to Anthropic.
+  for `scanner` (always Asc3end+), and checks + increments `feature_usage_monthly` for
+  `coach`/`meals` (free up to the monthly limit, then Asc3end+) before proxying to Anthropic.
 
 ## Error monitoring
 `src/lib/errorMonitoring.js` is a small Sentry-shaped abstraction (`initErrorMonitoring`,

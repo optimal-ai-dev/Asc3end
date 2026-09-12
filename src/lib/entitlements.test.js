@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canAccessFeature, remainingTrialUses, FEATURES, FREE_TRIAL_LIMIT } from "./entitlements";
+import { canAccessFeature, remainingMonthlyUses, isMeteredFeature, FEATURES, FREE_MONTHLY_LIMIT } from "./entitlements";
 
 const FREE = { type: "free", status: "inactive" };
 const DEMO = { type: "demo", status: "active" };
@@ -17,13 +17,13 @@ describe("canAccessFeature", () => {
     expect(canAccessFeature(PAST_DUE, FEATURES.SCANNER)).toBe(true);
   });
 
-  it("coach/meals are free up to FREE_TRIAL_LIMIT uses for a free user", () => {
-    expect(canAccessFeature(FREE, FEATURES.COACH, { coach: FREE_TRIAL_LIMIT - 1 })).toBe(true);
-    expect(canAccessFeature(FREE, FEATURES.COACH, { coach: FREE_TRIAL_LIMIT })).toBe(false);
+  it("coach/meals are free up to FREE_MONTHLY_LIMIT uses for a free user", () => {
+    expect(canAccessFeature(FREE, FEATURES.COACH, { coach: FREE_MONTHLY_LIMIT - 1 })).toBe(true);
+    expect(canAccessFeature(FREE, FEATURES.COACH, { coach: FREE_MONTHLY_LIMIT })).toBe(false);
     expect(canAccessFeature(FREE, FEATURES.MEALS, { meals: 0 })).toBe(true);
   });
 
-  it("entitled users bypass the trial-count check entirely", () => {
+  it("entitled users bypass the monthly-count check entirely — Asc3end+ has no monthly cap to enforce", () => {
     expect(canAccessFeature(PAID_ACTIVE, FEATURES.COACH, { coach: 999 })).toBe(true);
   });
 
@@ -37,17 +37,26 @@ describe("canAccessFeature", () => {
   });
 });
 
-describe("remainingTrialUses", () => {
-  it("counts down from FREE_TRIAL_LIMIT for trial features", () => {
-    expect(remainingTrialUses(FEATURES.COACH, { coach: 2 })).toBe(FREE_TRIAL_LIMIT - 2);
+describe("isMeteredFeature", () => {
+  it("coach and meals are metered; scanner and unlisted features are not", () => {
+    expect(isMeteredFeature(FEATURES.COACH)).toBe(true);
+    expect(isMeteredFeature(FEATURES.MEALS)).toBe(true);
+    expect(isMeteredFeature(FEATURES.SCANNER)).toBe(false);
+    expect(isMeteredFeature(FEATURES.ESTIMATE)).toBe(false);
+  });
+});
+
+describe("remainingMonthlyUses", () => {
+  it("counts down from FREE_MONTHLY_LIMIT for metered features", () => {
+    expect(remainingMonthlyUses(FEATURES.COACH, { coach: 2 })).toBe(FREE_MONTHLY_LIMIT - 2);
   });
 
   it("never goes negative even if usage overshoots", () => {
-    expect(remainingTrialUses(FEATURES.COACH, { coach: FREE_TRIAL_LIMIT + 10 })).toBe(0);
+    expect(remainingMonthlyUses(FEATURES.COACH, { coach: FREE_MONTHLY_LIMIT + 10 })).toBe(0);
   });
 
-  it("returns null for non-trial features", () => {
-    expect(remainingTrialUses(FEATURES.SCANNER, {})).toBeNull();
-    expect(remainingTrialUses(FEATURES.ESTIMATE, {})).toBeNull();
+  it("returns null for non-metered features", () => {
+    expect(remainingMonthlyUses(FEATURES.SCANNER, {})).toBeNull();
+    expect(remainingMonthlyUses(FEATURES.ESTIMATE, {})).toBeNull();
   });
 });

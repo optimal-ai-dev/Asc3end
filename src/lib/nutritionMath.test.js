@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeTargets } from "./nutritionMath";
+import { computeTargets, getNutritionTargets } from "./nutritionMath";
 
 describe("computeTargets — nutrition recommendations never contain NaN", () => {
   it("computes sane targets for a well-formed profile", () => {
@@ -36,5 +36,72 @@ describe("computeTargets — nutrition recommendations never contain NaN", () =>
     const override = { calories: 2500, protein: 180, carbs: 250, fat: 70 };
     const t = computeTargets({ weightKg: 75, heightCm: 178, age: 28, gender: "male", goal: "fat_loss", macroOverride: override });
     expect(t).toEqual(override);
+  });
+});
+
+// getNutritionTargets is the single function Home, Food, Profile & Settings, and the Coach system
+// prompt all call — these tests exist to prove that guarantee directly: the same profile object
+// can never produce two different answers depending on who asks, because there is only one
+// function and one code path computing the number.
+describe("getNutritionTargets — the one source of truth every screen reads", () => {
+  const baseProfile = { weightKg: 75, heightCm: 178, age: 28, gender: "male", goal: "muscle_growth" };
+
+  it("the same profile produces byte-identical targets no matter how many times or where it's called", () => {
+    const fromHome = getNutritionTargets(baseProfile);
+    const fromFood = getNutritionTargets(baseProfile);
+    const fromSettings = getNutritionTargets({ ...baseProfile }); // a fresh object, same values
+    expect(fromHome).toEqual(fromFood);
+    expect(fromHome).toEqual(fromSettings);
+  });
+
+  it("tags calculated targets with source: 'calculated'", () => {
+    const t = getNutritionTargets(baseProfile);
+    expect(t.source).toBe("calculated");
+  });
+
+  it("tags a manual override with source: 'manual', and returns the override values verbatim", () => {
+    const override = { calories: 2800, protein: 180, carbs: 300, fat: 80 };
+    const t = getNutritionTargets({ ...baseProfile, macroOverride: override });
+    expect(t.source).toBe("manual");
+    expect(t.calories).toBe(2800);
+    expect(t.protein).toBe(180);
+    expect(t.carbs).toBe(300);
+    expect(t.fat).toBe(80);
+  });
+
+  it("regression: switching manual mode off immediately reflects the live calculated value, not a stale cached one", () => {
+    // Simulates the exact bug report: a profile that once had a manual override (or an old cached
+    // `targets` snapshot from a prior version of this code) with numbers that don't match what the
+    // current profile fields would calculate — turning the override off must show the live
+    // calculated number, never leftover values from before.
+    const staleProfile = { ...baseProfile, targets: { calories: 2800, protein: 180, carbs: 300, fat: 80 } };
+    const withOverrideOn = { ...staleProfile, macroOverride: { calories: 2800, protein: 180, carbs: 300, fat: 80 } };
+    const withOverrideOff = { ...staleProfile, macroOverride: null };
+
+    expect(getNutritionTargets(withOverrideOn).source).toBe("manual");
+    expect(getNutritionTargets(withOverrideOn).calories).toBe(2800);
+
+    const calculated = getNutritionTargets(withOverrideOff);
+    expect(calculated.source).toBe("calculated");
+    // Must equal a fresh calculation from the live profile fields, NOT the stale `targets` field
+    // (which is never read by getNutritionTargets — this assertion would fail if it were).
+    expect(calculated).toEqual(getNutritionTargets(baseProfile));
+  });
+
+  it("regression: a leftover legacy `profile.targets` field is never read — only macroOverride and live fields matter", () => {
+    const profileWithMismatchedLegacyField = {
+      ...baseProfile,
+      targets: { calories: 1, protein: 1, carbs: 1, fat: 1 }, // obviously stale/wrong if ever read
+    };
+    const t = getNutritionTargets(profileWithMismatchedLegacyField);
+    expect(t.calories).not.toBe(1);
+    expect(t).toEqual(getNutritionTargets(baseProfile));
+  });
+
+  it("changing a profile field (e.g. weight) is reflected immediately with no separate recalculation step", () => {
+    const before = getNutritionTargets(baseProfile);
+    const after = getNutritionTargets({ ...baseProfile, weightKg: 95 });
+    expect(after.calories).toBeGreaterThan(before.calories);
+    expect(after.protein).toBeGreaterThan(before.protein);
   });
 });

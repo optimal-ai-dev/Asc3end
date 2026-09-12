@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { Dumbbell, MessageCircle, UtensilsCrossed, TrendingUp, Camera, Check, ChevronDown, ChevronUp, Sparkles } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
-import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, PRICING_FAQ } from "./lib/pricingContent";
+import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
+import { FREE_MONTHLY_LIMIT } from "./lib/entitlements";
 
 // The public marketing page shown to anyone who isn't signed in yet — App.jsx renders this
 // instead of AuthScreen until the visitor picks "Log In" or "Start Free", at which point
@@ -142,15 +143,16 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
             <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Free</div>
             <div className="disp" style={{ fontSize: 28, marginBottom: 12 }}>$0</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.7 }}>
-              Unlimited workout logging<br />Unlimited nutrition tracking<br />Progress & strength analytics<br />5 free AI Coach chats & meal searches
+              Unlimited workout logging<br />Unlimited nutrition tracking<br />Progress & strength analytics<br />{FREE_MONTHLY_LIMIT} AI Coach chats & meal searches per month
             </div>
+            <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10 }}>No card required. Never expires.</div>
           </div>
           <div className="atlas-card" style={{ padding: 22, border: "1px solid var(--brass)", background: "var(--brass-soft)" }}>
             <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Asc3end+</div>
             <div className="disp" style={{ fontSize: 28, marginBottom: 4 }}>${MONTHLY_PRICE}<span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/mo</span></div>
             <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 12 }}>or ${ANNUAL_PRICE}/yr — save {ANNUAL_SAVINGS_PCT}%</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.7 }}>
-              Everything in Free<br />Unlimited AI Coach<br />Unlimited Meals Near You<br />Food scanner (photo/barcode)
+              Everything in Free<br />Unlimited* AI Coach<br />Unlimited* Meals Near You<br />Food scanner (photo/barcode)
             </div>
           </div>
         </div>
@@ -171,6 +173,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
               </span>
             </div>
           ))}
+          <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8 }}>{FEATURE_COMPARISON_FOOTNOTE}</div>
         </div>
       </Section>
 

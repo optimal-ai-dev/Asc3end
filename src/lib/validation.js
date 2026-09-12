@@ -28,6 +28,31 @@ export function isValidFavorite(f) {
   return !!f && typeof f === "object" && isNonEmptyString(f.name) && isFiniteNumber(f.calories);
 }
 
+// Sane bounds for a manually-entered daily nutrition target — wide enough to cover legitimate
+// extremes (a very large bodybuilder bulking, a small person cutting aggressively under medical
+// supervision) without accepting obvious garbage (negative numbers, a stray extra zero). Used by
+// both the client (instant feedback) and api/save-nutrition-targets.js (the actual enforcement —
+// a client-side check alone would let a modified client write anything).
+const MACRO_BOUNDS = {
+  calories: [800, 6000],
+  protein: [0, 600],
+  carbs: [0, 900],
+  fat: [0, 300],
+};
+
+/** @returns {string|null} an error message, or null if valid */
+export function validateMacroOverride(macros) {
+  if (!macros || typeof macros !== "object") return "Targets must be an object.";
+  for (const key of ["calories", "protein", "carbs", "fat"]) {
+    const [min, max] = MACRO_BOUNDS[key];
+    const v = macros[key];
+    if (!Number.isFinite(v)) return `${key} must be a number.`;
+    if (!Number.isInteger(v)) return `${key} must be a whole number.`;
+    if (v < min || v > max) return `${key} must be between ${min} and ${max}.`;
+  }
+  return null;
+}
+
 // Applies a validator to every item of a value that should be an array, dropping anything that
 // doesn't pass and coercing a non-array (or missing) value to an empty array. Never throws.
 export function sanitizeList(value, validator) {
