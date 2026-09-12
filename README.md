@@ -196,6 +196,17 @@ validates type/length/rating client-side before writing (defense in depth — th
 are enforced in the schema via the `check` clauses above). Query from the Supabase SQL editor:
 `select * from feedback order by created_at desc;`.
 
+## Admin metrics
+`/api/admin-metrics` returns aggregate product metrics (user count, signups, subscriptions by
+status, workouts completed, feedback counts) — authorized entirely server-side against
+`ADMIN_EMAILS` (a comma-separated allowlist env var), not by the in-app view being hard to find.
+Anyone whose verified Supabase auth email isn't on that list gets a 403, same as any other
+privileged endpoint in this app. Leave `ADMIN_EMAILS` unset to disable the endpoint entirely.
+
+View it by signing in with an allowlisted email and appending `?admin=1` to the app URL. There's
+no nav-bar link to it on purpose (no reason to surface it to regular users), but that's a
+convenience, not the security boundary — the server-side email check is.
+
 ## Paywall
 Free: workout logging, nutrition tracking (manual entry + quick add + AI macro estimate).
 Premium ($9.99/mo): unlimited AI Coach, the food scanner (photo/barcode), and Meals Near You.
