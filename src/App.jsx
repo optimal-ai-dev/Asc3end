@@ -1047,7 +1047,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
           <div className="mono" style={{ color: "var(--brass)", fontSize: 12, letterSpacing: 2 }}>
             {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
           </div>
-          <div className="disp" style={{ fontSize: 26 }}>Welcome back, {profile.name || "Athlete"}</div>
+          <h1 className="disp" style={{ fontSize: 26 }}>Welcome back, {profile.name || "Athlete"}</h1>
           <div style={{ color: "var(--ink-dim)", fontSize: 14, marginTop: 4, fontStyle: "italic" }}>"{quote}"</div>
         </div>
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -1089,7 +1089,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
           </>
         ) : (
           <>
-            <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>No Active Plan</div>
+            <h2 className="disp" style={{ fontSize: 15, marginBottom: 4 }}>No Active Plan</h2>
             <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginBottom: 10 }}>
               Ask the Coach to build you a weekly program, or just start logging a free workout.
             </div>
@@ -1125,7 +1125,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       </div>
 
       <div className="atlas-card">
-        <div className="disp" style={{ fontSize: 15, marginBottom: 6 }}>Muscle Recovery</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 6 }}>Muscle Recovery</h2>
         <RecoveryMap status={status} selected={selectedMuscle} onTapMuscle={(m) => setSelectedMuscle(selectedMuscle === m ? null : m)} />
         <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 8 }}>
           <span className="pill" style={{ background: "rgba(116,165,120,0.15)", color: "var(--good)" }}>● Ready</span>
@@ -1150,7 +1150,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       </div>
 
       <div className="atlas-card">
-        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Today's Fuel</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Today's Fuel</h2>
         {macroRow("CALORIES", totals.calories, targets.calories, "var(--brass)")}
         {macroRow("PROTEIN g", totals.protein, targets.protein, "var(--steel)")}
         {macroRow("CARBS g", totals.carbs, targets.carbs, "var(--good)")}
@@ -1195,7 +1195,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       )}
 
       <div className="atlas-card">
-        <div className="disp" style={{ fontSize: 15, marginBottom: 8 }}>Log Bodyweight</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 8 }}>Log Bodyweight</h2>
         <div style={{ display: "flex", gap: 8 }}>
           <input className="atlas-input" type="number" placeholder={`${profile.weightKg} kg`} value={weightInput} onChange={(e) => setWeightInput(e.target.value)} aria-label="Bodyweight in kilograms" />
           <button className="atlas-btn" onClick={() => { if (weightInput) { onLogWeight(+weightInput); setWeightInput(""); } }} aria-label="Save bodyweight">
@@ -1366,12 +1366,12 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
   return (
     <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 40, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <div className="disp" style={{ fontSize: 24 }}>Profile & Settings</div>
+        <h1 className="disp" style={{ fontSize: 24 }}>Profile & Settings</h1>
         <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close settings"><X size={16} /></button>
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div className="disp" style={{ fontSize: 15, marginBottom: 12 }}>About You</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 12 }}>About You</h2>
         {row("NAME", <input className="atlas-input" value={edit.name} onChange={(e) => setEdit((f) => ({ ...f, name: e.target.value }))} />)}
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>{row("AGE", <input type="number" className="atlas-input" value={edit.age} onChange={(e) => setNumber("age", e.target.value)} />)}</div>
@@ -1417,7 +1417,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div className="disp" style={{ fontSize: 15 }}>Nutrition Targets</div>
+          <h2 className="disp" style={{ fontSize: 15 }}>Nutrition Targets</h2>
           <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} className="mono">
             <input type="checkbox" checked={overrideOn} onChange={(e) => { setOverrideOn(e.target.checked); if (e.target.checked) setOverrideForm(profile.macroOverride || currentTargets); }} />
             <span style={{ fontSize: 11, color: "var(--ink-dim)" }}>Set manually</span>
@@ -1446,7 +1446,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
       {savedFlash && <div className="mono" style={{ fontSize: 12, color: "var(--brass)", textAlign: "center", marginBottom: 16 }}>Saved.</div>}
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Account</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Account</h2>
         {row("EMAIL", <div className="mono" style={{ fontSize: 13 }}>{authUser?.email || "—"}</div>)}
 
         {row("SUBSCRIPTION", isPremium ? (
@@ -1496,7 +1496,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Your AI Usage</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Your AI Usage</h2>
         {isPremium ? (
           <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Unlimited — Asc3end+ (fair-use limits apply)</div>
         ) : (
@@ -1521,7 +1521,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Send Feedback</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Send Feedback</h2>
         {feedbackStatus === "sent" ? (
           <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Thanks — your feedback was sent.</div>
         ) : (
@@ -1875,14 +1875,14 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   if (!session) {
     return (
       <div style={{ padding: "24px 18px" }}>
-        <div className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Train</div>
+        <h1 className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Train</h1>
         <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18 }}>Log today's session and let the coach handle progression.</div>
         <button className="atlas-btn" style={{ width: "100%", padding: 16, fontSize: 15 }} onClick={() => onStartWorkout()}>
           <Plus size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Start Workout
         </button>
 
         <div style={{ marginTop: 26 }}>
-          <div className="disp" style={{ fontSize: 15, marginBottom: 10, color: "var(--ink-dim)" }}>History</div>
+          <h2 className="disp" style={{ fontSize: 15, marginBottom: 10, color: "var(--ink-dim)" }}>History</h2>
           {history.length === 0 && <div style={{ color: "var(--ink-dim)", fontSize: 13 }}>No workouts logged yet.</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {history.map((w) => {
@@ -2040,7 +2040,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
-          <div className="disp" style={{ fontSize: 24 }}>{session.planDayName || "Today's Session"}</div>
+          <h1 className="disp" style={{ fontSize: 24 }}>{session.planDayName || "Today's Session"}</h1>
           <div className="mono" style={{ fontSize: 13, color: "var(--steel)" }}>⏱ {fmtClock((now - session.startedAt) / 1000)} elapsed</div>
         </div>
         <button className="atlas-btn-ghost" onClick={() => setConfirmDiscard(true)} style={{ padding: "6px 10px" }}>Cancel</button>
@@ -2279,7 +2279,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
 
       {reviewing && (
         <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 50, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px" }}>
-          <div className="disp" style={{ fontSize: 22, marginBottom: 4 }}>Workout Summary</div>
+          <h1 className="disp" style={{ fontSize: 22, marginBottom: 4 }}>Workout Summary</h1>
           <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 10 }}>
             ⏱ {fmtClock((now - session.startedAt) / 1000)} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} · {totalSets} set{totalSets === 1 ? "" : "s"} · {Math.round(totalVolume)}kg volume
           </div>
@@ -2512,7 +2512,7 @@ function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLo
   return (
     <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 45, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <div className="disp" style={{ fontSize: 24 }}>Asc3end+</div>
+        <h1 className="disp" style={{ fontSize: 24 }}>Asc3end+</h1>
         <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close pricing"><X size={16} /></button>
       </div>
 
@@ -2590,14 +2590,14 @@ function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLo
           {legalOpen && <LegalPage docKey={legalOpen} onClose={() => setLegalOpen(null)} />}
 
           <div className="atlas-card" style={{ marginBottom: 16 }}>
-            <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Free vs Asc3end+</div>
+            <h2 className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Free vs Asc3end+</h2>
             <FeatureComparisonTable />
           </div>
         </>
       )}
 
       <div className="atlas-card">
-        <div className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Questions</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Questions</h2>
         {PRICING_FAQ.map((item) => (
           <div key={item.q} style={{ padding: "10px 0", borderTop: "1px solid var(--line)" }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>{item.q}</div>
@@ -2889,7 +2889,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
   if (!isPremium && coachRemaining <= 0) {
     return (
       <div style={{ padding: "24px 18px" }}>
-        <div className="disp" style={{ fontSize: 26, marginBottom: 16 }}>Coach</div>
+        <h1 className="disp" style={{ fontSize: 26, marginBottom: 16 }}>Coach</h1>
         <Paywall feature="coach" onUpgrade={onUpgrade} />
       </div>
     );
@@ -2898,7 +2898,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
   return (
     <div style={{ padding: "24px 18px", display: "flex", flexDirection: "column", height: "calc(100vh - 88px)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-        <div className="disp" style={{ fontSize: 26 }}>Coach</div>
+        <h1 className="disp" style={{ fontSize: 26 }}>Coach</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {!isPremium && (
             <span className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>{coachRemaining} free {coachRemaining === 1 ? "message" : "messages"} left this month</span>
@@ -2928,7 +2928,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
 
       <div className="atlas-card" style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div className="disp" style={{ fontSize: 15 }}>Weekly Plan</div>
+          <h2 className="disp" style={{ fontSize: 15 }}>Weekly Plan</h2>
           {!editingPlan && (
             <div style={{ display: "flex", gap: 6 }}>
               {plan && (
@@ -3500,7 +3500,7 @@ Respond with ONLY this JSON, nothing else:
 
   return (
     <div style={{ padding: "24px 18px" }}>
-      <div className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Nutrition</div>
+      <h1 className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Nutrition</h1>
       <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 12 }}>Daily target: {targets.calories} kcal · {targets.protein}g protein</div>
 
       <button className="atlas-btn" style={{ width: "100%", marginBottom: 16, padding: 13 }} onClick={() => setScannerOpen(true)}>
@@ -3885,7 +3885,7 @@ function AdminDashboard() {
   return (
     <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 60, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
-        <div className="disp" style={{ fontSize: 22, marginBottom: 18 }}>Admin Metrics</div>
+        <h1 className="disp" style={{ fontSize: 22, marginBottom: 18 }}>Admin Metrics</h1>
         {state.status === "loading" && <Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} />}
         {state.status === "error" && <div className="atlas-card" style={{ padding: 18, color: "var(--rest)", fontSize: 13 }}>{state.message}</div>}
         {state.status === "ok" && (

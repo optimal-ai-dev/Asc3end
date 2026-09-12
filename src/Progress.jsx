@@ -147,11 +147,11 @@ export default function Progress({ profile, workouts, weightlog }) {
 
   return (
     <div style={{ padding: "24px 18px" }}>
-      <div className="disp" style={{ fontSize: 26, marginBottom: 16 }}>Progress</div>
+      <h1 className="disp" style={{ fontSize: 26, marginBottom: 16 }}>Progress</h1>
 
       {transformation && (
         <div className="atlas-card" style={{ marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 14, marginBottom: 6 }}>Transformation</div>
+          <h2 className="disp" style={{ fontSize: 14, marginBottom: 6 }}>Transformation</h2>
           {transformation.kind === "baseline" && (
             <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ink-dim)" }}>Baseline recorded. Add another weigh-in to see your trend.</div>
           )}
@@ -182,7 +182,7 @@ export default function Progress({ profile, workouts, weightlog }) {
 
       {ranks.length > 0 && (
         <div className="atlas-card" style={{ marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Strength Ranking</div>
+          <h2 className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Strength Ranking</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {ranks.map((r) => (
               <div key={r.key}>
@@ -201,7 +201,7 @@ export default function Progress({ profile, workouts, weightlog }) {
       )}
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Bodyweight</div>
+        <h2 className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Bodyweight</h2>
         {weightData.length > 1 ? (
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={weightData}>
@@ -265,7 +265,7 @@ export default function Progress({ profile, workouts, weightlog }) {
       </div>
 
       <div className="atlas-card">
-        <div className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Personal Records</div>
+        <h2 className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Personal Records</h2>
         {prs.length === 0 && <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>No PRs logged yet.</div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {prs.map((p) => (

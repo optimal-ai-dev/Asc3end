@@ -44,7 +44,11 @@ export default function GlobalStyle() {
         padding-bottom: calc(88px + env(safe-area-inset-bottom));
       }
       .atlas-root * { box-sizing: border-box; }
-      .disp { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; }
+      /* margin/font-weight reset so this class looks identical whether it's applied to a <div> or
+         a semantic <h1>-<h6> — several were converted to real headings for screen-reader
+         navigation, and browsers give heading elements a default margin + bold weight that would
+         otherwise shift the layout these were designed around. */
+      .disp { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; margin: 0; font-weight: 400; }
       .mono { font-family: 'JetBrains Mono', monospace; }
       .atlas-card {
         background: var(--bg-elev);
