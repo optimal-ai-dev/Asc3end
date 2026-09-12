@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run --config vitest.integration.config.js"
+    "test:integration": "vitest run --config vitest.integration.config.js",
+    "check-launch-config": "node scripts/check-launch-config.mjs"
   },
   "dependencies": {
     "@sentry/react": "^10.74.0",

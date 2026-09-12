@@ -196,6 +196,13 @@ validates type/length/rating client-side before writing (defense in depth — th
 are enforced in the schema via the `check` clauses above). Query from the Supabase SQL editor:
 `select * from feedback order by created_at desc;`.
 
+## Launch-configuration check
+`npm run check-launch-config` (`scripts/check-launch-config.mjs`) reports which required env vars
+are set — never their values, just presence — grouped into CRITICAL (app is broken without them),
+RECOMMENDED (app runs, but not launch-ready), and OPTIONAL. Exits non-zero only if a CRITICAL var
+is missing, so it's safe to wire into a pre-deploy step later without blocking on things like
+`VITE_SENTRY_DSN` that are genuinely optional.
+
 ## Admin metrics
 `/api/admin-metrics` returns aggregate product metrics (user count, signups, subscriptions by
 status, workouts completed, feedback counts) — authorized entirely server-side against
