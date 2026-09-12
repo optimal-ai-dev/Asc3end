@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useId, lazy, Suspense } from "react";
+// Lazy-loaded: react-markdown (and its remark/micromark dependencies) only ships to people who
+// actually open the Coach tab, instead of adding to the bundle everyone downloads on first load.
+const ReactMarkdown = lazy(() => import("react-markdown"));
 import {
   Dumbbell, UtensilsCrossed, LayoutDashboard, MessageCircle, TrendingUp,
   Plus, Trash2, Send, Sparkles, Flame, Target, ChevronRight, Check,
@@ -20,7 +23,7 @@ import { computeSubscriptionState, isEntitled, describeSubscriptionState } from 
 import { FEATURES, FREE_MONTHLY_LIMIT, remainingMonthlyUses } from "./lib/entitlements";
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
 import { isStaleSession, isValidSession } from "./lib/session";
-import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
+import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, isValidChatMessage, sanitizeList } from "./lib/validation";
 import { parseAppPath, buildAppPath } from "./lib/routing";
 import { FEEDBACK_TYPES, MAX_MESSAGE_LENGTH, submitFeedback } from "./lib/feedback";
 
@@ -40,6 +43,7 @@ const KEYS = {
   session: "atlas:session",
   customExercises: "atlas:customExercises",
   favorites: "atlas:favorites",
+  coachMessages: "atlas:coachMessages",
 };
 
 /* Each exercise references a movement-pattern "pose" — this drives both the form-cue text (POSE_TIPS)
@@ -2372,6 +2376,35 @@ function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLo
   );
 }
 
+// Coach responses previously rendered as raw text — a literal "**60kg**" instead of bold —
+// because Claude's replies are markdown-formatted prose but were dumped straight into a
+// whiteSpace:pre-wrap <div>. react-markdown (no rehype-raw plugin enabled) renders markdown AST
+// directly into React elements and never interprets the input as raw HTML, so this can't become
+// an HTML/script-injection vector even though the content is AI-generated, not hand-authored.
+// The custom `a` renderer below is the one extra guard that matters: without it, a markdown link
+// opens in the same tab (no rel="noopener noreferrer", letting the destination page reach back via
+// window.opener) and a non-http(s)/mailto href — a javascript: URI in a sufficiently adversarial
+// model output — would still execute if rendered as a real link.
+const SAFE_LINK_PATTERN = /^(https?:|mailto:)/i;
+const markdownComponents = {
+  p: ({ children }) => <p style={{ margin: "0 0 8px", lineHeight: 1.5 }}>{children}</p>,
+  ul: ({ children }) => <ul style={{ margin: "0 0 8px", paddingLeft: 20 }}>{children}</ul>,
+  ol: ({ children }) => <ol style={{ margin: "0 0 8px", paddingLeft: 20 }}>{children}</ol>,
+  li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
+  a: ({ href, children }) => {
+    if (typeof href !== "string" || !SAFE_LINK_PATTERN.test(href)) return <span>{children}</span>;
+    return <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--brass)", textDecoration: "underline" }}>{children}</a>;
+  },
+};
+
+function CoachMessageContent({ content }) {
+  return (
+    <Suspense fallback={<div style={{ whiteSpace: "pre-wrap" }}>{content}</div>}>
+      <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
+    </Suspense>
+  );
+}
+
 function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage, onUsageChange }) {
   const coachRemaining = remainingMonthlyUses(FEATURES.COACH, usage || {});
   // Bug: this used to read `profile.plan`, a field nothing ever wrote — the real field is
@@ -2380,15 +2413,56 @@ function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage
   // `{ days }` shape generatePlan produces so the Weekly Plan card reflects reality on load.
   const [plan, setPlan] = useState(profile.activePlan ? { days: profile.activePlan.days } : null);
   const [genLoading, setGenLoading] = useState(false);
-  const [messages, setMessages] = useState([
-    { role: "assistant", content: `Hey ${profile.name || "there"}, I'm your coach. Ask me anything about training, recovery, or your plan.` },
-  ]);
+  const greeting = () => ([{ role: "assistant", content: `Hey ${profile.name || "there"}, I'm your coach. Ask me anything about training, recovery, or your plan.` }]);
+  const [messages, setMessages] = useState(greeting);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [lastFailedInput, setLastFailedInput] = useState(null);
   const scrollRef = useRef(null);
+  // Guards sendMessage against a genuine double-fire the same way finishWorkout does — the Enter
+  // key and the Send button can both dispatch in the same tick, and React doesn't guarantee
+  // `sending`'s updated value (and thus the button's disabled attribute) is visible to a second,
+  // synchronous handler invocation before the first commits. A ref updates immediately.
+  const sendingRef = useRef(false);
+
+  // Restores a persisted conversation on mount instead of always starting over from the greeting
+  // — previously, switching tabs (Coach unmounts) or refreshing the page silently discarded the
+  // whole conversation with no warning. Skips restoring if nothing was saved, or if every saved
+  // message fails validation (a corrupted/old-shape row), rather than leaving Coach stuck loading.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const saved = await loadKey(KEYS.coachMessages);
+      const valid = Array.isArray(saved) ? saved.filter(isValidChatMessage) : [];
+      if (!cancelled && valid.length > 0) setMessages(valid);
+      if (!cancelled) setMessagesLoaded(true);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Saves after every change, but only once the initial load above has resolved — otherwise the
+  // still-loading default greeting would overwrite real saved history in the instant before it's
+  // fetched.
+  useEffect(() => {
+    if (!messagesLoaded) return;
+    saveKey(KEYS.coachMessages, messages);
+  }, [messages, messagesLoaded]);
 
   useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [messages]);
+
+  // Elapsed-seconds counter for the "Thinking…" indicator — the underlying request can
+  // legitimately take 10-20+ seconds (web-search-backed Meals Near You shares this same proxy,
+  // and Coach itself can be slow under load), so a bare "Thinking…" with no sense of progress
+  // reads as hung well before the real 55s timeout in callClaude ever fires.
+  const [thinkingSeconds, setThinkingSeconds] = useState(0);
+  useEffect(() => {
+    if (!sending) { setThinkingSeconds(0); return; }
+    const started = Date.now();
+    const t = setInterval(() => setThinkingSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [sending]);
 
   const [planError, setPlanError] = useState(null);
   const [exDetail, setExDetail] = useState(null);
@@ -2525,9 +2599,11 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     // overrideText is only ever meant to be a string (a retry's saved input) — guard against a
     // stray non-string argument (e.g. a click event handed straight to onClick) instead of letting
     // it silently fall through to `.trim()` and crash.
+    if (sendingRef.current) return; // a genuine double-fire (Enter + Send in the same tick) — see sendingRef above
     const safeOverride = typeof overrideText === "string" ? overrideText : undefined;
     const text = safeOverride ?? input;
     if (!text.trim()) return;
+    sendingRef.current = true;
     setLastFailedInput(null);
     // On retry, drop the trailing error bubble first — otherwise it both looks stale once the
     // retry succeeds, and gets sent back to Claude as if it were real conversation history.
@@ -2567,11 +2643,12 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       setMessages((m) => [...m, { role: "assistant", content: `⚠️ ${e.message || "Something went wrong reaching the coach. Try again in a moment."}`, isError: true }]);
     }
     onUsageChange?.();
+    sendingRef.current = false;
     setSending(false);
   };
 
   const startNewConversation = () => {
-    setMessages([{ role: "assistant", content: `Hey ${profile.name || "there"}, I'm your coach. Ask me anything about training, recovery, or your plan.` }]);
+    setMessages(greeting());
     setLastFailedInput(null);
     setInput("");
   };
@@ -2727,11 +2804,16 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
                 <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>Tap any exercise for form cues.</div>
               </div>
             ) : (
-              <div style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
+              <CoachMessageContent content={m.content} />
             )}
           </div>
         ))}
-        {sending && <div className="chat-bubble-ai" style={{ fontSize: 13 }}>Thinking…</div>}
+        {sending && (
+          <div className="chat-bubble-ai" style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }} role="status" aria-live="polite">
+            <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />
+            <span>Thinking{thinkingSeconds > 0 ? ` (${thinkingSeconds}s)` : "…"}</span>
+          </div>
+        )}
         {lastFailedInput && !sending && (
           <div style={{ display: "flex", gap: 10, alignSelf: "flex-start", paddingLeft: 2 }}>
             <button onClick={() => sendMessage(lastFailedInput)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: 0 }}>Retry</button>

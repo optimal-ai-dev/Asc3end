@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList,
-  validateMacroOverride,
+  validateMacroOverride, isValidChatMessage,
 } from "./validation";
 
 describe("sanitizeList — malformed stored data cannot crash the app", () => {
@@ -90,5 +90,27 @@ describe("validateMacroOverride — server-side guard on a manually-entered nutr
 
   it("rejects a payload missing one of the four required fields", () => {
     expect(validateMacroOverride({ calories: 2800, protein: 180, carbs: 300 })).not.toBeNull();
+  });
+});
+
+describe("isValidChatMessage — a persisted Coach conversation must survive a corrupted/old-shape row", () => {
+  it("accepts a well-formed user or assistant message", () => {
+    expect(isValidChatMessage({ role: "user", content: "How's my bench progressing?" })).toBe(true);
+    expect(isValidChatMessage({ role: "assistant", content: "Great work this week." })).toBe(true);
+  });
+
+  it("rejects an unrecognized role", () => {
+    expect(isValidChatMessage({ role: "system", content: "hi" })).toBe(false);
+  });
+
+  it("rejects non-string content", () => {
+    expect(isValidChatMessage({ role: "user", content: 123 })).toBe(false);
+    expect(isValidChatMessage({ role: "user", content: null })).toBe(false);
+  });
+
+  it("rejects null/non-object input without throwing", () => {
+    expect(isValidChatMessage(null)).toBe(false);
+    expect(isValidChatMessage("a string")).toBe(false);
+    expect(isValidChatMessage(42)).toBe(false);
   });
 });

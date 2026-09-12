@@ -28,6 +28,10 @@ export function isValidFavorite(f) {
   return !!f && typeof f === "object" && isNonEmptyString(f.name) && isFiniteNumber(f.calories);
 }
 
+export function isValidChatMessage(m) {
+  return !!m && typeof m === "object" && (m.role === "user" || m.role === "assistant") && typeof m.content === "string";
+}
+
 // Sane bounds for a manually-entered daily nutrition target — wide enough to cover legitimate
 // extremes (a very large bodybuilder bulking, a small person cutting aggressively under medical
 // supervision) without accepting obvious garbage (negative numbers, a stray extra zero). Used by
