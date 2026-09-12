@@ -54,7 +54,7 @@ async function upsertFromSubscription(subscription) {
     plan: detectPlan(subscription),
     updated_at: new Date().toISOString(),
   });
-  if (error) console.error("subscriptions upsert failed", error);
+  if (error) console.error("subscriptions upsert failed", { userId, code: error.code, message: error.message });
 }
 
 export default async function handler(req, res) {

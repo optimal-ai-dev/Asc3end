@@ -6,6 +6,7 @@
 import { stripe } from "../lib/stripe.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { computeSubscriptionState } from "../src/lib/subscription.js";
 
 // Never trust a client-supplied price id directly — only ever select from this fixed mapping of
 // server-configured price ids, so a modified client can't check out at an arbitrary price.
@@ -38,9 +39,19 @@ export default async function handler(req, res) {
   try {
     const { data: existing } = await supabaseAdmin
       .from("subscriptions")
-      .select("stripe_customer_id")
+      .select("stripe_customer_id, status, current_period_end, cancel_at_period_end, plan")
       .eq("user_id", user.id)
       .maybeSingle();
+
+    // A demo/comp grant (no stripe_customer_id, status active/trialing — see
+    // computeSubscriptionState) already has full Asc3end+ access; a real checkout would layer an
+    // actual paid subscription on top of a manually-granted one, which is never the intended
+    // flow. The client never shows an Upgrade button to a demo account in the first place
+    // (isPremium is already true), so reaching this is only possible via a direct API call —
+    // still refused here, since client-side hiding is not the actual enforcement boundary.
+    if (computeSubscriptionState(existing || null).type === "demo") {
+      return res.status(400).json({ error: "This is a demo Asc3end+ account and can't start a paid checkout." });
+    }
 
     let customerId = existing?.stripe_customer_id;
     if (!customerId) {
