@@ -2090,12 +2090,12 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {meta && (
                     <button onClick={() => setOpenCues((v) => ({ ...v, [ex.name]: !v[ex.name] }))}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--steel)", fontSize: 11 }} className="mono">
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--steel)", fontSize: 11 }} className="mono">
                       {openCues[ex.name] ? "Hide form cues" : "Show form cues"}
                     </button>
                   )}
                   <button onClick={() => setLinkingEx(linkingEx === ex.name ? null : ex.name)}
-                    style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--warn)", fontSize: 11 }} className="mono">
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--warn)", fontSize: 11 }} className="mono">
                     {ex.supersetWith ? `⚡ Linked with ${ex.supersetWith}` : "⚡ Link as superset"}
                   </button>
                 </div>
@@ -2164,7 +2164,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
         </button>
       ) : detailEx ? (
         <div className="atlas-card">
-          <button onClick={() => setDetailEx(null)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0, marginBottom: 12 }}>
+          <button onClick={() => setDetailEx(null)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginBottom: 12 }}>
             ← Back to library
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
@@ -2187,7 +2187,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
         </div>
       ) : creatingCustom ? (
         <div className="atlas-card">
-          <button onClick={() => { setCreatingCustom(false); setCustomError(null); }} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0, marginBottom: 12 }}>
+          <button onClick={() => { setCreatingCustom(false); setCustomError(null); }} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginBottom: 12 }}>
             ← Back to library
           </button>
           <div className="disp" style={{ fontSize: 16, marginBottom: 12 }}>New Custom Exercise</div>
@@ -2492,7 +2492,7 @@ function Paywall({ feature, onUpgrade }) {
       <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>{c.title}</div>
       <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>{c.blurb}</div>
       <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onUpgrade()}>See Plans — from $9.99/mo</button>
-      <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0, marginTop: 12 }}>
+      <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginTop: 12 }}>
         {showComparison ? "Hide" : "See"} full Free vs Premium comparison {showComparison ? <ChevronUp size={12} style={{ verticalAlign: -2 }} /> : <ChevronDown size={12} style={{ verticalAlign: -2 }} />}
       </button>
       {showComparison && <FeatureComparisonTable />}

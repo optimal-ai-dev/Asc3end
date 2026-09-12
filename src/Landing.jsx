@@ -215,7 +215,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
             ["aiLimitations", "AI Limitations"], ["subscriptionTerms", "Subscription Terms"],
             ["refundPolicy", "Refund Policy"], ["support", "Support"], ["contact", "Contact"],
           ].map(([key, label]) => (
-            <button key={key} onClick={() => onOpenLegal(key)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--ink-dim)", fontSize: 11.5 }}>{label}</button>
+            <button key={key} onClick={() => onOpenLegal(key)} style={{ background: "none", border: "none", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11.5 }}>{label}</button>
           ))}
         </div>
         <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 14 }}>© {new Date().getFullYear()} Asc3end. All rights reserved.</div>

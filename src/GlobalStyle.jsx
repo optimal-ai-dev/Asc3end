@@ -147,13 +147,19 @@ export default function GlobalStyle() {
       button.pill { min-height: 44px; min-width: 44px; }
       .bar-track { background: var(--bg-elev2); border-radius: 6px; height: 8px; overflow: hidden; }
       .bar-fill { height: 100%; border-radius: 6px; }
+      /* overflow-wrap: anywhere guards against an AI-generated message containing a long
+         unbroken token (a URL, an ID) that would otherwise overflow the bubble and force
+         horizontal scroll on the whole page — user messages get the same treatment since a
+         pasted URL is just as likely there. */
       .chat-bubble-user {
         background: var(--brass-soft); border: 1px solid var(--brass);
         border-radius: 12px 12px 2px 12px; padding: 10px 13px; align-self: flex-end; max-width: 85%;
+        overflow-wrap: anywhere;
       }
       .chat-bubble-ai {
         background: var(--bg-elev2); border: 1px solid var(--line);
         border-radius: 12px 12px 12px 2px; padding: 10px 13px; align-self: flex-start; max-width: 85%;
+        overflow-wrap: anywhere;
       }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
