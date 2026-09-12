@@ -15,7 +15,7 @@ import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
 import { suggestNextTarget, evaluatePR, computeGamification } from "./lib/workoutMath";
 import { getNutritionTargets } from "./lib/nutritionMath";
-import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION } from "./lib/legal";
+import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION, SUPPORT_EMAIL } from "./lib/legal";
 import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./lib/subscription";
 import { FEATURES, FREE_MONTHLY_LIMIT, remainingMonthlyUses } from "./lib/entitlements";
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
@@ -713,12 +713,7 @@ function Onboarding({ onComplete }) {
               <button key={k} onClick={() => setLegalOpen(legalOpen === k ? null : k)} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: "transparent", color: "var(--ink-dim)" }}>{LEGAL_COPY[k].title}</button>
             ))}
           </div>
-          {legalOpen && (
-            <div style={{ padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
-              <div className="disp" style={{ fontSize: 12, marginBottom: 6 }}>{LEGAL_COPY[legalOpen].title}</div>
-              <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6 }}>{LEGAL_COPY[legalOpen].body}</div>
-            </div>
-          )}
+          {legalOpen && <LegalPage docKey={legalOpen} onClose={() => setLegalOpen(null)} />}
           <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", marginTop: 8 }}>
             <input type="checkbox" checked={agreedToLegal} onChange={(e) => setAgreedToLegal(e.target.checked)} style={{ marginTop: 3 }} />
             <span style={{ fontSize: 13, lineHeight: 1.5 }}>I agree to the Terms of Use and Privacy Policy, and understand Asc3end is not medical advice.</span>
@@ -1587,6 +1582,11 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <button onClick={onOpenSupport} className="atlas-btn-ghost" style={{ width: "100%" }}>Help & Support</button>
+        {SUPPORT_EMAIL && (
+          <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", textAlign: "center", marginTop: 8 }}>
+            Or email <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: "var(--brass)" }}>{SUPPORT_EMAIL}</a> directly
+          </div>
+        )}
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
@@ -1596,12 +1596,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
             <button key={k} onClick={() => setLegalOpen(k)} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: "transparent", color: "var(--ink-dim)" }}>{v.title}</button>
           ))}
         </div>
-        {legalOpen && (
-          <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
-            <div className="disp" style={{ fontSize: 12, marginBottom: 6 }}>{LEGAL_COPY[legalOpen].title}</div>
-            <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6 }}>{LEGAL_COPY[legalOpen].body}</div>
-          </div>
-        )}
+        {legalOpen && <LegalPage docKey={legalOpen} onClose={() => setLegalOpen(null)} />}
       </div>
 
       <div className="atlas-card" style={{ borderColor: "var(--rest)" }}>
