@@ -44,7 +44,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ url: portalSession.url });
   } catch (e) {
-    console.error("create-portal-session error", e);
+    console.error("create-portal-session error", { userId: user.id, code: e?.code || e?.type, message: e?.message });
     res.status(500).json({ error: "Could not open billing portal." });
   }
 }

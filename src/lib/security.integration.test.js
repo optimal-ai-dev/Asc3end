@@ -60,7 +60,9 @@ d("Row Level Security — cross-user authorization", () => {
       await admin.from("user_data").delete().eq("user_id", u.id);
       await admin.from("subscriptions").delete().eq("user_id", u.id);
       await admin.from("feature_usage").delete().eq("user_id", u.id);
+      await admin.from("feature_usage_monthly").delete().eq("user_id", u.id);
       await admin.from("analytics_events").delete().eq("user_id", u.id);
+      await admin.from("feedback").delete().eq("user_id", u.id);
       await admin.auth.admin.deleteUser(u.id).catch(() => {});
     }
   }, 30000);
@@ -119,6 +121,47 @@ d("Row Level Security — cross-user authorization", () => {
   it("a user cannot insert an analytics event under another user's id", async () => {
     const { error } = await userB.client.from("analytics_events").insert({ user_id: userA.id, name: "fake_event", props: {} });
     expect(error).not.toBeNull();
+  });
+
+  // feature_usage_monthly, feedback, and processed_webhook_events were all added after this test
+  // file was first written — none of the tables above cover them, and each is exactly the kind
+  // of table a launch-readiness audit should check isn't quietly missing RLS.
+  it("a user cannot reset their own monthly usage allowance by writing feature_usage_monthly directly", async () => {
+    await admin.from("feature_usage_monthly").upsert({ user_id: userB.id, feature: "coach", month: "2026-09", count: 5 });
+    const { error } = await userB.client.from("feature_usage_monthly").upsert({ user_id: userB.id, feature: "coach", month: "2026-09", count: 0 });
+    expect(error).not.toBeNull();
+    const { data: actual } = await admin.from("feature_usage_monthly").select("count").eq("user_id", userB.id).eq("feature", "coach").eq("month", "2026-09").maybeSingle();
+    expect(actual.count).toBe(5);
+  });
+
+  it("a user can read their own monthly usage but not another user's", async () => {
+    await admin.from("feature_usage_monthly").upsert({ user_id: userA.id, feature: "meals", month: "2026-09", count: 2 });
+    const { data: own } = await userA.client.from("feature_usage_monthly").select("count").eq("user_id", userA.id).eq("feature", "meals").eq("month", "2026-09").maybeSingle();
+    expect(own?.count).toBe(2);
+    const { data: others } = await userB.client.from("feature_usage_monthly").select("*").eq("user_id", userA.id);
+    expect(others || []).toHaveLength(0);
+  });
+
+  it("a user can submit their own feedback but cannot read anyone's feedback back (write-only for regular users)", async () => {
+    const { error: writeErr } = await userB.client.from("feedback").insert({ user_id: userB.id, type: "bug", message: "RLS test" });
+    expect(writeErr).toBeNull();
+    const { data, error: readErr } = await userB.client.from("feedback").select("*").eq("user_id", userB.id);
+    // No select policy exists for regular users — either the read errors outright or (RLS
+    // filtering silently) returns zero rows. Either is correct; what's NOT correct is reading
+    // back the row that was just inserted.
+    expect(readErr || (data && data.length === 0)).toBeTruthy();
+  });
+
+  it("a user cannot submit feedback under another user's id", async () => {
+    const { error } = await userB.client.from("feedback").insert({ user_id: userA.id, type: "bug", message: "impersonation attempt" });
+    expect(error).not.toBeNull();
+  });
+
+  it("processed_webhook_events is server-only — no regular user can read or write it at all", async () => {
+    const { data: readData, error: readErr } = await userA.client.from("processed_webhook_events").select("*");
+    expect(readErr || (readData && readData.length === 0)).toBeTruthy();
+    const { error: writeErr } = await userA.client.from("processed_webhook_events").insert({ event_id: "evt_fake_" + Date.now(), event_type: "fake" });
+    expect(writeErr).not.toBeNull();
   });
 
   it("a user CAN read/write their own data (the policies aren't accidentally blocking legitimate use)", async () => {

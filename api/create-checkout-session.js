@@ -7,6 +7,11 @@ import { stripe } from "../lib/stripe.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { computeSubscriptionState } from "../src/lib/subscription.js";
+import { validateStripeKeyFormat, assertValidOrLog } from "../lib/validateSecretFormat.js";
+
+const PRICE_ID_PATTERN = /^price_[A-Za-z0-9]+$/;
+assertValidOrLog("STRIPE_MONTHLY_PRICE_ID", validateStripeKeyFormat(process.env.STRIPE_MONTHLY_PRICE_ID, PRICE_ID_PATTERN, "Stripe price id (price_...)"));
+assertValidOrLog("STRIPE_ANNUAL_PRICE_ID", validateStripeKeyFormat(process.env.STRIPE_ANNUAL_PRICE_ID, PRICE_ID_PATTERN, "Stripe price id (price_...)"));
 
 // Never trust a client-supplied price id directly — only ever select from this fixed mapping of
 // server-configured price ids, so a modified client can't check out at an arbitrary price.
@@ -68,7 +73,13 @@ export default async function handler(req, res) {
     }
 
     const { plan, trial } = req.body || {};
-    const priceId = priceIdForPlan(plan === "annual" ? "annual" : "monthly");
+    // Reject anything that isn't exactly one of the two real plans instead of silently falling
+    // back to monthly — a typo'd or malformed client request should fail loudly, not quietly
+    // check the caller out on a plan they didn't ask for.
+    if (plan !== "monthly" && plan !== "annual") {
+      return res.status(400).json({ error: "Invalid plan — must be \"monthly\" or \"annual\"." });
+    }
+    const priceId = priceIdForPlan(plan);
     if (!priceId) {
       return res.status(500).json({ error: "Billing is not fully configured yet — no price is set for this plan. Contact support." });
     }
@@ -93,7 +104,9 @@ export default async function handler(req, res) {
 
     res.status(200).json({ url: session.url });
   } catch (e) {
-    console.error("create-checkout-session error", e);
+    // Structured, PII/secret-free failure log — never the raw exception object, which for a
+    // Stripe SDK error can include verbose internal request details we don't need to retain.
+    console.error("create-checkout-session error", { userId: user.id, code: e?.code || e?.type, message: e?.message });
     res.status(500).json({ error: "Could not start checkout." });
   }
 }

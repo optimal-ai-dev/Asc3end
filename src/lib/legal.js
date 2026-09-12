@@ -9,7 +9,7 @@
 // review has actually happened, and do not present these documents to users or investors as
 // lawyer-approved — they are the app owner's own good-faith drafts. Tracked as a launch blocker
 // in LAUNCH_READINESS.md under "Requires legal review."
-export const LEGAL_DOCUMENT_VERSION = "2026-09-12-v2";
+export const LEGAL_DOCUMENT_VERSION = "2026-09-12-v3";
 export const LEGAL_EFFECTIVE_DATE = "2026-09-12";
 
 // Client-safe (VITE_-prefixed) since this is meant to be publicly displayed, not a secret. Left
@@ -93,6 +93,7 @@ export const LEGAL_COPY = {
     sections: [
       { heading: "Cancelling your subscription", body: "Cancel Asc3end+ at any time from Profile > Manage Billing, which opens Stripe's own billing portal. Access continues until the end of your current paid period, and you will not be charged again after cancelling." },
       { heading: "Refunds", body: "Refunds for the current billing period are considered on a case-by-case basis. " + (SUPPORT_EMAIL ? `Contact ${SUPPORT_EMAIL}` : "Contact support via Profile > Help & Support") + " with your account email and the reason for the request." },
+      { heading: "Your consumer law rights", body: "Nothing in this policy excludes, restricts, or modifies any right or remedy you have under the Australian Consumer Law or other applicable consumer protection law that cannot lawfully be excluded, including the statutory guarantees that apply to services supplied to consumers. If a service fails to meet a consumer guarantee, you may be entitled to a remedy regardless of anything stated elsewhere in this policy." },
     ],
   },
   support: {

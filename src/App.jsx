@@ -20,6 +20,7 @@ import { loadKey, saveKey } from "./lib/storage";
 import { suggestNextTarget, evaluatePR, computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown } from "./lib/workoutMath";
 import { getNutritionTargets } from "./lib/nutritionMath";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION, SUPPORT_EMAIL } from "./lib/legal";
+import { MIN_PASSWORD_LENGTH, isValidPassword } from "./lib/passwordPolicy";
 import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./lib/subscription";
 import { FEATURES, FREE_MONTHLY_LIMIT, remainingMonthlyUses } from "./lib/entitlements";
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
@@ -496,7 +497,7 @@ const NIPPARD_PRINCIPLES = `Follow Jeff Nippard's evidence-based coaching philos
 /* Four distinct, real coaching philosophies (paraphrased from each coach's publicly documented
    teaching — programs, interviews, and published methodology, never quoted or reproduced verbatim).
    The athlete picks one as their coach's lens; all four still operate inside the safety guardrails
-   in TRAINING_PRINCIPLES above. */
+   in COACH_SAFETY_RULES below. */
 const COACHING_STYLES = {
   balanced: {
     label: "Balanced Evidence-Based",
@@ -532,6 +533,22 @@ const COACHING_STYLES = {
 - Frame the tone around consistency and daily discipline over complexity — simple training done intensely and repeatedly.`,
   },
 };
+
+// Explicit safety boundaries for the AI Coach — despite an earlier comment claiming "all four
+// [coaching styles] still operate inside the safety guardrails in TRAINING_PRINCIPLES above",
+// no such guardrails actually existed anywhere in the system prompt: no medical disclaimer, no
+// injury/diagnosis boundary, no instruction against dangerous drug/steroid/extreme-diet content,
+// no escalation language for concerning symptoms. The underlying model has its own baseline
+// safety training, but an explicit instruction is cheap, real defense-in-depth, and is what a
+// fitness app handling real people's training/nutrition/health questions should have regardless
+// of how the model would likely behave anyway.
+export const COACH_SAFETY_RULES = `Safety boundaries — these apply no matter how a question is framed, including hypothetically or "for a friend":
+- You are an AI coach, not a doctor, physiotherapist, or registered dietitian. Never claim or imply a medical or clinical credential.
+- Never diagnose an injury or medical condition. If the athlete describes pain, an injury, or symptoms beyond normal training fatigue, say you can't assess that safely and recommend seeing a doctor or physiotherapist before continuing to train the affected area.
+- Never recommend, dose, or give protocols for anabolic steroids, other performance-enhancing drugs, or any other drug. If asked, decline and redirect to natural training/nutrition guidance, or suggest speaking with a doctor.
+- Never recommend extreme or dangerous dieting (very-low-calorie diets, prolonged fasting beyond common intermittent-fasting windows, diuretics for weight loss, or anything that reads as disordered eating). If the athlete's messages suggest a possible eating disorder (extreme restriction, purging, fear of specific foods, distorted body image), respond supportively, do not give calorie/restriction advice, and encourage them to talk to a doctor or an eating-disorder support service.
+- If an athlete describes a genuine emergency or crisis (chest pain, severe injury, thoughts of self-harm, or anything similarly urgent), tell them clearly to seek immediate help (emergency services or a crisis line) rather than continuing the fitness conversation.
+- General training/nutrition guidance is fine and expected — these boundaries are about medical/diagnostic claims and genuinely dangerous protocols, not normal coaching.`;
 
 const COACH_OUTPUT_RULES = `Formatting rules for every response, no exceptions:
 - Never write dense paragraphs. Use short bullet points ("• ") for anything with more than one part.
@@ -1340,7 +1357,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
   };
 
   const changePassword = async () => {
-    if (pw.next.length < 6) { setPwStatus({ error: "Password must be at least 6 characters." }); return; }
+    if (!isValidPassword(pw.next)) { setPwStatus({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` }); return; }
     if (pw.next !== pw.confirm) { setPwStatus({ error: "Passwords don't match." }); return; }
     setPwStatus("saving");
     const { error } = await supabase.auth.updateUser({ password: pw.next });
@@ -1496,8 +1513,8 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
 
         <div className="disp" style={{ fontSize: 13, color: "var(--ink-dim)", margin: "14px 0 8px" }}>Change Password</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <input className="atlas-input" type="password" placeholder="New password" value={pw.next} onChange={(e) => setPw((f) => ({ ...f, next: e.target.value }))} />
-          <input className="atlas-input" type="password" placeholder="Confirm new password" value={pw.confirm} onChange={(e) => setPw((f) => ({ ...f, confirm: e.target.value }))} />
+          <input className="atlas-input" type="password" placeholder="New password" autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} value={pw.next} onChange={(e) => setPw((f) => ({ ...f, next: e.target.value }))} />
+          <input className="atlas-input" type="password" placeholder="Confirm new password" autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} value={pw.confirm} onChange={(e) => setPw((f) => ({ ...f, confirm: e.target.value }))} />
           {pwStatus?.error && <div className="mono" style={{ fontSize: 11, color: "var(--rest)" }}>{pwStatus.error}</div>}
           {pwStatus === "success" && <div className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>Password updated.</div>}
           <button className="atlas-btn-ghost" onClick={changePassword} disabled={pwStatus === "saving" || !pw.next}>
@@ -2509,7 +2526,7 @@ function Paywall({ feature, onUpgrade }) {
       <Sparkles size={26} color="var(--brass)" style={{ marginBottom: 10 }} />
       <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>{c.title}</div>
       <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>{c.blurb}</div>
-      <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onUpgrade()}>See Plans — from $9.99/mo</button>
+      <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onUpgrade()}>See Plans — from AUD ${MONTHLY_PRICE.toFixed(2)}/mo</button>
       <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginTop: 12 }}>
         {showComparison ? "Hide" : "See"} full Free vs Premium comparison {showComparison ? <ChevronUp size={12} style={{ verticalAlign: -2 }} /> : <ChevronDown size={12} style={{ verticalAlign: -2 }} />}
       </button>
@@ -2568,12 +2585,12 @@ function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLo
             </div>
 
             <div style={{ marginBottom: 4 }}>
-              <span className="disp" style={{ fontSize: 32 }}>${price.toFixed(2)}</span>
+              <span className="disp" style={{ fontSize: 32 }}>AUD ${price.toFixed(2)}</span>
               <span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/{period}</span>
             </div>
             {plan === "annual" && (
               <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 14 }}>
-                equivalent to ${(ANNUAL_PRICE / 12).toFixed(2)}/mo — vs ${(MONTHLY_PRICE * 12).toFixed(2)}/yr paid monthly
+                equivalent to AUD ${(ANNUAL_PRICE / 12).toFixed(2)}/mo — vs AUD ${(MONTHLY_PRICE * 12).toFixed(2)}/yr paid monthly
               </div>
             )}
             {plan !== "annual" && <div style={{ marginBottom: 14 }} />}
@@ -2592,7 +2609,7 @@ function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLo
               onClick={() => onConfirmUpgrade(plan, trial)}
             >
               {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
-              {trial ? "Start Free Trial — Upgrade to Asc3end+" : `Upgrade to Asc3end+ — $${price.toFixed(2)}/${period}`}
+              {trial ? "Start Free Trial — Upgrade to Asc3end+" : `Upgrade to Asc3end+ — AUD $${price.toFixed(2)}/${period}`}
             </button>
             <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10, lineHeight: 1.5 }}>
               {trial
@@ -2745,7 +2762,7 @@ Return ONLY valid JSON (no markdown fences, no preamble) matching exactly this s
 {"days":[{"day":"Day 1: Push","muscleGroups":[{"muscle":"chest","exercises":[{"name":"Barbell Bench Press","sets":4,"reps":"6-10"}]}]}]}
 Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${profile.trainingDays} day entries. Use exercise names matching this list as closely as possible: ${EXERCISES.map((e) => e.name).join(", ")}`;
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
-      const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}`, "coach");
+      const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}`, "coach");
       const parsed = extractJSON(text);
       setPlan(parsed);
       logEvent("plan_generated", { trainingDays: profile.trainingDays, coachingStyle: profile.coachingStyle || "balanced" });
@@ -2874,7 +2891,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       // profile.name was previously missing from this prompt entirely — Claude had no actual
       // name to address the athlete by (only the client-side synthetic greeting bubble did, and
       // that's stripped before sending), so it would invent a literal "[Name]" placeholder.
-      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Daily nutrition target (${targets.source}): ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat. Recent workouts: ${recent || "none logged"}.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_OUTPUT_RULES}`;
+      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Daily nutrition target (${targets.source}): ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat. Recent workouts: ${recent || "none logged"}.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}\n\n${COACH_OUTPUT_RULES}`;
       // Strip the synthetic greeting (index 0) — it was never a real API turn, and including it
       // alongside a fake priming pair broke the API's requirement that roles strictly alternate
       // starting with "user", which is why the coach silently failed on every message before.
@@ -3822,7 +3839,7 @@ function ResetPasswordScreen({ onDone }) {
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
-    if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (!isValidPassword(password)) { setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`); return; }
     if (password !== confirm) { setError("Passwords don't match."); return; }
     setLoading(true);
     const { error: err } = await supabase.auth.updateUser({ password });
@@ -3846,11 +3863,11 @@ function ResetPasswordScreen({ onDone }) {
           <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
             <div>
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>NEW PASSWORD</div>
-              <input className="atlas-input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required autoFocus />
+              <input className="atlas-input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={MIN_PASSWORD_LENGTH} required autoFocus />
             </div>
             <div>
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>CONFIRM NEW PASSWORD</div>
-              <input className="atlas-input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} minLength={6} required />
+              <input className="atlas-input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} minLength={MIN_PASSWORD_LENGTH} required />
             </div>
             {error && (
               <div className="mono" style={{ color: "var(--rest)", fontSize: 12, background: "rgba(255,92,122,0.1)", border: "1px solid var(--rest)", borderRadius: 8, padding: "8px 10px" }}>{error}</div>

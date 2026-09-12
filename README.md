@@ -135,8 +135,15 @@ Only ever touched by API routes using `SUPABASE_SERVICE_ROLE_KEY` (via `lib/rate
 client policies, since nothing in the browser should read or write this. Fixed-window counters:
 each `(user_id, endpoint, window_start)` triple is one row, incremented atomically by the RPC
 function (a plain supabase-js `.upsert()` can't express "increment the existing value").
+**Confirmed missing from the live production database as of this audit** — `checkRateLimit()`
+fails open (see its own doc comment), so every rate-limited endpoint (checkout session creation,
+billing portal creation) has been running with NO actual rate limit enforced until this is applied.
+Not a data-safety issue (nothing is corrupted or exposed), but it is a live abuse-prevention gap —
+apply this in the Supabase SQL Editor before or shortly after launch. Written idempotently (safe to
+re-run) so applying it again later if this table already exists from a partial prior attempt is a
+no-op rather than an error.
 ```sql
-create table rate_limits (
+create table if not exists rate_limits (
   user_id uuid not null,
   endpoint text not null,
   window_start timestamptz not null,

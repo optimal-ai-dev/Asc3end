@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Loader2, Dumbbell } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
+import { MIN_PASSWORD_LENGTH, isValidPassword } from "./lib/passwordPolicy";
 import GlobalStyle from "./GlobalStyle";
 
 /*
@@ -28,6 +29,11 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
     setNotice(null);
     try {
       if (mode === "signup") {
+        if (!isValidPassword(password)) {
+          setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+          setLoading(false);
+          return;
+        }
         const { data, error: err } = await supabase.auth.signUp({ email, password });
         if (err) throw err;
         if (!data.session) {
@@ -144,7 +150,7 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
                   autoComplete={mode === "signup" ? "new-password" : "current-password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  minLength={6}
+                  minLength={MIN_PASSWORD_LENGTH}
                   required
                 />
               </div>

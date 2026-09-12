@@ -38,7 +38,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
   const [openFaq, setOpenFaq] = useState(null);
 
   return (
-    <div className="atlas-root">
+    <div className="atlas-root landing-wide">
       <GlobalStyle />
 
       {/* Header */}
@@ -66,7 +66,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
           <button onClick={onLogIn} className="atlas-btn-ghost" style={{ padding: "12px 24px", fontSize: 14 }}>Log In</button>
         </div>
         <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 14 }}>
-          Free to start — no card required. Asc3end+ unlocks unlimited AI features from ${MONTHLY_PRICE}/mo.
+          Free to start — no card required. Asc3end+ unlocks unlimited AI features from AUD ${MONTHLY_PRICE}/mo.
         </div>
       </Section>
 
@@ -149,8 +149,8 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
           </div>
           <div className="atlas-card" style={{ padding: 22, border: "1px solid var(--brass)", background: "var(--brass-soft)" }}>
             <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Asc3end+</div>
-            <div className="disp" style={{ fontSize: 28, marginBottom: 4 }}>${MONTHLY_PRICE}<span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/mo</span></div>
-            <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 12 }}>or ${ANNUAL_PRICE}/yr — save {ANNUAL_SAVINGS_PCT}%</div>
+            <div className="disp" style={{ fontSize: 28, marginBottom: 4 }}>AUD ${MONTHLY_PRICE}<span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/mo</span></div>
+            <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 12 }}>or AUD ${ANNUAL_PRICE}/yr — save {ANNUAL_SAVINGS_PCT}%</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.7 }}>
               Everything in Free<br />Unlimited* AI Coach<br />Unlimited* Meals Near You<br />Food scanner (photo/barcode)
             </div>

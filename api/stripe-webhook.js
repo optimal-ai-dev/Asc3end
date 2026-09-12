@@ -12,6 +12,13 @@
 
 import { stripe } from "../lib/stripe.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
+import { validateSecretFormat, assertValidOrLog } from "../lib/validateSecretFormat.js";
+
+// Same class of check as lib/stripe.js's STRIPE_SECRET_KEY validation — a malformed webhook
+// secret (trailing newline, pasted smart quote) wouldn't produce the exact same connection error,
+// but it WOULD make every genuine Stripe webhook fail signature verification, silently breaking
+// subscription activation for every real customer. Checked once at module load.
+assertValidOrLog("STRIPE_WEBHOOK_SECRET", validateSecretFormat(process.env.STRIPE_WEBHOOK_SECRET));
 
 // Signature verification needs the raw request body, so Vercel's default JSON body parsing
 // must be disabled for this route.

@@ -179,6 +179,15 @@ export default function GlobalStyle() {
         .atlas-root { max-width: 720px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
         .atlas-nav { max-width: 720px; }
       }
+
+      /* The public marketing Landing page is not the bottom-nav app shell (no .atlas-nav, no
+         phone-frame reason to box it in) — it reads better wide on desktop, the way a normal
+         marketing page does, rather than staying capped at the same 720px "app in a frame" width
+         as the authenticated screens. .landing-wide overrides just the width/border rules above;
+         everything else about .atlas-root (background, color, font) still applies. */
+      @media (min-width: 1024px) {
+        .atlas-root.landing-wide { max-width: 1040px; border-left: none; border-right: none; }
+      }
     `}</style>
   );
 }
