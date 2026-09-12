@@ -21,6 +21,7 @@ import { FEATURES, FREE_MONTHLY_LIMIT, remainingMonthlyUses } from "./lib/entitl
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
 import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList } from "./lib/validation";
+import { parseAppPath, buildAppPath } from "./lib/routing";
 import { FEEDBACK_TYPES, MAX_MESSAGE_LENGTH, submitFeedback } from "./lib/feedback";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
@@ -3587,7 +3588,10 @@ export default function App() {
   const [weightlog, setWeightlog] = useState([]);
   const [customExercises, setCustomExercises] = useState([]);
   const [favorites, setFavorites] = useState([]);
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(() => {
+    if (typeof window === "undefined") return "dashboard";
+    return parseAppPath(window.location.pathname)?.tab || "dashboard";
+  });
   const [session, setSession] = useState(null);
   const [finishingWorkout, setFinishingWorkout] = useState(false);
   const [finishError, setFinishError] = useState(null);
@@ -3610,7 +3614,10 @@ export default function App() {
   // customer on file yet).
   const [billingError, setBillingError] = useState(null);
   const [billingLoading, setBillingLoading] = useState(null); // null | "checkout" | "portal"
-  const [showProfile, setShowProfile] = useState(false);
+  const [showProfile, setShowProfile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !!parseAppPath(window.location.pathname)?.settings;
+  });
   const [showPricing, setShowPricing] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
   const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "signup"
@@ -3719,6 +3726,44 @@ export default function App() {
       window.history.replaceState(null, "", window.location.pathname);
       if (checkout === "cancelled") logEvent("checkout_failed", { reason: "cancelled" });
     }
+  }, []);
+
+  // Keeps the URL in sync with tab/showProfile/session so refreshing Train, Coach, Food, Progress,
+  // or Settings returns to that screen instead of always landing on Home, and so the browser's own
+  // back/forward buttons work. Only pushes a new history entry when the logical route actually
+  // changes (comparing against the current pathname) — logging a set mutates `session` on every
+  // rep without changing which route that maps to, so this doesn't spam the back button with dozens
+  // of near-identical entries for one workout.
+  useEffect(() => {
+    if (!authUser || !profile) return;
+    const path = buildAppPath({ tab, showProfile, hasActiveSession: !!session });
+    if (window.location.pathname !== path) {
+      window.history.pushState({ tab, showProfile }, "", path);
+    }
+  }, [tab, showProfile, session, authUser, profile]);
+
+  // A definitively logged-out user (not just "still checking") sitting on a /app/* URL — from a
+  // stale tab, a bookmark, or a shared link to a screen that requires an account — gets a clean
+  // URL instead of a protected-looking path behind the public Landing page it actually renders.
+  useEffect(() => {
+    if (authUser === null && typeof window !== "undefined" && parseAppPath(window.location.pathname)) {
+      window.history.replaceState(null, "", "/");
+    }
+  }, [authUser]);
+
+  // Browser back/forward: read whatever path the browser just navigated to and mirror it into
+  // state. Never calls pushState itself, so this can't create a push loop with the effect above —
+  // by the time it runs, window.location.pathname already IS the target path, so that effect's
+  // `!== path` check is already false and it does nothing further.
+  useEffect(() => {
+    function onPopState() {
+      const parsed = parseAppPath(window.location.pathname);
+      if (!parsed) return;
+      setShowProfile(!!parsed.settings);
+      if (parsed.tab) setTab(parsed.tab);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   // After returning from a successful Checkout, the webhook that actually activates the
