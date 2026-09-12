@@ -811,12 +811,22 @@ function RecoveryMap({ status, selected, onTapMuscle }) {
       {MUSCLE_GROUPS.map((m) => {
         const [x, y] = MUSCLE_POSITIONS[m];
         const lvl = status[m]?.level || "ready";
+        // The spine muscles (shoulders/chest/core/legs) sit only ~18 units apart on a shared
+        // vertical line, with back/arms flanking at nearly the same height as chest — there is
+        // no side a spine label can go (above, below, left, right) that doesn't overlap a
+        // neighboring circle at this viewBox scale. Rather than cram unreadable overlapping
+        // text, only back/arms (which have clear space) get a permanent inline label; a spine
+        // circle's name already appears in the detail panel below once tapped, so nothing here
+        // is unlabeled-and-undiscoverable, just not simultaneously labeled at a glance.
+        const isSpine = x === 50;
         return (
           <g key={m} onClick={() => onTapMuscle?.(m)} style={{ cursor: onTapMuscle ? "pointer" : "default" }}>
             <circle cx={x} cy={y} r={selected === m ? 9 : 7} fill={colors[lvl]} opacity="0.9" stroke={selected === m ? "var(--ink)" : "none"} strokeWidth="1" />
-            <text x={x} y={y + 15} textAnchor="middle" fontSize="5" fill={selected === m ? "var(--ink)" : "var(--ink-dim)"} fontFamily="Oswald">
-              {m.toUpperCase()}
-            </text>
+            {!isSpine && (
+              <text x={x} y={y + 15} textAnchor="middle" fontSize="5" fill={selected === m ? "var(--ink)" : "var(--ink-dim)"} fontFamily="Oswald">
+                {m.toUpperCase()}
+              </text>
+            )}
           </g>
         );
       })}
