@@ -16,7 +16,7 @@ import SupportPage from "./SupportPage";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
-import { suggestNextTarget, evaluatePR, computeGamification } from "./lib/workoutMath";
+import { suggestNextTarget, evaluatePR, computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown } from "./lib/workoutMath";
 import { getNutritionTargets } from "./lib/nutritionMath";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION, SUPPORT_EMAIL } from "./lib/legal";
 import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./lib/subscription";
@@ -1010,18 +1010,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
     }),
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );
-  const streak = useMemo(() => {
-    const dates = new Set(workouts.map((w) => w.date));
-    let s = 0;
-    let d = new Date();
-    while (true) {
-      const key = d.toISOString().slice(0, 10);
-      if (dates.has(key)) { s++; d.setDate(d.getDate() - 1); }
-      else if (s === 0 && key === todayStr()) { d.setDate(d.getDate() - 1); continue; }
-      else break;
-    }
-    return s;
-  }, [workouts]);
+  const streak = useMemo(() => computeStreak(workouts), [workouts]);
   const gamification = useMemo(() => computeGamification(workouts, streak), [workouts, streak]);
   const nudge = useMemo(() => {
     if (workouts.length === 0) return null;
@@ -1636,7 +1625,184 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
 /* Train                                                                */
 /* ------------------------------------------------------------------ */
 
-function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise }) {
+// Full detail view for one completed workout, reachable by tapping any history entry. Shows
+// everything logged for that session and lets you correct a mis-entered set or add/edit a note
+// after the fact — previously, once a workout was saved, there was no way to see or change
+// anything about it again short of deleting and redoing it. Deleting requires an explicit
+// confirmation step; editing/deleting both go through the same onEdit/onDelete callbacks
+// finishWorkout itself uses (App.jsx's editWorkout/deleteWorkout), so Progress, streaks, muscle
+// recovery, and PR suggestions all recompute automatically from the updated `workouts` array —
+// there's no separate cache of any of those that could go stale.
+function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }) {
+  const [notes, setNotes] = useState(workout.notes || "");
+  const [editingSets, setEditingSets] = useState(false);
+  const [setsDraft, setSetsDraft] = useState(() => workout.exercises.map((e) => ({ ...e, sets: e.sets.map((s) => ({ ...s })) })));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+
+  const totalVolume = workout.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + (st.weight || 0) * (st.reps || 0), 0), 0);
+  const durationMin = workout.startedAt && workout.completedAt
+    ? Math.round((new Date(workout.completedAt) - new Date(workout.startedAt)) / 60000)
+    : null;
+  const xp = workoutXpBreakdown(workout);
+  const prs = workout.prs || [];
+
+  const saveNotes = async () => {
+    setSaving(true);
+    setSaveError(null);
+    const ok = await onEditWorkout(workout.id, { notes });
+    if (!ok) setSaveError("Couldn't save your note — check your connection and try again.");
+    setSaving(false);
+  };
+
+  const saveSets = async () => {
+    setSaving(true);
+    setSaveError(null);
+    // Volume/PRs/XP for this workout were computed and stored at the time it was finished —
+    // correcting a set here deliberately does NOT retroactively recompute that workout's own
+    // xpBreakdown (no re-litigating XP already awarded), but Progress/streak/muscle-recovery/PR-
+    // suggestion calculations elsewhere all read `workouts` fresh, so they immediately reflect
+    // the corrected numbers.
+    const ok = await onEditWorkout(workout.id, { exercises: setsDraft });
+    if (ok) setEditingSets(false);
+    else setSaveError("Couldn't save your changes — check your connection and try again.");
+    setSaving(false);
+  };
+
+  const updateSet = (exIdx, setIdx, field, value) => {
+    setSetsDraft((draft) => draft.map((ex, i) => i !== exIdx ? ex : {
+      ...ex,
+      sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, [field]: value === "" ? "" : +value }),
+    }));
+  };
+
+  const handleDelete = async () => {
+    setSaving(true);
+    setSaveError(null);
+    const ok = await onDeleteWorkout(workout.id);
+    setSaving(false);
+    if (ok) onClose();
+    else setSaveError("Couldn't delete this workout — check your connection and try again.");
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 55, overflowY: "auto", padding: "24px 18px 60px" }}>
+      <div style={{ maxWidth: 480, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <div>
+            <div className="disp" style={{ fontSize: 20 }}>{fmtDate(workout.date)}</div>
+            {durationMin != null && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>⏱ {durationMin} min</div>}
+          </div>
+          <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close workout detail"><X size={16} /></button>
+        </div>
+
+        <div className="atlas-card" style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+            <span className="mono" style={{ color: "var(--ink-dim)" }}>TOTAL VOLUME</span>
+            <span className="mono" style={{ color: "var(--brass)" }}>{Math.round(totalVolume)}kg</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+            <span className="mono" style={{ color: "var(--ink-dim)" }}>XP EARNED</span>
+            <span className="mono" style={{ color: "var(--brass)" }}>+{xp.total}</span>
+          </div>
+        </div>
+
+        {prs.length > 0 && (
+          <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--brass)" }}>
+            <div className="disp" style={{ fontSize: 13, color: "var(--brass)", marginBottom: 8 }}>
+              <Trophy size={13} style={{ verticalAlign: -2, marginRight: 5 }} />{prs.length} PR{prs.length === 1 ? "" : "s"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {prs.map((pr, i) => (
+                <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+                  {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="atlas-card" style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div className="disp" style={{ fontSize: 14 }}>Exercises</div>
+            <button
+              className="mono"
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: 0 }}
+              onClick={() => { setEditingSets((v) => !v); setSetsDraft(workout.exercises.map((e) => ({ ...e, sets: e.sets.map((s) => ({ ...s })) }))); }}
+            >
+              {editingSets ? "Cancel" : "Correct Sets"}
+            </button>
+          </div>
+          {(editingSets ? setsDraft : workout.exercises).map((ex, exIdx) => (
+            <div key={ex.name} style={{ marginBottom: 12 }}>
+              <div className="disp" style={{ fontSize: 13, marginBottom: 4 }}>{ex.name}</div>
+              {ex.sets.length === 0 && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>No sets logged.</div>}
+              {ex.sets.map((st, stIdx) => (
+                <div key={stIdx} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: "var(--ink-dim)", marginBottom: 4 }}>
+                  {editingSets ? (
+                    <>
+                      <input type="number" className="atlas-input" style={{ width: 64, padding: "5px 7px" }} value={st.weight} aria-label={`${ex.name} set ${stIdx + 1} weight in kg`} onChange={(e) => updateSet(exIdx, stIdx, "weight", e.target.value)} />
+                      <span>kg ×</span>
+                      <input type="number" className="atlas-input" style={{ width: 54, padding: "5px 7px" }} value={st.reps} aria-label={`${ex.name} set ${stIdx + 1} reps`} onChange={(e) => updateSet(exIdx, stIdx, "reps", e.target.value)} />
+                    </>
+                  ) : (
+                    <span>{st.weight}kg × {st.reps}{st.type && st.type !== "normal" ? ` (${st.type})` : ""}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+          {editingSets && (
+            <button className="atlas-btn" style={{ width: "100%", marginTop: 4 }} onClick={saveSets} disabled={saving}>
+              {saving ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
+              Save Set Changes
+            </button>
+          )}
+        </div>
+
+        <div className="atlas-card" style={{ marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 13, marginBottom: 8 }}>Notes</div>
+          <textarea
+            className="atlas-input"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            style={{ width: "100%", resize: "vertical", marginBottom: 8 }}
+            placeholder="How did this session feel?"
+          />
+          <button className="atlas-btn-ghost" style={{ width: "100%" }} onClick={saveNotes} disabled={saving || notes === (workout.notes || "")}>
+            Save Notes
+          </button>
+        </div>
+
+        {saveError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 12 }}>{saveError}</div>}
+
+        <div className="atlas-card" style={{ borderColor: "var(--rest)" }}>
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--rest)", fontSize: 12, padding: 0 }}>
+              Delete Workout
+            </button>
+          ) : (
+            <div>
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 12 }}>
+                This permanently deletes this workout and can't be undone. Your streak, muscle recovery, and progress stats will recalculate without it.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDelete(false)} disabled={saving}>Cancel</button>
+                <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} onClick={handleDelete} disabled={saving}>
+                  {saving ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : "Permanently Delete"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise, onEditWorkout, onDeleteWorkout }) {
   const [picker, setPicker] = useState(false);
   const [search, setSearch] = useState("");
   const [muscleFilter, setMuscleFilter] = useState("all");
@@ -1658,6 +1824,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const [reviewing, setReviewing] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [sessionPRs, setSessionPRs] = useState([]);
+  const [detailWorkout, setDetailWorkout] = useState(null);
   const restAlertedRef = useRef(false);
 
   // A brand-new session (or returning to none) should never inherit the previous session's
@@ -1714,17 +1881,38 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             {history.map((w) => {
               const volume = w.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + st.weight * st.reps, 0), 0);
               return (
-                <div key={w.id} className="atlas-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <button
+                  key={w.id}
+                  onClick={() => setDetailWorkout(w)}
+                  className="atlas-card"
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid var(--line)", background: "var(--bg-elev)" }}
+                >
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtDate(w.date)}</div>
-                    <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>{w.exercises.length} exercises</div>
+                    <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>{w.exercises.length} exercise{w.exercises.length === 1 ? "" : "s"}</div>
                   </div>
-                  <div className="mono" style={{ fontSize: 13, color: "var(--brass)" }}>{Math.round(volume)}kg vol</div>
-                </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="mono" style={{ fontSize: 13, color: "var(--brass)" }}>{Math.round(volume)}kg vol</div>
+                    <ChevronRight size={16} color="var(--ink-dim)" />
+                  </div>
+                </button>
               );
             })}
           </div>
         </div>
+
+        {detailWorkout && (
+          <WorkoutDetailModal
+            workout={detailWorkout}
+            onClose={() => setDetailWorkout(null)}
+            onEditWorkout={async (id, patch) => {
+              const ok = await onEditWorkout(id, patch);
+              if (ok) setDetailWorkout((w) => (w && w.id === id ? { ...w, ...patch } : w));
+              return ok;
+            }}
+            onDeleteWorkout={onDeleteWorkout}
+          />
+        )}
       </div>
     );
   }
@@ -1820,9 +2008,11 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const skippedExercises = session.exercises.filter((ex) => ex.sets.length === 0);
   const targetSetsTotal = session.exercises.reduce((s, ex) => s + (ex.targetSets || 0), 0);
   const mostSetsIncomplete = targetSetsTotal > 0 && totalSets < targetSetsTotal * 0.5;
-  // Mirrors the base-workout + volume components of computeGamification's XP formula (the streak
-  // bonus isn't attributable to a single workout, so it's left out of this per-workout figure).
-  const xpEarned = session.exercises.length > 0 ? 50 + Math.round(totalVolume / 20) : 0;
+  // The exact same computeWorkoutXp call finishWorkout uses to build the stored xpBreakdown —
+  // this preview MUST match what actually gets saved and added to the running total once Finish
+  // is tapped, or the summary lies about what's about to happen (the original bug this fixes).
+  const streakDelta = computeStreak([...workouts, session]) - computeStreak(workouts);
+  const xpBreakdownPreview = computeWorkoutXp(session, { prCount: sessionPRs.length, streakDelta });
 
   return (
     <div style={{ padding: "24px 18px" }}>
@@ -2078,11 +2268,31 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             ⏱ {fmtClock((now - session.startedAt) / 1000)} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} · {totalSets} set{totalSets === 1 ? "" : "s"} · {Math.round(totalVolume)}kg volume
           </div>
 
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-            <span className="pill mono" style={{ background: "var(--brass-soft)", color: "var(--brass)" }}>+{xpEarned} XP</span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
             {musclesTrained.map((m) => (
               <span key={m} className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)", textTransform: "capitalize" }}>{m}</span>
             ))}
+          </div>
+
+          {/* Itemized to the exact number that gets saved and added to the account's running
+              total — see the comment on finishWorkout for why this used to silently disagree
+              with that total (a real, reported bug: "+55 XP" shown here, +65 actually applied). */}
+          <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--brass)" }}>
+            <div className="disp" style={{ fontSize: 13, color: "var(--brass)", marginBottom: 8 }}>XP Earned</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Workout completion</span><span className="mono">+{xpBreakdownPreview.completion}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Sets &amp; exercises</span><span className="mono">+{xpBreakdownPreview.sets}</span></div>
+              {xpBreakdownPreview.prBonus > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Personal record bonus</span><span className="mono">+{xpBreakdownPreview.prBonus}</span></div>
+              )}
+              {xpBreakdownPreview.streakBonus > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Streak bonus</span><span className="mono">+{xpBreakdownPreview.streakBonus}</span></div>
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+              <span className="disp">Total XP earned</span>
+              <span className="mono" style={{ color: "var(--brass)" }}>+{xpBreakdownPreview.total}</span>
+            </div>
           </div>
 
           {sessionPRs.length > 0 && (
@@ -2156,7 +2366,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button className="atlas-btn" style={{ width: "100%", padding: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} disabled={finishingWorkout} onClick={() => onFinish(session)}>
+              <button className="atlas-btn" style={{ width: "100%", padding: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} disabled={finishingWorkout} onClick={() => onFinish(session, sessionPRs)}>
                 {finishingWorkout && <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />}
                 {finishingWorkout ? "Saving…" : "Save Workout"}
               </button>
@@ -4003,12 +4213,21 @@ export default function App() {
   // on Finish before the first click's state update commits) is a no-op instead of a duplicate
   // history entry. If the save itself fails, the active session is left untouched — nothing is
   // lost, and the caller gets a retryable error instead of a silently-dropped workout.
-  const finishWorkout = async (s) => {
+  const finishWorkout = async (s, sessionPRs = []) => {
     if (finishingRef.current || !session) return null;
     finishingRef.current = true;
     setFinishingWorkout(true);
     setFinishError(null);
-    const completed = { ...s, completedAt: new Date().toISOString() };
+    // Computed once, here, and stored on the workout itself — this exact object is what both the
+    // finish-summary screen and any later workout-history detail view read, so they can never show
+    // two different numbers for the same workout the way the old "recompute an aggregate formula
+    // from scratch each time" design did (a real, reported bug: summary said +55 XP, the account
+    // total actually went up by 65, because the total secretly included a streak bonus the summary
+    // omitted).
+    const streakBefore = computeStreak(workouts);
+    const streakAfter = computeStreak([...workouts, s]);
+    const xpBreakdown = computeWorkoutXp(s, { prCount: sessionPRs.length, streakDelta: streakAfter - streakBefore });
+    const completed = { ...s, completedAt: new Date().toISOString(), xpBreakdown, prs: sessionPRs };
     const next = [...workouts, completed];
     const savedWorkout = await saveKey(KEYS.workouts, next);
     if (!savedWorkout) {
@@ -4040,6 +4259,28 @@ export default function App() {
     setSession(null);
     await saveKey(KEYS.session, null);
     setTab("dashboard");
+  };
+
+  // Editing/deleting a past (already-finished) workout — used by the workout-history detail view.
+  // Both follow the same save-then-setState order as every other mutation in this file (addFood,
+  // editFood, finishWorkout): the write is confirmed to have actually landed before local state
+  // changes, so a failed save leaves the UI showing the last known-good data instead of a value
+  // that silently never made it to storage. Progress, streaks, muscle recovery, and PR detection
+  // are all derived from `workouts` via useMemo/pure functions elsewhere (muscleRecovery,
+  // Progress.jsx's charts, evaluatePR) — they recompute automatically from whatever `workouts`
+  // becomes, with no separate cache to keep in sync.
+  const editWorkout = async (id, patch) => {
+    const next = workouts.map((w) => (w.id === id ? { ...w, ...patch } : w));
+    const ok = await saveKey(KEYS.workouts, next);
+    if (ok) setWorkouts(next);
+    return ok;
+  };
+
+  const deleteWorkout = async (id) => {
+    const next = workouts.filter((w) => w.id !== id);
+    const ok = await saveKey(KEYS.workouts, next);
+    if (ok) setWorkouts(next);
+    return ok;
   };
 
   // Centralizes both "start today's scheduled workout" (Home/Train, when an active plan exists)
@@ -4240,7 +4481,7 @@ export default function App() {
       ) : (
         <>
           {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
-          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} />}
+          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (

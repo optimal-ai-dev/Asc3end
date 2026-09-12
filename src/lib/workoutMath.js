@@ -68,17 +68,85 @@ export function evaluatePR(historySets, weight, reps) {
   return { isPR: false };
 }
 
-// XP/level/badges from logged activity. Each workout contributes its XP exactly once, since it's
-// derived by summing over `workouts` (completed history) rather than being incremented
-// imperatively anywhere — recomputing this from the same history twice always yields the same
-// number, which is what makes "XP awarded once" hold even across re-renders or a page reload.
+// Current consecutive-day training streak, counting back from today (or from yesterday if
+// nothing's logged yet today — a rest day doesn't zero out an active streak until a day is
+// actually skipped). Extracted from Dashboard so Train's finish-workout summary can compute the
+// exact same "streak before this workout" vs. "streak after" to show an accurate streak-bonus XP
+// line — duplicating this logic in two places risked exactly the kind of drift this whole XP
+// rework exists to eliminate.
+export function computeStreak(workouts) {
+  const dates = new Set((workouts || []).map((w) => w.date));
+  let s = 0;
+  let d = new Date();
+  const todayKey = new Date().toISOString().slice(0, 10);
+  while (true) {
+    const key = d.toISOString().slice(0, 10);
+    if (dates.has(key)) { s++; d.setDate(d.getDate() - 1); }
+    else if (s === 0 && key === todayKey) { d.setDate(d.getDate() - 1); continue; }
+    else break;
+  }
+  return s;
+}
+
+const XP_PER_SET = 3;
+const XP_PER_EXERCISE = 5;
+const XP_PER_PR = 15;
+const XP_PER_STREAK_DAY = 10;
+
+// The exact XP a single workout earns, broken into the same labeled components shown in the
+// finish-workout summary — computed once, at completion time, and stored on the workout object
+// (`xpBreakdown`) rather than re-derived from aggregate stats later. This is what makes "the
+// summary total equals the amount added to the account" actually hold: both the summary screen
+// and the running total in computeGamification read this exact same stored number, instead of
+// the summary showing one formula's output and the total being computed by a different one that
+// could (and did — this was a real, reported bug) silently disagree, e.g. by omitting the streak
+// bonus the total secretly included.
+//
+// `streakDelta` is the caller's job to compute (computeStreak(workoutsIncludingThis) -
+// computeStreak(workoutsBeforeThis)) since it depends on order/timing this function has no view
+// of — passing 0 is always safe (just omits the streak line), which is exactly what a second
+// workout logged on the same day should show, since the streak doesn't increase twice in one day.
+export function computeWorkoutXp(workout, { prCount = 0, streakDelta = 0 } = {}) {
+  const exerciseCount = (workout?.exercises || []).filter(hasValidSets).length;
+  const setCount = (workout?.exercises || []).reduce((n, e) => n + validSets(e).length, 0);
+  const completion = exerciseCount > 0 ? 50 : 0;
+  const sets = setCount * XP_PER_SET + exerciseCount * XP_PER_EXERCISE;
+  const prBonus = Math.max(0, prCount) * XP_PER_PR;
+  const streakBonus = Math.max(0, streakDelta) * XP_PER_STREAK_DAY;
+  return {
+    completion, sets, prBonus, streakBonus,
+    total: completion + sets + prBonus + streakBonus,
+  };
+}
+
+// Legacy workouts saved before this rework don't carry a stored `xpBreakdown` — approximate one
+// from the old formula's components (completion + a volume-based figure standing in for the new
+// sets/exercise-based one) so old history still shows a sane, non-zero, non-NaN number instead of
+// nothing. New workouts always use their own stored breakdown, never this approximation.
+function legacyXpBreakdown(workout) {
+  const totalVolume = (workout?.exercises || []).reduce((s, e) => s + validSets(e).reduce((s2, st) => s2 + st.weight * st.reps, 0), 0);
+  const exerciseCount = (workout?.exercises || []).filter(hasValidSets).length;
+  const completion = exerciseCount > 0 ? 50 : 0;
+  const sets = Math.round(totalVolume / 20);
+  return { completion, sets, prBonus: 0, streakBonus: 0, total: completion + sets };
+}
+
+export function workoutXpBreakdown(workout) {
+  const stored = workout?.xpBreakdown;
+  if (stored && Number.isFinite(stored.total)) return stored;
+  return legacyXpBreakdown(workout);
+}
+
+// XP/level/badges from logged activity — the running total is now simply the sum of each
+// workout's own already-computed breakdown, so it can never drift from what any individual
+// workout's summary said it earned.
 export function computeGamification(workouts, streak) {
   const safeWorkouts = workouts || [];
   const totalVolume = safeWorkouts.reduce(
     (s, w) => s + (w.exercises || []).reduce((s2, e) => s2 + validSets(e).reduce((s3, st) => s3 + st.weight * st.reps, 0), 0),
     0
   );
-  const xp = safeWorkouts.length * 50 + Math.round(totalVolume / 20) + (streak || 0) * 10;
+  const xp = safeWorkouts.reduce((sum, w) => sum + workoutXpBreakdown(w).total, 0);
   const level = Math.floor(xp / 500) + 1;
   const xpIntoLevel = xp % 500;
   const badges = [

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { suggestNextTarget, evaluatePR, computeGamification, hasValidSets, validSets } from "./workoutMath";
+import { suggestNextTarget, evaluatePR, computeGamification, hasValidSets, validSets, computeStreak, computeWorkoutXp, workoutXpBreakdown } from "./workoutMath";
 
 describe("hasValidSets / validSets", () => {
   it("treats an exercise with no sets as having no valid sets", () => {
@@ -101,5 +101,101 @@ describe("computeGamification — XP is derived, never incremented imperatively"
     expect(result.xp).toBe(0);
     expect(result.level).toBe(1);
     expect(Number.isFinite(result.totalVolume)).toBe(true);
+  });
+
+  // Regression for the reported bug: the finish-workout summary showed "+55 XP" but the account's
+  // running total actually increased by 65 — the summary's formula and the aggregate formula had
+  // silently diverged (the aggregate secretly included a streak bonus the summary didn't). Now
+  // both read the exact same stored per-workout breakdown, so this can't happen again.
+  it("regression: the running total increases by EXACTLY the newly-finished workout's own xpBreakdown.total", () => {
+    const existingWorkouts = [
+      { exercises: [{ name: "Squat", sets: [{ weight: 60, reps: 8 }] }], xpBreakdown: computeWorkoutXp({ exercises: [{ name: "Squat", sets: [{ weight: 60, reps: 8 }] }] }, { streakDelta: 1 }) },
+    ];
+    const before = computeGamification(existingWorkouts, 1);
+
+    const newWorkout = { exercises: [{ name: "Bench", sets: [{ weight: 40, reps: 8 }, { weight: 40, reps: 8 }] }] };
+    const breakdown = computeWorkoutXp(newWorkout, { prCount: 1, streakDelta: 1 }); // this is what the finish-summary shows
+    const savedWorkout = { ...newWorkout, xpBreakdown: breakdown };
+    const after = computeGamification([...existingWorkouts, savedWorkout], 2);
+
+    expect(after.xp - before.xp).toBe(breakdown.total);
+  });
+});
+
+describe("computeStreak", () => {
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+
+  it("is 0 with no workouts logged", () => {
+    expect(computeStreak([])).toBe(0);
+  });
+
+  it("counts today plus consecutive prior days", () => {
+    const workouts = [{ date: todayStr() }, { date: daysAgoStr(1) }, { date: daysAgoStr(2) }];
+    expect(computeStreak(workouts)).toBe(3);
+  });
+
+  it("still counts a streak that hasn't logged today yet, ending yesterday", () => {
+    const workouts = [{ date: daysAgoStr(1) }, { date: daysAgoStr(2) }];
+    expect(computeStreak(workouts)).toBe(2);
+  });
+
+  it("breaks the streak at the first gap", () => {
+    const workouts = [{ date: todayStr() }, { date: daysAgoStr(1) }, { date: daysAgoStr(3) }]; // gap at day 2
+    expect(computeStreak(workouts)).toBe(2);
+  });
+});
+
+describe("computeWorkoutXp — the per-workout breakdown the finish summary displays", () => {
+  it("awards nothing for a workout with no logged sets", () => {
+    const result = computeWorkoutXp({ exercises: [{ name: "Squat", sets: [] }] });
+    expect(result.total).toBe(0);
+  });
+
+  it("awards a flat completion bonus plus per-set and per-exercise bonuses", () => {
+    const workout = { exercises: [{ name: "Squat", sets: [{ weight: 60, reps: 8 }, { weight: 60, reps: 8 }] }] };
+    const result = computeWorkoutXp(workout);
+    expect(result.completion).toBe(50);
+    expect(result.sets).toBeGreaterThan(0);
+    expect(result.prBonus).toBe(0);
+    expect(result.streakBonus).toBe(0);
+    expect(result.total).toBe(result.completion + result.sets + result.prBonus + result.streakBonus);
+  });
+
+  it("adds a PR bonus proportional to prCount", () => {
+    const workout = { exercises: [{ name: "Squat", sets: [{ weight: 60, reps: 8 }] }] };
+    const withPRs = computeWorkoutXp(workout, { prCount: 2 });
+    const withoutPRs = computeWorkoutXp(workout, { prCount: 0 });
+    expect(withPRs.total).toBeGreaterThan(withoutPRs.total);
+    expect(withPRs.prBonus).toBeGreaterThan(0);
+  });
+
+  it("adds a streak bonus only when streakDelta is positive, never for a same-day second workout (delta 0)", () => {
+    const workout = { exercises: [{ name: "Squat", sets: [{ weight: 60, reps: 8 }] }] };
+    expect(computeWorkoutXp(workout, { streakDelta: 0 }).streakBonus).toBe(0);
+    expect(computeWorkoutXp(workout, { streakDelta: 1 }).streakBonus).toBeGreaterThan(0);
+  });
+
+  it("never goes negative from a negative prCount/streakDelta input", () => {
+    const workout = { exercises: [{ name: "Squat", sets: [{ weight: 60, reps: 8 }] }] };
+    const result = computeWorkoutXp(workout, { prCount: -5, streakDelta: -5 });
+    expect(result.prBonus).toBe(0);
+    expect(result.streakBonus).toBe(0);
+  });
+});
+
+describe("workoutXpBreakdown", () => {
+  it("returns the stored breakdown verbatim for a workout that has one", () => {
+    const stored = { completion: 50, sets: 20, prBonus: 15, streakBonus: 10, total: 95 };
+    expect(workoutXpBreakdown({ exercises: [], xpBreakdown: stored })).toEqual(stored);
+  });
+
+  it("falls back to a legacy approximation for an old workout with no stored breakdown", () => {
+    const legacy = { exercises: [{ name: "Squat", sets: [{ weight: 60, reps: 8 }] }] };
+    const result = workoutXpBreakdown(legacy);
+    expect(Number.isFinite(result.total)).toBe(true);
+    expect(result.total).toBeGreaterThan(0);
+    expect(result.prBonus).toBe(0);
+    expect(result.streakBonus).toBe(0);
   });
 });
