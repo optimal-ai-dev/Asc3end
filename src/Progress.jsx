@@ -272,7 +272,7 @@ export default function Progress({ profile, workouts, weightlog }) {
             <div key={p.name} style={{ borderTop: "1px solid var(--line)", paddingTop: 6 }}>
               <button
                 onClick={() => setPrExpanded(prExpanded === p.name ? null : p.name)}
-                style={{ display: "flex", justifyContent: "space-between", width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--ink)", fontSize: 13 }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", minHeight: 44, background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--ink)", fontSize: 13 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Trophy size={12} color="var(--brass)" /> {p.name}</span>
                 <span className="mono">{p.weightPR.weight}kg × {p.weightPR.reps}</span>

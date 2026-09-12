@@ -38,7 +38,10 @@ export default function GlobalStyle() {
         max-width: 480px;
         margin: 0 auto;
         position: relative;
-        padding-bottom: 88px;
+        /* index.html sets viewport-fit=cover so content can extend under the iPhone home
+           indicator / rounded corners — env(safe-area-inset-*) falls back to 0 on devices
+           without a safe area, so this is always safe to add. */
+        padding-bottom: calc(88px + env(safe-area-inset-bottom));
       }
       .atlas-root * { box-sizing: border-box; }
       .disp { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; }
@@ -60,6 +63,8 @@ export default function GlobalStyle() {
         border: none;
         border-radius: 12px;
         padding: 12px 18px;
+        min-height: 44px;
+        min-width: 44px;
         cursor: pointer;
         box-shadow: 0 6px 18px -6px rgba(62,207,142,0.5);
         transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease;
@@ -77,6 +82,8 @@ export default function GlobalStyle() {
         font-weight: 500;
         border-radius: 10px;
         padding: 10px 16px;
+        min-height: 44px;
+        min-width: 44px;
         cursor: pointer;
         transition: border-color 0.15s ease, color 0.15s ease;
       }
@@ -109,15 +116,20 @@ export default function GlobalStyle() {
         border-top: 1px solid var(--line);
         display: flex;
         justify-content: space-around;
-        padding: 10px 4px 14px;
+        padding: 10px 4px calc(14px + env(safe-area-inset-bottom));
         z-index: 30;
       }
       .atlas-nav-item {
-        display: flex; flex-direction: column; align-items: center; gap: 3px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
         color: var(--ink-dim);
         background: none; border: none; cursor: pointer;
         font-family: 'Oswald', sans-serif; font-size: 10px; letter-spacing: 0.03em;
         text-transform: uppercase;
+        /* min-width/min-height: 44px is the WCAG-recommended minimum touch target — the icon+
+           label alone (no padding) only shrink-wrapped to ~35-54px in each dimension, found via
+           a live scan at 375px width. This expands the tappable area around the same visual
+           content rather than changing how the nav looks. */
+        min-width: 44px; min-height: 44px; padding: 4px 6px;
       }
       .atlas-nav-item.active { color: var(--brass); }
       .pill {
@@ -125,6 +137,10 @@ export default function GlobalStyle() {
         padding: 3px 9px; border-radius: 999px; font-size: 11px;
         font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em;
       }
+      /* Interactive pill buttons (filters, selectors, quick-add chips) need a 44px touch target;
+         the many read-only pill BADGES (status dots, equipment tags) must stay visually compact,
+         so this targets only the <button class="pill"> case, not <span class="pill">. */
+      button.pill { min-height: 44px; min-width: 44px; }
       .bar-track { background: var(--bg-elev2); border-radius: 6px; height: 8px; overflow: hidden; }
       .bar-fill { height: 100%; border-radius: 6px; }
       .chat-bubble-user {

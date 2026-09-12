@@ -1051,10 +1051,10 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
           <div style={{ color: "var(--ink-dim)", fontSize: 14, marginTop: 4, fontStyle: "italic" }}>"{quote}"</div>
         </div>
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          <button onClick={onOpenProfile} className="atlas-btn-ghost" style={{ padding: "6px 9px" }} aria-label="Profile and settings" title="Profile and settings">
+          <button onClick={onOpenProfile} className="atlas-btn-ghost" style={{ padding: "6px 9px", minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Profile and settings" title="Profile and settings">
             <UserCircle size={16} />
           </button>
-          <button onClick={onLogOut} className="atlas-btn-ghost" style={{ padding: "6px 10px", fontSize: 10 }}>
+          <button onClick={onLogOut} className="atlas-btn-ghost" style={{ padding: "6px 10px", fontSize: 10, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
             Log Out
           </button>
         </div>
@@ -1155,7 +1155,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
         {macroRow("PROTEIN g", totals.protein, targets.protein, "var(--steel)")}
         {macroRow("CARBS g", totals.carbs, targets.carbs, "var(--good)")}
         {macroRow("FAT g", totals.fat, targets.fat, "var(--warn)")}
-        <button className="atlas-btn-ghost" style={{ width: "100%", marginTop: 4 }} onClick={() => onNav("nutrition")}>
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginTop: 4, minHeight: 44 }} onClick={() => onNav("nutrition")}>
           <UtensilsCrossed size={14} style={{ verticalAlign: -2, marginRight: 6 }} /> Log Food
         </button>
       </div>
@@ -1364,7 +1364,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
   );
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 40, overflowY: "auto", padding: "24px 18px 60px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 40, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <div className="disp" style={{ fontSize: 24 }}>Profile & Settings</div>
         <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close settings"><X size={16} /></button>
@@ -1596,7 +1596,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
       <div className="atlas-card" style={{ borderColor: "var(--rest)" }}>
         <div className="disp" style={{ fontSize: 13, color: "var(--rest)", marginBottom: 8 }}>Danger Zone</div>
         {!showDelete ? (
-          <button onClick={() => setShowDelete(true)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--rest)", fontSize: 12, padding: 0 }}>
+          <button onClick={() => setShowDelete(true)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--rest)", fontSize: 12, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center" }}>
             Delete Account
           </button>
         ) : (
@@ -1687,7 +1687,7 @@ function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 55, overflowY: "auto", padding: "24px 18px 60px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 55, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <div>
@@ -2262,7 +2262,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
               <button
                 onClick={() => setVisibleExerciseCount((n) => n + EXERCISE_PAGE_SIZE)}
                 className="mono"
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: "8px 0", textAlign: "center" }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: "8px 0", minHeight: 44, width: "100%", textAlign: "center" }}
               >
                 Show {Math.min(EXERCISE_PAGE_SIZE, filtered.length - visibleExerciseCount)} more ({filtered.length - visibleExerciseCount} remaining)
               </button>
@@ -2278,7 +2278,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
       )}
 
       {reviewing && (
-        <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 50, overflowY: "auto", padding: "24px 18px" }}>
+        <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 50, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px" }}>
           <div className="disp" style={{ fontSize: 22, marginBottom: 4 }}>Workout Summary</div>
           <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 10 }}>
             ⏱ {fmtClock((now - session.startedAt) / 1000)} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} · {totalSets} set{totalSets === 1 ? "" : "s"} · {Math.round(totalVolume)}kg volume
@@ -2440,7 +2440,7 @@ function MuscleGroupBlock({ muscleGroups, onTapExercise }) {
               const matched = lookupExercise(ex.name);
               return (
                 <button key={j} onClick={() => matched && onTapExercise(matched)}
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: "2px 0", cursor: matched ? "pointer" : "default", textAlign: "left", width: "100%" }}>
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: "2px 0", minHeight: 44, cursor: matched ? "pointer" : "default", textAlign: "left", width: "100%" }}>
                   <span style={{ fontSize: 12.5, color: matched ? "var(--steel)" : "var(--ink)" }}>• {ex.name}</span>
                   <span className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", flexShrink: 0, marginLeft: 8 }}>{ex.sets}×{ex.reps}</span>
                 </button>
@@ -2510,7 +2510,7 @@ function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLo
   const period = plan === "annual" ? "yr" : "mo";
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 45, overflowY: "auto", padding: "24px 18px 60px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 45, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <div className="disp" style={{ fontSize: 24 }}>Asc3end+</div>
         <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close pricing"><X size={16} /></button>
@@ -2904,7 +2904,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
             <span className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>{coachRemaining} free {coachRemaining === 1 ? "message" : "messages"} left this month</span>
           )}
           {messages.length > 1 && (
-            <button onClick={startNewConversation} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0 }} title="Start a new conversation">
+            <button onClick={startNewConversation} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center" }} title="Start a new conversation">
               New Chat
             </button>
           )}
@@ -2916,7 +2916,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
           const active = (profile.coachingStyle || "balanced") === key;
           return (
             <button key={key} onClick={() => onUpdateProfile({ coachingStyle: key })} title={s.blurb}
-              className="pill" style={{ cursor: "pointer", border: `1px solid ${active ? "var(--brass)" : "var(--line)"}`, background: active ? "var(--brass-soft)" : "transparent", color: active ? "var(--brass)" : "var(--ink-dim)" }}>
+              className="pill" style={{ cursor: "pointer", minHeight: 44, border: `1px solid ${active ? "var(--brass)" : "var(--line)"}`, background: active ? "var(--brass-soft)" : "transparent", color: active ? "var(--brass)" : "var(--ink-dim)" }}>
               {s.label}
             </button>
           );
@@ -3011,7 +3011,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
             {planActivated ? (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                 <div className="pill mono" style={{ background: "var(--brass-soft)", color: "var(--brass)" }}>✓ Active plan — see it on Home</div>
-                <button onClick={deactivatePlan} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: 0 }}>Deactivate</button>
+                <button onClick={deactivatePlan} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center" }}>Deactivate</button>
               </div>
             ) : (
               <button className="atlas-btn" style={{ width: "100%", marginTop: 4 }} onClick={activatePlan}>Activate Plan</button>
@@ -3021,7 +3021,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
         {planError && !genLoading && (
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 12, color: "var(--rest)" }}>⚠️ {planError}</div>
-            <button onClick={generatePlan} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: 0, marginTop: 4 }}>Retry</button>
+            <button onClick={generatePlan} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginTop: 4 }}>Retry</button>
           </div>
         )}
         {!plan && !planError && !genLoading && <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 8 }}>Generate a personalised split based on your goal and schedule.</div>}
@@ -3270,7 +3270,7 @@ function FoodScanner({ onAdd, onClose }) {
   } : null;
 
   return (
-    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Scan food" style={{ position: "fixed", inset: 0, background: "rgba(10,11,13,0.95)", zIndex: 50, display: "flex", flexDirection: "column", padding: 18, maxWidth: 480, margin: "0 auto" }}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Scan food" style={{ position: "fixed", inset: 0, background: "rgba(10,11,13,0.95)", zIndex: 50, display: "flex", flexDirection: "column", padding: "calc(18px + env(safe-area-inset-top)) 18px 18px", maxWidth: 480, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div className="disp" style={{ fontSize: 18 }}>Scan Food</div>
         <button onClick={() => { stopCamera(); onClose(); }} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="Close scanner"><X size={20} color="var(--ink)" /></button>
@@ -3883,7 +3883,7 @@ function AdminDashboard() {
   );
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 60, overflowY: "auto", padding: "24px 18px 60px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 60, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div className="disp" style={{ fontSize: 22, marginBottom: 18 }}>Admin Metrics</div>
         {state.status === "loading" && <Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} />}
