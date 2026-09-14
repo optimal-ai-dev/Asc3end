@@ -436,6 +436,19 @@ function scoreBestMeal(places, guidance) {
   return bestIdx;
 }
 
+// Order-independent, per-word substring search — every word in the query must appear somewhere
+// in the name, but not necessarily contiguously or in the order typed. A plain single-substring
+// check (name.includes(query)) fails the moment someone searches "dumbbell press incline" against
+// "Incline Dumbbell Press": the words are all there, just not in that exact contiguous order,
+// which is exactly the bug this was written to fix — a real user reported "incline dumbbell
+// press" finding nothing despite that exact exercise existing.
+export function matchesSearch(name, query) {
+  const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return true;
+  const lowerName = name.toLowerCase();
+  return terms.every((term) => lowerName.includes(term));
+}
+
 /* Matches an AI-generated exercise name against the real exercise library, exact first then fuzzy,
    so exercises the coach suggests can link to real form cues and pose demonstrations. */
 function lookupExercise(name) {
@@ -714,6 +727,7 @@ function Onboarding({ onComplete }) {
                 textAlign: "left", cursor: "pointer",
                 borderColor: form.goal === k ? "var(--brass)" : "var(--line)",
                 background: form.goal === k ? "var(--brass-soft)" : "var(--bg-elev)",
+                color: form.goal === k ? "var(--brass)" : "var(--ink)",
               }}
             >
               <span className="disp" style={{ fontSize: 16 }}>{label}</span>
@@ -1927,7 +1941,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
                   key={w.id}
                   onClick={() => setDetailWorkout(w)}
                   className="atlas-card"
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid var(--line)", background: "var(--bg-elev)" }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid var(--line)", background: "var(--bg-elev)", color: "var(--ink)" }}
                 >
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtDate(w.date)}</div>
@@ -1962,7 +1976,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const allExercises = [...EXERCISES, ...customExercises];
 
   const filtered = allExercises.filter((e) =>
-    e.name.toLowerCase().includes(search.toLowerCase()) &&
+    matchesSearch(e.name, search) &&
     (muscleFilter === "all" || e.muscle === muscleFilter) &&
     (equipFilter === "all" || e.equipment === equipFilter)
   );
@@ -3009,7 +3023,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
                   <div style={{ marginTop: 6 }}>
                     <input autoFocus className="atlas-input" style={{ fontSize: 12, marginBottom: 6 }} placeholder="Search exercises…" value={exSearch} onChange={(e) => setExSearch(e.target.value)} aria-label="Search exercises to add" />
                     <div style={{ maxHeight: 140, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
-                      {EXERCISES.filter((e) => e.name.toLowerCase().includes(exSearch.toLowerCase())).slice(0, 20).map((e) => (
+                      {EXERCISES.filter((e) => matchesSearch(e.name, exSearch)).slice(0, 20).map((e) => (
                         <button key={e.name} onClick={() => addExerciseToDay(dayIdx, e)} style={{ display: "flex", justifyContent: "space-between", textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 6, padding: "6px 8px", cursor: "pointer", color: "var(--ink)", fontSize: 12 }}>
                           {e.name} <span className="mono" style={{ color: "var(--ink-dim)", textTransform: "capitalize" }}>{e.muscle}</span>
                         </button>
@@ -3487,7 +3501,7 @@ function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, fav
       const hour = now.getHours();
       const dayPart = hour < 11 ? "morning (breakfast)" : hour < 15 ? "midday (lunch)" : hour < 21 ? "evening (dinner)" : "late night (light/snack)";
       const system = `You are a nutrition search assistant. Perform exactly ONE web search, then immediately respond — do not search again or refine your query. You must respond with ONLY a single valid JSON object — no preamble, no markdown fences, no explanation of your search, no citations. Just the JSON object and nothing else, even though you have access to web search to inform your answer.`;
-      const prompt = `Find 4 real food places near "${locationText}" that are OPEN RIGHT NOW and still serving food — mix it up across fast food, casual/local restaurants, and cafes where possible. Do not include any place that would be closed at this time, and do not suggest a menu item that isn't actually served at this hour.
+      const prompt = `Find 4 real food places near "${locationText}" that are OPEN RIGHT NOW and still serving food. Asc3end is a fitness app — someone using this feature is specifically trying to hit a training-goal macro target, not just find the nearest thing that's open, so the result list must not default to fast food out of convenience. Hard rule: at most 1 of the 4 places may be a fast-food chain (McDonald's, KFC, Subway, etc.) — the other 3+ must be genuinely different options: a casual/local restaurant, a cafe, a poke/salad/grain-bowl place, a grocery store or deli with prepared food, or similar. If fewer than 4 non-fast-food places are realistically open right now near that location, it is fine to include more than 1 fast-food option, but only as a last resort — actively search for and prefer the healthier, non-fast-food options first. Do not include any place that would be closed at this time, and do not suggest a menu item that isn't actually served at this hour.
 
 It is currently ${dayName}, ${timeLabel} (${dayPart}) at that location. The item you pick for each place MUST match what's actually served at this time of day — e.g. do not suggest a breakfast-only item if it's the afternoon or evening, and don't suggest a heavy dinner item if it's the middle of the day, unless that place genuinely serves it all day.
 
@@ -3584,10 +3598,14 @@ Respond with ONLY this JSON, nothing else:
         </div>
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           <input className="atlas-input" placeholder="Suburb or city" value={locationInput} onChange={(e) => setLocationInput(e.target.value)} />
-          <button className="atlas-btn-ghost" style={{ padding: "8px 10px" }} onClick={useDeviceLocation} disabled={findingMeals} title="Use my location" aria-label="Use my current location">
-            <Navigation size={14} color="var(--brass)" />
-          </button>
         </div>
+        {/* Previously an icon-only button with no visible text — real feedback was that people
+            didn't notice it was there at all. A clearly labeled button is unmistakable, and
+            visually distinct from the "search by typed location" flow below it. */}
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginBottom: 8, fontSize: 12 }} onClick={useDeviceLocation} disabled={findingMeals}>
+          <Navigation size={13} color="var(--brass)" style={{ verticalAlign: -2, marginRight: 6 }} />
+          {findingMeals ? "Finding your location…" : "Use My Current Location"}
+        </button>
         <button className="atlas-btn" style={{ width: "100%" }} onClick={() => locationInput && findNearbyMeals(locationInput)} disabled={findingMeals || !locationInput}>
           {findingMeals ? <Loader2 size={14} style={{ verticalAlign: -2, marginRight: 6, animation: "spin 1s linear infinite" }} /> : <Search size={14} style={{ verticalAlign: -2, marginRight: 6 }} />}
           {findingMeals ? "Searching…" : "Find Meals"}

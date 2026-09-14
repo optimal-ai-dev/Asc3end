@@ -44,6 +44,17 @@ export default function GlobalStyle() {
         padding-bottom: calc(88px + env(safe-area-inset-bottom));
       }
       .atlas-root * { box-sizing: border-box; }
+      /* Real bug found live: <button className="atlas-card"> (onboarding goal picker, workout
+         history rows) rendered with the browser's own default black button text instead of the
+         theme's light ink colour — unlike <div>, form controls (button/input/select/textarea)
+         don't inherit color from ancestors by default in the UA stylesheet, so black-on-dark made
+         the text unreadable. Fixed the two known instances directly; this is the defense-in-depth
+         net so the same class of bug can't silently reappear on a future button that forgets to
+         set its own color. Wrapped in :where() so this contributes ZERO specificity — without
+         that, "button { color }" (specificity 0,0,1,1) would outrank .atlas-btn/.pill/etc. (single
+         class, 0,0,1,0) and override their intentional colors, e.g. turning the dark text on the
+         bright-green primary button white and illegible. :where() keeps this strictly a fallback. */
+      :where(.atlas-root) button, :where(.atlas-root) input, :where(.atlas-root) select, :where(.atlas-root) textarea { color: inherit; }
       /* margin/font-weight reset so this class looks identical whether it's applied to a <div> or
          a semantic <h1>-<h6> — several were converted to real headings for screen-reader
          navigation, and browsers give heading elements a default margin + bold weight that would
