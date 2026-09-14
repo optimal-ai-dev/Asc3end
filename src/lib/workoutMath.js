@@ -2,6 +2,8 @@
 // without rendering any React component. No side effects, no network/storage calls — every
 // function here takes plain data in and returns plain data out.
 
+import { classifyDayAdherence } from "./nutritionMath";
+
 export const REP_RANGES = {
   muscle_growth: [8, 12],
   strength: [4, 6],
@@ -149,14 +151,138 @@ export function computeGamification(workouts, streak) {
   const xp = safeWorkouts.reduce((sum, w) => sum + workoutXpBreakdown(w).total, 0);
   const level = Math.floor(xp / 500) + 1;
   const xpIntoLevel = xp % 500;
+  // `current`/`target` added alongside `earned` so an unearned badge can show real progress
+  // ("6/10 workouts") instead of just a greyed-out icon with no sense of how close it is.
   const badges = [
-    { id: "first", label: "First Session", earned: safeWorkouts.length >= 1, icon: "🏁" },
-    { id: "ten", label: "10 Workouts", earned: safeWorkouts.length >= 10, icon: "🔟" },
-    { id: "twentyfive", label: "25 Workouts", earned: safeWorkouts.length >= 25, icon: "💯" },
-    { id: "streak7", label: "7 Day Streak", earned: (streak || 0) >= 7, icon: "🔥" },
-    { id: "streak30", label: "30 Day Streak", earned: (streak || 0) >= 30, icon: "🚀" },
-    { id: "vol10k", label: "10,000kg Lifted", earned: totalVolume >= 10000, icon: "🏋️" },
-    { id: "vol100k", label: "100,000kg Lifted", earned: totalVolume >= 100000, icon: "🏆" },
+    { id: "first", label: "First Session", earned: safeWorkouts.length >= 1, icon: "🏁", current: Math.min(safeWorkouts.length, 1), target: 1 },
+    { id: "ten", label: "10 Workouts", earned: safeWorkouts.length >= 10, icon: "🔟", current: Math.min(safeWorkouts.length, 10), target: 10 },
+    { id: "twentyfive", label: "25 Workouts", earned: safeWorkouts.length >= 25, icon: "💯", current: Math.min(safeWorkouts.length, 25), target: 25 },
+    { id: "streak7", label: "7 Day Streak", earned: (streak || 0) >= 7, icon: "🔥", current: Math.min(streak || 0, 7), target: 7 },
+    { id: "streak30", label: "30 Day Streak", earned: (streak || 0) >= 30, icon: "🚀", current: Math.min(streak || 0, 30), target: 30 },
+    { id: "vol10k", label: "10,000kg Lifted", earned: totalVolume >= 10000, icon: "🏋️", current: Math.min(Math.round(totalVolume), 10000), target: 10000 },
+    { id: "vol100k", label: "100,000kg Lifted", earned: totalVolume >= 100000, icon: "🏆", current: Math.min(Math.round(totalVolume), 100000), target: 100000 },
   ];
   return { xp, level, xpIntoLevel, totalVolume: Math.round(totalVolume), badges };
+}
+
+/* ------------------------------------------------------------------ */
+/* Missions & Challenges                                               */
+/* ------------------------------------------------------------------ */
+// Personal-only: everything below is computed from one athlete's own data and compared only
+// against their own targets or history — there is no leaderboard, no comparison against other
+// users, and nothing here is ever transmitted anywhere.
+
+// Reconstructs every point in an athlete's history where a genuinely new all-time-best weight was
+// set, for every exercise — "did a real PR happen in this window", not just "what's the current
+// record" (a record later broken again would otherwise vanish from a past window's view). A
+// near-identical reconstruction also exists in Progress.jsx for its own PR Timeline feature,
+// intentionally duplicated rather than imported: Progress.jsx is a separate lazy-loaded chunk
+// (it pulls in recharts), and importing it from here would drag that dependency into the main
+// app bundle that loads on every visit.
+export function allTimePrEvents(workouts) {
+  const exerciseNames = [...new Set((workouts || []).flatMap((w) => (w.exercises || []).map((e) => e.name)))];
+  const events = [];
+  exerciseNames.forEach((name) => {
+    const sessions = (workouts || [])
+      .filter((w) => (w.exercises || []).some((e) => e.name === name && hasValidSets(e)))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    let maxWeight = 0;
+    sessions.forEach((w) => {
+      const bestSet = validSets(w.exercises.find((e) => e.name === name)).reduce((a, b) => (b.weight > a.weight ? b : a));
+      if (bestSet.weight > maxWeight) {
+        maxWeight = bestSet.weight;
+        events.push({ name, date: w.date, weight: bestSet.weight, reps: bestSet.reps });
+      }
+    });
+  });
+  return events.sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+function startOfWeekIso(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return d.toISOString().slice(0, 10);
+}
+
+// Four short, always-fresh weekly missions recomputed live from Sunday to Sunday — deliberately
+// not persisted anywhere: since they're pure functions of this week's own data, there's no state
+// to keep in sync and no way for the displayed status to ever drift from reality.
+export function computeWeeklyMissions(workouts, nutrition) {
+  const weekStartIso = startOfWeekIso(new Date());
+  const safeWorkouts = workouts || [];
+  const safeNutrition = nutrition || [];
+
+  const workoutDatesThisWeek = new Set(safeWorkouts.filter((w) => w.date >= weekStartIso).map((w) => w.date));
+  const nutritionDatesThisWeek = new Set(safeNutrition.filter((n) => n.date >= weekStartIso).map((n) => n.date));
+  const prsThisWeek = allTimePrEvents(safeWorkouts).filter((ev) => ev.date >= weekStartIso).length;
+
+  const exercisesBefore = new Set(safeWorkouts.filter((w) => w.date < weekStartIso).flatMap((w) => w.exercises.map((e) => e.name)));
+  const exercisesThisWeek = new Set(
+    safeWorkouts.filter((w) => w.date >= weekStartIso).flatMap((w) => w.exercises.filter(hasValidSets).map((e) => e.name))
+  );
+  const triedNewExercise = [...exercisesThisWeek].some((name) => !exercisesBefore.has(name));
+
+  const missions = [
+    { id: "train3", label: "Train 3 times this week", current: Math.min(workoutDatesThisWeek.size, 3), target: 3 },
+    { id: "log5", label: "Log nutrition 5 days this week", current: Math.min(nutritionDatesThisWeek.size, 5), target: 5 },
+    { id: "pr1", label: "Set a new PR this week", current: Math.min(prsThisWeek, 1), target: 1 },
+    { id: "newExercise", label: "Try a new exercise this week", current: triedNewExercise ? 1 : 0, target: 1 },
+  ];
+  return missions.map((m) => ({ ...m, completed: m.current >= m.target }));
+}
+
+// Longer, opt-in personal challenges the athlete explicitly starts (see KEYS.challenges in
+// App.jsx) — each template names a metric computed purely from the athlete's own logged data
+// within a fixed window starting the day they started it.
+export const CHALLENGE_TEMPLATES = [
+  { id: "consistency30", label: "30-Day Consistency", description: "Train on at least 20 of the next 30 days.", icon: "📅", durationDays: 30, targetValue: 20, metric: "daysTrained", unit: "days trained" },
+  { id: "sets1000", label: "1,000 Sets in 6 Weeks", description: "Log 1,000 total sets within 6 weeks.", icon: "🏋️", durationDays: 42, targetValue: 1000, metric: "totalSets", unit: "sets" },
+  { id: "nutrition21", label: "21 On-Target Days", description: "Hit your nutrition target on 21 days within 30 days.", icon: "🥗", durationDays: 30, targetValue: 21, metric: "onTargetDays", unit: "days on target" },
+  { id: "prHunt", label: "New PR Hunt", description: "Set 3 new personal records within 4 weeks.", icon: "🎯", durationDays: 28, targetValue: 3, metric: "prCount", unit: "PRs" },
+];
+
+// `challenge` is a persisted instance: { id, templateId, startDate }. Progress is always computed
+// live from workouts/nutrition — nothing about "how far along" is ever itself persisted, so it
+// can never go stale relative to the underlying data.
+export function computeChallengeProgress(challenge, workouts, nutrition, nutritionTargets) {
+  const template = CHALLENGE_TEMPLATES.find((t) => t.id === challenge.templateId);
+  if (!template) return null;
+
+  // Every date here is a plain "YYYY-MM-DD" calendar-date string (the same convention todayStr()
+  // uses elsewhere in the app) — parsed and compared entirely via Date.UTC() component math,
+  // never through `new Date(isoString)` followed by `.setHours()`. That combination mixes
+  // UTC-midnight parsing with local-time reinterpretation and silently shifts the elapsed-day
+  // count for anyone not at UTC+0 (found live at UTC+10: a challenge started 5 days ago read back
+  // as "Day 7").
+  const toUtcMs = (isoDate) => {
+    const [y, m, d] = isoDate.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const startIso = challenge.startDate;
+  const startMs = toUtcMs(startIso);
+  const endIso = new Date(startMs + (template.durationDays - 1) * 86400000).toISOString().slice(0, 10);
+  const todayIso = new Date().toISOString().slice(0, 10); // same convention as todayStr()
+  const daysElapsed = Math.min(template.durationDays, Math.max(1, Math.floor((toUtcMs(todayIso) - startMs) / 86400000) + 1));
+
+  const inWindow = (w) => w.date >= startIso && w.date <= endIso;
+  let current = 0;
+  if (template.metric === "daysTrained") {
+    current = new Set((workouts || []).filter(inWindow).map((w) => w.date)).size;
+  } else if (template.metric === "totalSets") {
+    current = (workouts || []).filter(inWindow).reduce((n, w) => n + w.exercises.reduce((n2, e) => n2 + validSets(e).length, 0), 0);
+  } else if (template.metric === "onTargetDays") {
+    const byDate = new Map();
+    (nutrition || []).filter((f) => f.date >= startIso && f.date <= endIso).forEach((f) => {
+      if (!byDate.has(f.date)) byDate.set(f.date, []);
+      byDate.get(f.date).push(f);
+    });
+    current = [...byDate.values()].filter((dayFoods) => classifyDayAdherence(dayFoods, nutritionTargets) === "good").length;
+  } else if (template.metric === "prCount") {
+    current = allTimePrEvents(workouts).filter((ev) => ev.date >= startIso && ev.date <= endIso).length;
+  }
+
+  const completed = current >= template.targetValue;
+  const expired = daysElapsed >= template.durationDays;
+  return { template, current, target: template.targetValue, daysElapsed, durationDays: template.durationDays, completed, expired, finished: completed || expired, endIso };
 }

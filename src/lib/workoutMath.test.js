@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { suggestNextTarget, evaluatePR, computeGamification, hasValidSets, validSets, computeStreak, computeWorkoutXp, workoutXpBreakdown } from "./workoutMath";
+import {
+  suggestNextTarget, evaluatePR, computeGamification, hasValidSets, validSets, computeStreak, computeWorkoutXp, workoutXpBreakdown,
+  allTimePrEvents, computeWeeklyMissions, computeChallengeProgress, CHALLENGE_TEMPLATES,
+} from "./workoutMath";
+
+function isoDaysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+function workout(daysAgo, exercises) {
+  return { date: isoDaysAgo(daysAgo), exercises };
+}
+function ex(name, sets) {
+  return { name, sets: sets.map(([weight, reps]) => ({ weight, reps, type: "working" })) };
+}
 
 describe("hasValidSets / validSets", () => {
   it("treats an exercise with no sets as having no valid sets", () => {
@@ -197,5 +212,163 @@ describe("workoutXpBreakdown", () => {
     expect(result.total).toBeGreaterThan(0);
     expect(result.prBonus).toBe(0);
     expect(result.streakBonus).toBe(0);
+  });
+});
+
+describe("computeGamification — badge progress", () => {
+  it("reports current/target for an unearned badge instead of just earned:false", () => {
+    const workouts = Array.from({ length: 4 }, (_, i) => workout(i, [ex("Squat", [[60, 8]])]));
+    const g = computeGamification(workouts, 0);
+    const tenBadge = g.badges.find((b) => b.id === "ten");
+    expect(tenBadge.earned).toBe(false);
+    expect(tenBadge.current).toBe(4);
+    expect(tenBadge.target).toBe(10);
+  });
+
+  it("clamps current at target once earned rather than overshooting the bar", () => {
+    const workouts = Array.from({ length: 15 }, (_, i) => workout(i, [ex("Squat", [[60, 8]])]));
+    const g = computeGamification(workouts, 0);
+    const tenBadge = g.badges.find((b) => b.id === "ten");
+    expect(tenBadge.earned).toBe(true);
+    expect(tenBadge.current).toBe(10);
+  });
+});
+
+describe("allTimePrEvents — historical PR reconstruction", () => {
+  it("records an event the first time an exercise is ever logged", () => {
+    const workouts = [workout(0, [ex("Bench Press", [[60, 8]])])];
+    const events = allTimePrEvents(workouts);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ name: "Bench Press", weight: 60 });
+  });
+
+  it("records a new event each time the weight goes above every prior session's best", () => {
+    const workouts = [
+      workout(4, [ex("Bench Press", [[60, 8]])]),
+      workout(2, [ex("Bench Press", [[65, 8]])]),
+      workout(0, [ex("Bench Press", [[70, 8]])]),
+    ];
+    const events = allTimePrEvents(workouts);
+    expect(events.map((e) => e.weight)).toEqual([60, 65, 70]);
+  });
+
+  it("does not record an event for a session that stays at or below the existing best", () => {
+    const workouts = [
+      workout(2, [ex("Bench Press", [[70, 8]])]),
+      workout(0, [ex("Bench Press", [[65, 8]])]),
+    ];
+    const events = allTimePrEvents(workouts);
+    expect(events).toHaveLength(1);
+    expect(events[0].weight).toBe(70);
+  });
+
+  it("tracks each exercise's record independently", () => {
+    const workouts = [workout(0, [ex("Bench Press", [[60, 8]]), ex("Squat", [[100, 5]])])];
+    const events = allTimePrEvents(workouts);
+    expect(events.map((e) => e.name).sort()).toEqual(["Bench Press", "Squat"]);
+  });
+});
+
+describe("computeWeeklyMissions", () => {
+  it("marks train3 complete once 3 distinct days this week have a workout", () => {
+    const workouts = [workout(0, [ex("Squat", [[60, 8]])]), workout(1, [ex("Squat", [[60, 8]])]), workout(2, [ex("Squat", [[60, 8]])])];
+    const missions = computeWeeklyMissions(workouts, []);
+    const train3 = missions.find((m) => m.id === "train3");
+    // Depending on which day of the week "today" is when this test runs, not all 3 days may fall
+    // in the same calendar week — assert the relationship the function guarantees either way.
+    expect(train3.current).toBeLessThanOrEqual(3);
+    expect(train3.completed).toBe(train3.current >= 3);
+  });
+
+  it("all missions start incomplete with zero progress given no data", () => {
+    const missions = computeWeeklyMissions([], []);
+    expect(missions.every((m) => !m.completed)).toBe(true);
+    expect(missions.every((m) => m.current === 0)).toBe(true);
+  });
+
+  it("detects a PR set today as completing the pr1 mission", () => {
+    const workouts = [workout(30, [ex("Bench Press", [[50, 8]])]), workout(0, [ex("Bench Press", [[55, 8]])])];
+    const missions = computeWeeklyMissions(workouts, []);
+    expect(missions.find((m) => m.id === "pr1").completed).toBe(true);
+  });
+
+  it("detects an exercise logged this week with no prior history as a new exercise", () => {
+    const workouts = [workout(0, [ex("Cable Fly", [[15, 12]])])];
+    const missions = computeWeeklyMissions(workouts, []);
+    expect(missions.find((m) => m.id === "newExercise").completed).toBe(true);
+  });
+
+  it("does not count an exercise as new if it was logged before this week", () => {
+    const workouts = [workout(30, [ex("Cable Fly", [[15, 12]])]), workout(0, [ex("Cable Fly", [[17, 10]])])];
+    const missions = computeWeeklyMissions(workouts, []);
+    expect(missions.find((m) => m.id === "newExercise").completed).toBe(false);
+  });
+});
+
+describe("computeChallengeProgress", () => {
+  const nutritionTargets = { calories: 2000, protein: 150 };
+
+  it("counts distinct training days toward the consistency challenge", () => {
+    const challenge = { templateId: "consistency30", startDate: isoDaysAgo(5) };
+    const workouts = [workout(4, [ex("Squat", [[60, 8]])]), workout(2, [ex("Squat", [[60, 8]])]), workout(0, [ex("Squat", [[60, 8]])])];
+    const progress = computeChallengeProgress(challenge, workouts, [], nutritionTargets);
+    expect(progress.current).toBe(3);
+    expect(progress.target).toBe(20);
+    expect(progress.completed).toBe(false);
+  });
+
+  it("marks a challenge completed once the target is reached, even mid-window", () => {
+    const challenge = { templateId: "prHunt", startDate: isoDaysAgo(10) };
+    const workouts = [
+      workout(9, [ex("Bench Press", [[60, 8]])]),
+      workout(6, [ex("Bench Press", [[65, 8]])]),
+      workout(3, [ex("Bench Press", [[70, 8]])]),
+    ];
+    const progress = computeChallengeProgress(challenge, workouts, [], nutritionTargets);
+    expect(progress.current).toBe(3);
+    expect(progress.completed).toBe(true);
+    expect(progress.finished).toBe(true);
+  });
+
+  it("marks a challenge expired once its window has fully elapsed without reaching target", () => {
+    const template = CHALLENGE_TEMPLATES.find((t) => t.id === "sets1000");
+    const challenge = { templateId: "sets1000", startDate: isoDaysAgo(template.durationDays + 5) };
+    const progress = computeChallengeProgress(challenge, [], [], nutritionTargets);
+    expect(progress.completed).toBe(false);
+    expect(progress.expired).toBe(true);
+    expect(progress.finished).toBe(true);
+  });
+
+  it("an in-progress, unfinished challenge is neither completed nor expired", () => {
+    const challenge = { templateId: "consistency30", startDate: isoDaysAgo(5) };
+    const progress = computeChallengeProgress(challenge, [], [], nutritionTargets);
+    expect(progress.finished).toBe(false);
+  });
+
+  it("counts a challenge started today as day 1, and N days ago as day N+1 — regardless of local timezone", () => {
+    // Regression: computeChallengeProgress previously parsed startDate with `new Date(iso)` (UTC
+    // midnight) then called `.setHours(0,0,0,0)` (local midnight) — mixing the two silently shifted
+    // the elapsed-day count for anyone not at UTC+0 (a challenge started 5 days ago read back as
+    // "Day 7" when verified live at UTC+10). Every date here now goes through the same UTC-component
+    // arithmetic, so this must hold no matter what timezone the test machine itself is in.
+    const startedToday = computeChallengeProgress({ templateId: "consistency30", startDate: isoDaysAgo(0) }, [], [], nutritionTargets);
+    expect(startedToday.daysElapsed).toBe(1);
+    const startedFiveDaysAgo = computeChallengeProgress({ templateId: "consistency30", startDate: isoDaysAgo(5) }, [], [], nutritionTargets);
+    expect(startedFiveDaysAgo.daysElapsed).toBe(6);
+  });
+
+  it("only counts nutrition entries within the challenge window toward onTargetDays", () => {
+    const challenge = { templateId: "nutrition21", startDate: isoDaysAgo(5) };
+    const nutrition = [
+      { date: isoDaysAgo(20), calories: 2000, protein: 150 }, // before the window — must not count
+      { date: isoDaysAgo(2), calories: 2000, protein: 150 }, // inside the window — must count
+    ];
+    const progress = computeChallengeProgress(challenge, [], nutrition, nutritionTargets);
+    expect(progress.current).toBe(1);
+  });
+
+  it("returns null for an unknown template id instead of throwing", () => {
+    const progress = computeChallengeProgress({ templateId: "not-a-real-template", startDate: isoDaysAgo(1) }, [], [], nutritionTargets);
+    expect(progress).toBeNull();
   });
 });

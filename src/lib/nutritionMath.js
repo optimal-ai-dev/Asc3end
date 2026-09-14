@@ -50,3 +50,17 @@ export function getNutritionTargets(profile) {
   const targets = computeTargets(profile);
   return { ...targets, source: profile?.macroOverride ? "manual" : "calculated" };
 }
+
+// The single classification rule behind every adherence view in the app (Home's weekly strip,
+// the Monthly Report, and the nutrition challenge template) — one place to change the thresholds,
+// one place that can drift. "good" needs calories in a reasonable band AND protein reasonably
+// close to target, since hitting calories by skipping protein isn't really adherence to the plan.
+export function classifyDayAdherence(dayFoods, targets) {
+  if (dayFoods.length === 0) return "none";
+  const totals = dayFoods.reduce((a, f) => ({ calories: a.calories + f.calories, protein: a.protein + f.protein }), { calories: 0, protein: 0 });
+  const calRatio = targets.calories > 0 ? totals.calories / targets.calories : 0;
+  const proteinRatio = targets.protein > 0 ? totals.protein / targets.protein : 0;
+  if (calRatio >= 0.85 && calRatio <= 1.15 && proteinRatio >= 0.8) return "good";
+  if (calRatio >= 0.7 && calRatio <= 1.3) return "partial";
+  return "off";
+}

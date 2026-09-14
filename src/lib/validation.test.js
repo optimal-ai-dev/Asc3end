@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, sanitizeList,
-  validateMacroOverride, isValidChatMessage,
+  validateMacroOverride, isValidChatMessage, isValidChallenge,
 } from "./validation";
 
 describe("sanitizeList — malformed stored data cannot crash the app", () => {
@@ -58,6 +58,13 @@ describe("individual shape validators", () => {
   it("isValidFavorite requires a name and a finite calories number", () => {
     expect(isValidFavorite({ name: "Protein Shake", calories: 130 })).toBe(true);
     expect(isValidFavorite({ calories: 130 })).toBe(false);
+  });
+
+  it("isValidChallenge requires an id, templateId, and startDate", () => {
+    expect(isValidChallenge({ id: "c1", templateId: "consistency30", startDate: "2026-09-01" })).toBe(true);
+    expect(isValidChallenge({ id: "c1", startDate: "2026-09-01" })).toBe(false);
+    expect(isValidChallenge({ id: "", templateId: "consistency30", startDate: "2026-09-01" })).toBe(false);
+    expect(isValidChallenge(null)).toBe(false);
   });
 });
 

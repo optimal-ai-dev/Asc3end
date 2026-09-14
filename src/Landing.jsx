@@ -1,8 +1,273 @@
-import React, { useState } from "react";
-import { Dumbbell, MessageCircle, UtensilsCrossed, TrendingUp, Camera, Check, ChevronDown, ChevronUp, Sparkles } from "lucide-react";
+import React, { useState, useRef, useId } from "react";
+import { Dumbbell, MessageCircle, UtensilsCrossed, TrendingUp, Camera, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Sparkles, Flame, Trophy, Send } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
 import { FREE_MONTHLY_LIMIT } from "./lib/entitlements";
+
+// Deliberately NOT imported from App.jsx: that file (and everything it pulls in — Supabase
+// client init, the full exercise library, Stripe-adjacent billing code) would otherwise get
+// bundled into the public, unauthenticated Landing page's initial load. A visitor deciding
+// whether to sign up shouldn't have to download the entire authenticated app first — Landing.jsx
+// stays a small, independently-loadable bundle, even at the cost of a little duplicated (trivial,
+// static, decorative-only) mockup data below rather than real shared logic.
+
+/* Six illustrative previews for the "See Asc3end in action" carousel — built from the app's own
+   design tokens/components (atlas-card, .pill, .bar-track, the disp/mono type scale), not
+   screenshots. Numbers are realistic but explicitly fictional demonstration data, never pulled
+   from a real account. */
+const PREVIEW_MUSCLE_DOTS = { shoulders: [50, 20], chest: [50, 38], arms: [80, 40], back: [20, 40], core: [50, 56], legs: [50, 82] };
+const PREVIEW_RECOVERY = { chest: "ready", back: "partial", shoulders: "rest", arms: "ready", legs: "partial", core: "ready" };
+const RECOVERY_DOT_COLOR = { ready: "var(--good)", partial: "var(--warn)", rest: "var(--rest)" };
+
+function PreviewPhoneFrame({ children, label }) {
+  return (
+    <div
+      style={{
+        background: "var(--bg-elev)", border: "1px solid var(--line)", borderRadius: 22,
+        padding: 16, height: 340, display: "flex", flexDirection: "column",
+        boxShadow: "var(--shadow-elevated)",
+      }}
+      aria-label={label}
+    >
+      {children}
+    </div>
+  );
+}
+
+function PreviewHome() {
+  return (
+    <PreviewPhoneFrame label="Home dashboard preview">
+      <div className="mono" style={{ fontSize: 9, color: "var(--brass)", letterSpacing: 1, marginBottom: 2 }}>SATURDAY</div>
+      <div className="disp" style={{ fontSize: 16, marginBottom: 10 }}>Welcome back, Alex</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <div style={{ background: "var(--bg-elev2)", borderRadius: "var(--radius-sm)", padding: 10 }}>
+          <div className="mono" style={{ fontSize: 8, color: "var(--ink-dim)" }}>STREAK</div>
+          <div className="disp" style={{ fontSize: 15, display: "flex", alignItems: "center", gap: 4 }}><Flame size={12} color="var(--warn)" />12 days</div>
+        </div>
+        <div style={{ background: "var(--bg-elev2)", borderRadius: "var(--radius-sm)", padding: 10 }}>
+          <div className="mono" style={{ fontSize: 8, color: "var(--ink-dim)" }}>NEXT LIFT</div>
+          <div className="disp" style={{ fontSize: 15 }}>82.5kg × 6</div>
+        </div>
+      </div>
+      <div style={{ background: "var(--bg-elev2)", borderRadius: "var(--radius-sm)", padding: 10, marginBottom: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 4 }}>
+          <span className="mono" style={{ color: "var(--ink-dim)" }}>CALORIES</span>
+          <span className="mono">1,840 / 2,880</span>
+        </div>
+        <div className="bar-track"><div className="bar-fill" style={{ width: "64%", background: "var(--brass)" }} /></div>
+      </div>
+      <div style={{ flex: 1, background: "var(--bg-elev2)", borderRadius: "var(--radius-sm)", padding: 10 }}>
+        <div className="mono" style={{ fontSize: 8, color: "var(--ink-dim)", marginBottom: 4 }}>TODAY'S WORKOUT</div>
+        <div className="disp" style={{ fontSize: 12 }}>Day 2: Pull</div>
+      </div>
+    </PreviewPhoneFrame>
+  );
+}
+
+function PreviewWorkout() {
+  return (
+    <PreviewPhoneFrame label="Today's workout preview">
+      <div className="disp" style={{ fontSize: 14, marginBottom: 2 }}>Day 2: Pull</div>
+      <div className="mono" style={{ fontSize: 9, color: "var(--steel)", marginBottom: 10 }}>⏱ 18:42 elapsed</div>
+      {[
+        { name: "Deadlift (Barbell)", sets: "3 × 72.5kg × 6", done: true },
+        { name: "Lat Pulldown", sets: "3 × 37.5kg × 11", done: true },
+        { name: "Barbell Row", sets: "set 2 of 3", done: false },
+      ].map((ex) => (
+        <div key={ex.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+          <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${ex.done ? "var(--brass)" : "var(--line)"}`, background: ex.done ? "var(--brass)" : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {ex.done && <Check size={11} color="#072016" />}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ex.name}</div>
+            <div className="mono" style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>{ex.sets}</div>
+          </div>
+        </div>
+      ))}
+      <div style={{ marginTop: "auto", background: "var(--brass-soft)", border: "1px solid var(--brass)", borderRadius: "var(--radius-sm)", padding: 8, textAlign: "center" }}>
+        <span className="mono" style={{ fontSize: 10, color: "var(--brass)" }}>Rest 1:24</span>
+      </div>
+    </PreviewPhoneFrame>
+  );
+}
+
+function PreviewProgression() {
+  return (
+    <PreviewPhoneFrame label="AI progression recommendation preview">
+      <div className="disp" style={{ fontSize: 13, marginBottom: 10 }}>Bench Press — Next Target</div>
+      <div style={{ background: "var(--bg-elev2)", borderRadius: "var(--radius-sm)", padding: 12, marginBottom: 8 }}>
+        <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginBottom: 2 }}>LAST SESSION</div>
+        <div className="disp" style={{ fontSize: 16 }}>80kg × 8</div>
+        <div className="mono" style={{ fontSize: 9.5, color: "var(--good)", marginTop: 2 }}>✓ Rep target hit</div>
+      </div>
+      <div style={{ textAlign: "center", color: "var(--ink-dim)", fontSize: 11, marginBottom: 8 }}>↓ Asc3end analysis</div>
+      <div style={{ background: "var(--brass-soft)", border: "1px solid var(--brass)", borderRadius: "var(--radius-sm)", padding: 12 }}>
+        <div className="mono" style={{ fontSize: 9, color: "var(--brass)", marginBottom: 2 }}>NEXT SESSION</div>
+        <div className="disp" style={{ fontSize: 18, color: "var(--brass)" }}>82.5kg × 6-8</div>
+      </div>
+      <div style={{ marginTop: "auto", fontSize: 10.5, color: "var(--ink-dim)", lineHeight: 1.5 }}>
+        Every rep hit at the top of your range — time to add weight.
+      </div>
+    </PreviewPhoneFrame>
+  );
+}
+
+function PreviewRecovery() {
+  return (
+    <PreviewPhoneFrame label="Muscle recovery map preview">
+      <div className="disp" style={{ fontSize: 13, marginBottom: 10 }}>Muscle Recovery</div>
+      <svg viewBox="0 0 100 100" style={{ width: "100%", maxWidth: 150, margin: "0 auto", flex: 1 }}>
+        <ellipse cx="50" cy="10" rx="7" ry="7" fill="var(--bg-elev2)" stroke="var(--ink-dim)" strokeWidth="1" />
+        <rect x="42" y="18" width="16" height="66" rx="8" fill="var(--bg-elev2)" stroke="var(--ink-dim)" strokeWidth="1" />
+        {Object.entries(PREVIEW_MUSCLE_DOTS).map(([m, [x, y]]) => (
+          <circle key={m} cx={x} cy={y} r="7" fill={RECOVERY_DOT_COLOR[PREVIEW_RECOVERY[m]]} opacity="0.9" />
+        ))}
+      </svg>
+      <div style={{ display: "flex", gap: 10, justifyContent: "center", fontSize: 9 }} className="mono">
+        <span style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--ink-dim)" }}><span style={{ width: 7, height: 7, borderRadius: 4, background: "var(--good)", display: "inline-block" }} />Ready</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--ink-dim)" }}><span style={{ width: 7, height: 7, borderRadius: 4, background: "var(--warn)", display: "inline-block" }} />Partial</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--ink-dim)" }}><span style={{ width: 7, height: 7, borderRadius: 4, background: "var(--rest)", display: "inline-block" }} />Resting</span>
+      </div>
+    </PreviewPhoneFrame>
+  );
+}
+
+function PreviewNutrition() {
+  return (
+    <PreviewPhoneFrame label="Nutrition tracking and food scanner preview">
+      <div className="disp" style={{ fontSize: 13, marginBottom: 10 }}>Today's Fuel</div>
+      {[
+        { label: "CALORIES", val: 1840, target: 2880, color: "var(--brass)" },
+        { label: "PROTEIN", val: 128, target: 180, color: "var(--steel)" },
+        { label: "CARBS", val: 190, target: 320, color: "var(--good)" },
+        { label: "FAT", val: 48, target: 75, color: "var(--warn)" },
+      ].map((m) => (
+        <div key={m.label} style={{ marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5 }}>
+            <span className="mono" style={{ color: "var(--ink-dim)" }}>{m.label}</span>
+            <span className="mono">{m.val} / {m.target}</span>
+          </div>
+          <div className="bar-track"><div className="bar-fill" style={{ width: `${Math.min(100, (m.val / m.target) * 100)}%`, background: m.color }} /></div>
+        </div>
+      ))}
+      <div style={{ marginTop: "auto", background: "var(--brass)", borderRadius: "var(--radius-sm)", padding: 9, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <Camera size={13} color="#072016" />
+        <span className="disp" style={{ fontSize: 11, color: "#072016" }}>Scan Food</span>
+      </div>
+    </PreviewPhoneFrame>
+  );
+}
+
+function PreviewCoach() {
+  return (
+    <PreviewPhoneFrame label="Strength progress and AI Coach preview">
+      <div className="disp" style={{ fontSize: 13, marginBottom: 8 }}>Squat — 3 Months</div>
+      <svg viewBox="0 0 100 30" style={{ width: "100%", height: 40, marginBottom: 10 }} preserveAspectRatio="none">
+        <polyline points="0,26 20,22 40,20 60,14 80,10 100,4" fill="none" stroke="var(--brass)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <div className="chat-bubble-ai" style={{ fontSize: 10.5, lineHeight: 1.4, padding: "8px 10px", maxWidth: "100%" }}>
+        Your squat is up 12.5kg over 3 months and every session hit target reps — that's real, steady progress, not just noise.
+      </div>
+      <div style={{ marginTop: "auto", display: "flex", gap: 6, alignItems: "center", background: "var(--bg-elev2)", borderRadius: "var(--radius-sm)", padding: "8px 10px" }}>
+        <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", flex: 1 }}>Ask your coach…</span>
+        <Send size={13} color="var(--brass)" />
+      </div>
+    </PreviewPhoneFrame>
+  );
+}
+
+const PREVIEW_SLIDES = [
+  { id: "home", title: "Home dashboard", caption: "Everything that matters, in one place.", render: PreviewHome },
+  { id: "workout", title: "Today's workout", caption: "Track your workout without slowing it down.", render: PreviewWorkout },
+  { id: "progression", title: "AI progression recommendation", caption: "Know exactly what weight to use next.", render: PreviewProgression },
+  { id: "recovery", title: "Muscle recovery map", caption: "See which muscles are ready to train.", render: PreviewRecovery },
+  { id: "nutrition", title: "Nutrition tracking", caption: "Log food in seconds.", render: PreviewNutrition },
+  { id: "coach", title: "Strength progress and AI Coach", caption: "Understand whether you are actually progressing.", render: PreviewCoach },
+];
+
+/* Swipeable, keyboard-accessible preview carousel. No autoplay (and therefore nothing that needs
+   pausing off-screen — there's no running animation to begin with, only user-triggered
+   transitions). Reduced motion is handled by the existing global
+   `@media (prefers-reduced-motion: reduce)` rule in GlobalStyle, which already zeroes out every
+   transition/animation app-wide, this one included, so no separate handling was needed here.
+   Slides are lightweight styled markup (no images), so there's no real asset weight to lazy-load —
+   noted honestly rather than adding a defer mechanism that would guard against a cost that isn't
+   actually being paid. */
+function PreviewCarousel() {
+  const [index, setIndex] = useState(0);
+  const touchStartX = useRef(null);
+  const headingId = useId();
+  const count = PREVIEW_SLIDES.length;
+  const go = (i) => setIndex(((i % count) + count) % count);
+
+  const onKeyDown = (e) => {
+    if (e.key === "ArrowRight") { go(index + 1); e.preventDefault(); }
+    if (e.key === "ArrowLeft") { go(index - 1); e.preventDefault(); }
+  };
+  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const onTouchEnd = (e) => {
+    if (touchStartX.current == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(dx) > 40) go(index + (dx < 0 ? 1 : -1));
+    touchStartX.current = null;
+  };
+
+  const Slide = PREVIEW_SLIDES[index].render;
+
+  return (
+    <div role="region" aria-roledescription="carousel" aria-label="See Asc3end in action" tabIndex={0} onKeyDown={onKeyDown} style={{ outline: "none" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+        <button
+          onClick={() => go(index - 1)}
+          aria-label="Previous preview"
+          className="atlas-btn-ghost"
+          style={{ padding: 0, width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+        >
+          <ChevronLeft size={18} />
+        </button>
+
+        <div
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+          style={{ flex: 1, maxWidth: 300 }}
+          aria-live="polite"
+        >
+          <Slide />
+        </div>
+
+        <button
+          onClick={() => go(index + 1)}
+          aria-label="Next preview"
+          className="atlas-btn-ghost"
+          style={{ padding: 0, width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+
+      <div id={headingId} className="disp" style={{ fontSize: 14, textAlign: "center", marginTop: 16 }}>{PREVIEW_SLIDES[index].title}</div>
+      <div style={{ textAlign: "center", color: "var(--ink-dim)", fontSize: 12.5, marginTop: 4, padding: "0 20px" }}>{PREVIEW_SLIDES[index].caption}</div>
+
+      <div role="tablist" aria-label="Choose a preview" style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
+        {PREVIEW_SLIDES.map((s, i) => (
+          <button
+            key={s.id}
+            role="tab"
+            aria-selected={i === index}
+            aria-label={`Show ${s.title} preview`}
+            onClick={() => go(i)}
+            style={{
+              width: 44, height: 44, background: "none", border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <span style={{ width: i === index ? 18 : 7, height: 7, borderRadius: 4, background: i === index ? "var(--brass)" : "var(--line)", display: "block", transition: "width 0.15s ease" }} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // The public marketing page shown to anyone who isn't signed in yet — App.jsx renders this
 // instead of AuthScreen until the visitor picks "Log In" or "Start Free", at which point
@@ -70,23 +335,31 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
         </div>
       </Section>
 
-      {/* Demo / preview */}
+      {/* Demo / preview carousel */}
       <Section style={{ paddingTop: 0 }}>
-        <div className="atlas-card" style={{ padding: 24, textAlign: "center" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 4 }}>
-            {[
-              { label: "TODAY'S FUEL", value: "1,840 / 2,880 kcal" },
-              { label: "STREAK", value: "12 days" },
-              { label: "NEXT TARGET", value: "Bench 82.5kg × 5" },
-            ].map((s) => (
-              <div key={s.label} style={{ padding: "14px 8px", background: "var(--bg-elev2)", borderRadius: 10 }}>
-                <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginBottom: 6 }}>{s.label}</div>
-                <div className="disp" style={{ fontSize: 13 }}>{s.value}</div>
-              </div>
-            ))}
+        <div className="disp" style={{ fontSize: 18, textAlign: "center", marginBottom: 20 }}>See Asc3end in action</div>
+        <PreviewCarousel />
+      </Section>
+
+      {/* Adaptive progression demo */}
+      <Section>
+        <div className="atlas-card" style={{ padding: 22 }}>
+          <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Your coach adjusts every session</div>
+          <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.5, marginBottom: 16 }}>
+            Hit your rep target and Asc3end recommends the next step up. Miss it and it holds or backs
+            off — no spreadsheet math, no guessing.
           </div>
-          <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginTop: 12 }}>
-            A real snapshot of the Home dashboard — your streak, macros, and next lift target in one place.
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 140px", background: "var(--bg-elev2)", borderRadius: "var(--radius-sm)", padding: "12px 14px" }}>
+              <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginBottom: 2 }}>LAST SESSION</div>
+              <div className="disp" style={{ fontSize: 16 }}>80kg × 8</div>
+              <div className="mono" style={{ fontSize: 10, color: "var(--good)", marginTop: 2 }}>✓ target hit</div>
+            </div>
+            <div style={{ color: "var(--ink-dim)", fontSize: 16, flexShrink: 0 }} aria-hidden="true">→</div>
+            <div style={{ flex: "1 1 140px", background: "var(--brass-soft)", border: "1px solid var(--brass)", borderRadius: "var(--radius-sm)", padding: "12px 14px" }}>
+              <div className="mono" style={{ fontSize: 9, color: "var(--brass)", marginBottom: 2 }}>NEXT SESSION</div>
+              <div className="disp" style={{ fontSize: 16, color: "var(--brass)" }}>82.5kg × 6-8</div>
+            </div>
           </div>
         </div>
       </Section>
@@ -131,6 +404,39 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
               <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.5 }}>{f.body}</div>
             </div>
           ))}
+        </div>
+      </Section>
+
+      {/* Differentiation */}
+      <Section>
+        <div className="disp" style={{ fontSize: 22, textAlign: "center", marginBottom: 28 }}>Not just another tracker</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
+          <div className="atlas-card" style={{ padding: 20 }}>
+            <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 12 }}>ORDINARY TRACKER</div>
+            {[
+              "You log a number. It gets stored.",
+              "You decide what weight to lift next.",
+              "Meals are a static database lookup.",
+              "Progress is a chart you interpret yourself.",
+            ].map((line) => (
+              <div key={line} style={{ display: "flex", gap: 8, fontSize: 12.5, color: "var(--ink-dim)", lineHeight: 1.6, marginBottom: 8 }}>
+                <span aria-hidden="true">–</span><span>{line}</span>
+              </div>
+            ))}
+          </div>
+          <div className="atlas-card" style={{ padding: 20, border: "1px solid var(--brass)", background: "var(--brass-soft)" }}>
+            <div className="mono" style={{ fontSize: 10, color: "var(--brass)", marginBottom: 12 }}>ASC3END</div>
+            {[
+              "You log a number. Asc3end tells you what it means.",
+              "Your coach recommends the next weight from your actual history.",
+              "Meals Near You is ranked by your goals, not just distance.",
+              "Progress comes with a plain-language read on whether it's real.",
+            ].map((line) => (
+              <div key={line} style={{ display: "flex", gap: 8, fontSize: 12.5, color: "var(--ink)", lineHeight: 1.6, marginBottom: 8 }}>
+                <Check size={14} color="var(--brass)" style={{ flexShrink: 0, marginTop: 1 }} /><span>{line}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </Section>
 

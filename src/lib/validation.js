@@ -28,6 +28,10 @@ export function isValidFavorite(f) {
   return !!f && typeof f === "object" && isNonEmptyString(f.name) && isFiniteNumber(f.calories);
 }
 
+export function isValidChallenge(c) {
+  return !!c && typeof c === "object" && isNonEmptyString(c.id) && isNonEmptyString(c.templateId) && isNonEmptyString(c.startDate);
+}
+
 export function isValidChatMessage(m) {
   return !!m && typeof m === "object" && (m.role === "user" || m.role === "assistant") && typeof m.content === "string";
 }

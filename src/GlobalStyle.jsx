@@ -23,6 +23,19 @@ export default function GlobalStyle() {
         --good: #3ECF8E;
         --warn: #FFA53D;
         --rest: #FF6B81;
+
+        /* Formalized design tokens (Launch visual upgrade, Phase 1) — the palette above was
+           already correct and well-used; these are the values that WERE being repeated inline
+           and inconsistently (8px here, 10px there, 12px somewhere else for what was meant to be
+           the same "card corner" concept) rather than genuinely new colors. Existing call sites
+           are left alone — retrofitting every inline style in a 4000-line file for a token that
+           produces the identical rendered pixel value is exactly the "uncontrolled redesign" this
+           work is scoped to avoid. New components (recovery map, carousel, charts) use these. */
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 20px;
+        --shadow-card: 0 1px 0 rgba(255,255,255,0.03) inset, 0 12px 28px -18px rgba(0,0,0,0.55);
+        --shadow-elevated: 0 1px 0 rgba(255,255,255,0.04) inset, 0 20px 40px -20px rgba(0,0,0,0.7);
       }
       html, body, #root { height: 100%; }
       body { background: var(--bg); }
@@ -175,6 +188,28 @@ export default function GlobalStyle() {
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+      /* Reusable loading-skeleton pattern (Launch visual upgrade) — previously every loading
+         state was either a spinner or, in a few spots, nothing at all. A shimmering placeholder
+         that roughly matches the shape of the real content is calmer for a data-heavy screen
+         (Progress, the monthly report) than a spinner blocking the whole card. Static (no
+         shimmer motion) under reduced-motion, per the animation keyframe below being covered by
+         the existing reduced-motion media query at the bottom of this file. */
+      @keyframes skeleton-shimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
+      .skeleton {
+        background: linear-gradient(90deg, var(--bg-elev2) 25%, var(--line) 37%, var(--bg-elev2) 63%);
+        background-size: 400px 100%;
+        animation: skeleton-shimmer 1.6s ease-in-out infinite;
+        border-radius: var(--radius-sm);
+      }
+
+      /* Reusable empty-state pattern — a consistent look for "nothing here yet" across Progress
+         charts, challenges, and the monthly report, instead of each screen inventing its own. */
+      .empty-state { text-align: center; padding: 32px 20px; color: var(--ink-dim); }
+      .empty-state-icon { margin-bottom: 10px; opacity: 0.6; }
+      .empty-state-title { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; font-size: 14px; color: var(--ink); margin-bottom: 6px; }
+      .empty-state-body { font-size: 12.5px; line-height: 1.6; max-width: 320px; margin: 0 auto; }
+
       @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
       /* Responsive: this app is designed as a single mobile-width column (bottom tab bar and

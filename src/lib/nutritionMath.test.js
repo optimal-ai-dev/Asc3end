@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeTargets, getNutritionTargets } from "./nutritionMath";
+import { computeTargets, getNutritionTargets, classifyDayAdherence } from "./nutritionMath";
 
 describe("computeTargets — nutrition recommendations never contain NaN", () => {
   it("computes sane targets for a well-formed profile", () => {
@@ -103,5 +103,37 @@ describe("getNutritionTargets — the one source of truth every screen reads", (
     const after = getNutritionTargets({ ...baseProfile, weightKg: 95 });
     expect(after.calories).toBeGreaterThan(before.calories);
     expect(after.protein).toBeGreaterThan(before.protein);
+  });
+});
+
+// classifyDayAdherence is the single rule behind Home's weekly adherence strip, the Monthly
+// Report, and the nutrition challenge template — these tests live here (its actual home) rather
+// than being duplicated per-consumer.
+describe("classifyDayAdherence", () => {
+  const targets = { calories: 2000, protein: 150 };
+
+  it("returns 'none' for a day with nothing logged", () => {
+    expect(classifyDayAdherence([], targets)).toBe("none");
+  });
+
+  it("returns 'good' when calories are in-band and protein meets the floor", () => {
+    expect(classifyDayAdherence([{ calories: 2000, protein: 150 }], targets)).toBe("good");
+  });
+
+  it("does not count hitting calories on low protein as 'good'", () => {
+    expect(classifyDayAdherence([{ calories: 2000, protein: 40 }], targets)).not.toBe("good");
+  });
+
+  it("returns 'partial' for a moderate overshoot", () => {
+    expect(classifyDayAdherence([{ calories: 2500, protein: 150 }], targets)).toBe("partial");
+  });
+
+  it("returns 'off' for a wild overshoot", () => {
+    expect(classifyDayAdherence([{ calories: 4000, protein: 150 }], targets)).toBe("off");
+  });
+
+  it("sums multiple entries before judging adherence", () => {
+    const foods = [{ calories: 1000, protein: 75 }, { calories: 1000, protein: 75 }];
+    expect(classifyDayAdherence(foods, targets)).toBe("good");
   });
 });

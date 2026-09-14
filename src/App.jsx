@@ -6,7 +6,8 @@ import {
   Dumbbell, UtensilsCrossed, LayoutDashboard, MessageCircle, TrendingUp,
   Plus, Trash2, Send, Sparkles, Flame, Target, ChevronRight, Check,
   X, Scale, Loader2, Trophy, Search, MapPin, Navigation, Camera, RefreshCw, Bell,
-  UserCircle, Pencil, Copy, ArrowUp, ArrowDown, AlertTriangle, Star, ChevronDown, ChevronUp
+  UserCircle, Pencil, Copy, ArrowUp, ArrowDown, AlertTriangle, Star, ChevronDown, ChevronUp,
+  Share2, Download, Clock
 } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
 import AuthScreen from "./AuthScreen";
@@ -17,15 +18,15 @@ import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
 import { captureMessage } from "./lib/errorMonitoring";
 import { loadKey, saveKey } from "./lib/storage";
-import { suggestNextTarget, evaluatePR, computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown } from "./lib/workoutMath";
-import { getNutritionTargets } from "./lib/nutritionMath";
+import { suggestNextTarget, evaluatePR, computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown, CHALLENGE_TEMPLATES, computeChallengeProgress, computeWeeklyMissions } from "./lib/workoutMath";
+import { getNutritionTargets, classifyDayAdherence } from "./lib/nutritionMath";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION, SUPPORT_EMAIL } from "./lib/legal";
 import { MIN_PASSWORD_LENGTH, isValidPassword } from "./lib/passwordPolicy";
 import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./lib/subscription";
 import { FEATURES, FREE_MONTHLY_LIMIT, remainingMonthlyUses } from "./lib/entitlements";
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
 import { isStaleSession, isValidSession } from "./lib/session";
-import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, isValidChatMessage, sanitizeList } from "./lib/validation";
+import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, isValidChatMessage, isValidChallenge, sanitizeList } from "./lib/validation";
 import { parseAppPath, buildAppPath } from "./lib/routing";
 import { FEEDBACK_TYPES, MAX_MESSAGE_LENGTH, submitFeedback } from "./lib/feedback";
 
@@ -46,6 +47,7 @@ const KEYS = {
   customExercises: "atlas:customExercises",
   favorites: "atlas:favorites",
   coachMessages: "atlas:coachMessages",
+  challenges: "atlas:challenges",
 };
 
 /* Each exercise references a movement-pattern "pose" — this drives both the form-cue text (POSE_TIPS)
@@ -322,7 +324,7 @@ export const POSE_TIPS = {
   carry: ["Brace core and stand tall, avoid leaning to one side", "Keep shoulders back, don't let the weight round you forward", "Take controlled steps rather than rushing"],
 };
 
-const MUSCLE_GROUPS = ["chest", "back", "shoulders", "arms", "legs", "core"];
+export const MUSCLE_GROUPS = ["chest", "back", "shoulders", "arms", "legs", "core"];
 const EQUIPMENT_TYPES = ["Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight", "Strongman"];
 const MUSCLE_POSITIONS = { shoulders: [50, 22], chest: [50, 40], arms: [78, 42], back: [22, 42], core: [50, 58], legs: [50, 82] };
 const EQUIPMENT_COLORS = { Barbell: "var(--brass)", Dumbbell: "var(--steel)", Machine: "var(--warn)", Cable: "var(--good)", Bodyweight: "var(--ink-dim)", Strongman: "var(--rest)" };
@@ -460,7 +462,7 @@ function lookupExercise(name) {
   return fuzzy || null;
 }
 
-function muscleRecovery(workouts, customExercises = []) {
+export function muscleRecovery(workouts, customExercises = []) {
   const now = Date.now();
   const status = {};
   MUSCLE_GROUPS.forEach((m) => (status[m] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
@@ -851,35 +853,93 @@ function StreakRing({ streak, size = 92 }) {
   );
 }
 
-function RecoveryMap({ status, selected, onTapMuscle }) {
-  const colors = { ready: "var(--good)", partial: "var(--warn)", rest: "var(--rest)" };
+/* 15 named muscle regions, each mapped onto one of the app's existing 6 MUSCLE_GROUPS — a
+   display-layer breakdown, not a second recovery calculation. Every region's dot color comes
+   straight from muscleRecovery()'s already-computed status for its parent group, so "Biceps" and
+   "Triceps" (both -> arms) always agree with each other and with the group-level map. `view`
+   is "front", "back", or "both" (shown on either view — reusing the same skeleton coordinates,
+   since front/back are never rendered simultaneously so there's no collision). */
+export const MUSCLE_MAP_15 = [
+  { key: "frontDelts", label: "Front Delts", group: "shoulders", view: "front", points: [[30, 32], [70, 32]] },
+  { key: "rearDelts", label: "Rear Delts", group: "shoulders", view: "back", points: [[30, 32], [70, 32]] },
+  { key: "chest", label: "Chest", group: "chest", view: "front", points: [[41, 42], [59, 42]] },
+  { key: "traps", label: "Traps", group: "back", view: "back", points: [[50, 26]] },
+  { key: "upperBack", label: "Upper Back", group: "back", view: "back", points: [[41, 42], [59, 42]] },
+  { key: "lats", label: "Lats", group: "back", view: "back", points: [[34, 56], [66, 56]] },
+  { key: "biceps", label: "Biceps", group: "arms", view: "front", points: [[23, 48], [77, 48]] },
+  { key: "triceps", label: "Triceps", group: "arms", view: "back", points: [[23, 48], [77, 48]] },
+  { key: "forearms", label: "Forearms", group: "arms", view: "both", points: [[19, 68], [81, 68]] },
+  { key: "abs", label: "Abs", group: "core", view: "front", points: [[50, 50]] },
+  { key: "lowerBack", label: "Lower Back", group: "core", view: "back", points: [[50, 60]] },
+  { key: "glutes", label: "Glutes", group: "legs", view: "back", points: [[44, 72], [56, 72]] },
+  { key: "quads", label: "Quads", group: "legs", view: "front", points: [[40, 98], [60, 98]] },
+  { key: "hamstrings", label: "Hamstrings", group: "legs", view: "back", points: [[40, 98], [60, 98]] },
+  { key: "calves", label: "Calves", group: "legs", view: "both", points: [[38, 128], [62, 128]] },
+];
+
+function limbLine(points, width) {
   return (
-    <svg viewBox="0 0 100 100" style={{ width: "100%", maxWidth: 200, display: "block", margin: "0 auto" }}>
-      <ellipse cx="50" cy="10" rx="7" ry="7" fill="var(--bg-elev2)" stroke="var(--line)" />
-      <rect x="42" y="18" width="16" height="66" rx="8" fill="var(--bg-elev2)" stroke="var(--line)" />
-      {MUSCLE_GROUPS.map((m) => {
-        const [x, y] = MUSCLE_POSITIONS[m];
-        const lvl = status[m]?.level || "ready";
-        // The spine muscles (shoulders/chest/core/legs) sit only ~18 units apart on a shared
-        // vertical line, with back/arms flanking at nearly the same height as chest — there is
-        // no side a spine label can go (above, below, left, right) that doesn't overlap a
-        // neighboring circle at this viewBox scale. Rather than cram unreadable overlapping
-        // text, only back/arms (which have clear space) get a permanent inline label; a spine
-        // circle's name already appears in the detail panel below once tapped, so nothing here
-        // is unlabeled-and-undiscoverable, just not simultaneously labeled at a glance.
-        const isSpine = x === 50;
+    <>
+      <polyline points={points} fill="none" stroke="var(--ink-dim)" strokeWidth={width + 1.5} strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={points} fill="none" stroke="var(--bg-elev2)" strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  );
+}
+
+const RECOVERY_LEVEL_LABEL = { ready: "Ready", partial: "Partially recovered", rest: "Resting" };
+
+export function MuscleMap15({ status, view, selected, onSelect, maxWidth = 220 }) {
+  const colors = { ready: "var(--good)", partial: "var(--warn)", rest: "var(--rest)" };
+  const regions = MUSCLE_MAP_15.filter((m) => m.view === view || m.view === "both");
+  return (
+    // role="group" (not "img") so the interactive <g> regions below stay in the accessibility
+    // tree as individually reachable, labeled buttons instead of collapsing into one flat image.
+    <svg viewBox="0 0 100 165" style={{ width: "100%", maxWidth, display: "block", margin: "0 auto" }} role="group" aria-label={`${view === "front" ? "Front" : "Back"} muscle recovery map`}>
+      <ellipse cx="50" cy="14" rx="9" ry="9" fill="var(--bg-elev2)" stroke="var(--ink-dim)" strokeWidth="1" />
+      <line x1="50" y1="23" x2="50" y2="28" stroke="var(--ink-dim)" strokeWidth="1" />
+      <path d="M 34 28 L 66 28 L 58 66 L 42 66 Z" fill="var(--bg-elev2)" stroke="var(--ink-dim)" strokeWidth="1" />
+      {limbLine("30,30 22,54 18,78", 7)}
+      {limbLine("70,30 78,54 82,78", 7)}
+      {limbLine("42,68 40,106 38,146", 8)}
+      {limbLine("58,68 60,106 62,146", 8)}
+      {regions.map((m) => {
+        const lvl = status[m.group]?.level || "ready";
+        const isSel = selected === m.key;
         return (
-          <g key={m} onClick={() => onTapMuscle?.(m)} style={{ cursor: onTapMuscle ? "pointer" : "default" }}>
-            <circle cx={x} cy={y} r={selected === m ? 9 : 7} fill={colors[lvl]} opacity="0.9" stroke={selected === m ? "var(--ink)" : "none"} strokeWidth="1" />
-            {!isSpine && (
-              <text x={x} y={y + 15} textAnchor="middle" fontSize="5" fill={selected === m ? "var(--ink)" : "var(--ink-dim)"} fontFamily="Oswald">
-                {m.toUpperCase()}
-              </text>
-            )}
+          <g
+            key={m.key}
+            onClick={() => onSelect?.(m.key)}
+            onKeyDown={(e) => { if (onSelect && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onSelect(m.key); } }}
+            role={onSelect ? "button" : undefined}
+            tabIndex={onSelect ? 0 : undefined}
+            aria-pressed={onSelect ? isSel : undefined}
+            aria-label={`${m.label}: ${RECOVERY_LEVEL_LABEL[lvl]}`}
+            style={{ cursor: onSelect ? "pointer" : "default", outline: "none" }}
+          >
+            {m.points.map(([x, y], i) => (
+              <circle key={i} cx={x} cy={y} r={isSel ? 6.5 : 5} fill={colors[lvl]} opacity="0.9" stroke={isSel ? "var(--ink)" : "none"} strokeWidth="1" />
+            ))}
           </g>
         );
       })}
     </svg>
+  );
+}
+
+/* Plain-text equivalent of the map above, for anyone who can't tap/see the SVG dots — every
+   region, grouped by current recovery status, using the same status object. */
+export function MuscleMap15TextAlternative({ status, view }) {
+  const regions = MUSCLE_MAP_15.filter((m) => m.view === view || m.view === "both");
+  const byLevel = { ready: [], partial: [], rest: [] };
+  regions.forEach((m) => byLevel[status[m.group]?.level || "ready"].push(m.label));
+  return (
+    <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+      {["ready", "partial", "rest"].map((lvl) => byLevel[lvl].length > 0 && (
+        <li key={lvl} style={{ fontSize: 11.5, color: "var(--ink-dim)", marginBottom: 3 }}>
+          <span style={{ color: "var(--ink)" }}>{RECOVERY_LEVEL_LABEL[lvl]}:</span> {byLevel[lvl].join(", ")}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -1349,7 +1409,7 @@ function playRestDoneSound() {
   } catch (e) { /* audio unavailable, fail silently */ }
 }
 
-function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, subscriptionState, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile }) {
+function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, subscriptionState, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile, onOpenChallenges }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
   const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
   const [selectedMuscle, setSelectedMuscle] = useState(null);
@@ -1464,6 +1524,13 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
         </div>
       )}
 
+      {activePlan && (
+        <div className="atlas-card">
+          <h2 className="disp" style={{ fontSize: 15, marginBottom: 8 }}>Program Roadmap</h2>
+          <ProgramRoadmap days={activePlan.days} currentDayIndex={activePlan.currentDayIndex} />
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 10 }}>
         <div className="atlas-card" style={{ flex: 1, textAlign: "center" }}>
           <Target size={18} color="var(--steel)" />
@@ -1477,27 +1544,34 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       </div>
 
       <div className="atlas-card">
-        <h2 className="disp" style={{ fontSize: 15, marginBottom: 6 }}>Muscle Recovery</h2>
-        <RecoveryMap status={status} selected={selectedMuscle} onTapMuscle={(m) => setSelectedMuscle(selectedMuscle === m ? null : m)} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <h2 className="disp" style={{ fontSize: 15 }}>Muscle Recovery</h2>
+          <button onClick={() => onNav("progress")} className="atlas-btn-ghost" style={{ padding: "4px 10px", fontSize: 10, minHeight: 30 }}>Full map</button>
+        </div>
+        <MuscleMap15 status={status} view="front" selected={selectedMuscle} onSelect={(k) => setSelectedMuscle(selectedMuscle === k ? null : k)} maxWidth={170} />
         <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 8 }}>
           <span className="pill" style={{ background: "rgba(116,165,120,0.15)", color: "var(--good)" }}>● Ready</span>
           <span className="pill" style={{ background: "rgba(255,182,72,0.15)", color: "var(--warn)" }}>● Partial</span>
           <span className="pill" style={{ background: "rgba(184,91,94,0.15)", color: "var(--rest)" }}>● Resting</span>
         </div>
-        {selectedMuscle && (
-          <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
-            <div className="disp" style={{ fontSize: 12, textTransform: "capitalize", marginBottom: 4 }}>{selectedMuscle}</div>
-            {!Number.isFinite(status[selectedMuscle].hours) ? (
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>Not trained yet.</div>
-            ) : (
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.7 }}>
-                Last trained: {fmtDate(status[selectedMuscle].lastDate)} ({Math.round(status[selectedMuscle].hours)}h ago)<br />
-                {status[selectedMuscle].recentSets} set{status[selectedMuscle].recentSets === 1 ? "" : "s"} across {status[selectedMuscle].recentSessions} session{status[selectedMuscle].recentSessions === 1 ? "" : "s"} in the last 7 days<br />
-                {status[selectedMuscle].level === "ready" ? "Ready to train." : `Est. fully ready in ~${status[selectedMuscle].hoursUntilReady}h`}
-              </div>
-            )}
-          </div>
-        )}
+        {selectedMuscle && (() => {
+          const region = MUSCLE_MAP_15.find((m) => m.key === selectedMuscle);
+          const g = status[region.group];
+          return (
+            <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
+              <div className="disp" style={{ fontSize: 12, marginBottom: 4 }}>{region.label}</div>
+              {!Number.isFinite(g.hours) ? (
+                <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>Not trained yet.</div>
+              ) : (
+                <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.7 }}>
+                  Last trained: {fmtDate(g.lastDate)} ({Math.round(g.hours)}h ago)<br />
+                  {g.recentSets} set{g.recentSets === 1 ? "" : "s"} across {g.recentSessions} session{g.recentSessions === 1 ? "" : "s"} in the last 7 days<br />
+                  {g.level === "ready" ? "Ready to train." : `Est. fully ready in ~${g.hoursUntilReady}h`}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>Estimate based on time since last trained — not a medical measurement. Tap a muscle for detail.</div>
       </div>
 
@@ -1559,9 +1633,12 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       {/* Achievements — deliberately last and de-emphasized until there's real activity to show,
           per feedback that a full badge grid crowds Home before a new account has done anything. */}
       <div className="atlas-card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-          <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)" }}>Level {gamification.level}</div>
-          <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{gamification.xpIntoLevel} / 500 XP</span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)" }}>Level {gamification.level}</div>
+            <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{gamification.xpIntoLevel} / 500 XP</span>
+          </div>
+          <button onClick={onOpenChallenges} className="atlas-btn-ghost" style={{ padding: "4px 10px", fontSize: 10, minHeight: 30 }}>Challenges</button>
         </div>
         <div className="bar-track" style={{ marginBottom: workouts.length > 0 ? 12 : 0 }}><div className="bar-fill" style={{ width: `${(gamification.xpIntoLevel / 500) * 100}%`, background: "var(--brass)" }} /></div>
         {workouts.length > 0 ? (
@@ -2784,6 +2861,72 @@ function MuscleGroupBlock({ muscleGroups, onTapExercise }) {
   );
 }
 
+/* Visual week-at-a-glance for an active training plan — a horizontal path of day nodes, used on
+   both Home (read-only glance) and Coach (above the existing editable list). `days`/
+   `currentDayIndex` are read directly from the same activePlan shape everywhere else in the app;
+   this component adds no new data model of its own. Day state is purely positional relative to
+   currentDayIndex (before it = already done this cycle, at it = next up, after = upcoming) — the
+   plan is a repeating N-day rotation, not a calendar week, so "done" here means "done this lap
+   around the split," which is exactly what currentDayIndex already tracks for Home's "Today's
+   Workout" card. */
+function ProgramRoadmap({ days, currentDayIndex = 0 }) {
+  const [openIdx, setOpenIdx] = useState(null);
+  if (!days?.length) return null;
+  const openDay = openIdx != null ? days[openIdx] : null;
+  return (
+    <div>
+      <div style={{ display: "flex", overflowX: "auto", paddingBottom: 6, WebkitOverflowScrolling: "touch" }}>
+        {days.map((d, i) => {
+          const state = i < currentDayIndex ? "done" : i === currentDayIndex ? "current" : "upcoming";
+          const muscleCount = new Set(d.muscleGroups.map((mg) => mg.muscle)).size;
+          const shortLabel = d.day.replace(/^Day\s*\d+:?\s*/i, "") || d.day;
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", flexShrink: 0 }}>
+              <button
+                onClick={() => setOpenIdx(openIdx === i ? null : i)}
+                aria-label={`${d.day}${state === "done" ? ", completed" : state === "current" ? ", up next" : ""}`}
+                aria-expanded={openIdx === i}
+                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, width: 72, minHeight: 44, background: "none", border: "none", cursor: "pointer", padding: "4px 2px" }}
+              >
+                <div style={{
+                  width: 38, height: 38, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  background: state === "done" ? "var(--brass)" : state === "current" ? "var(--brass-soft)" : "var(--bg-elev2)",
+                  border: state === "current" ? "2px solid var(--brass)" : openIdx === i ? "1px solid var(--steel)" : "1px solid var(--line)",
+                }}>
+                  {state === "done" ? <Check size={15} color="#072016" strokeWidth={3} /> : <span className="disp" style={{ fontSize: 13, color: state === "current" ? "var(--brass)" : "var(--ink-dim)" }}>{i + 1}</span>}
+                </div>
+                <div className="mono" style={{ fontSize: 9, textAlign: "center", color: state === "current" ? "var(--brass)" : "var(--ink-dim)", lineHeight: 1.25, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortLabel}</div>
+                <div className="mono" style={{ fontSize: 8, color: "var(--ink-dim)" }}>{muscleCount === 0 ? "Rest" : `${muscleCount} area${muscleCount === 1 ? "" : "s"}`}</div>
+              </button>
+              {i < days.length - 1 && <div style={{ width: 18, height: 2, marginTop: 19, background: i < currentDayIndex ? "var(--brass)" : "var(--line)", flexShrink: 0 }} />}
+            </div>
+          );
+        })}
+      </div>
+      {openDay && (
+        <div style={{ marginTop: 8, padding: 12, background: "var(--bg-elev2)", borderRadius: 10 }}>
+          <div className="disp" style={{ fontSize: 12, marginBottom: 8 }}>{openDay.day}</div>
+          {openDay.muscleGroups.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>Rest day — no exercises planned.</div>
+          ) : (
+            openDay.muscleGroups.map((mg, i) => (
+              <div key={i} style={{ marginBottom: i < openDay.muscleGroups.length - 1 ? 8 : 0 }}>
+                <div className="mono" style={{ fontSize: 9.5, color: "var(--brass)", textTransform: "capitalize", marginBottom: 3 }}>{mg.muscle}</div>
+                {mg.exercises.map((ex, j) => (
+                  <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)", padding: "2px 0" }}>
+                    <span>{ex.name}</span>
+                    <span className="mono">{ex.sets}×{ex.reps}</span>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* Shared upsell shown in place of a gated feature — Coach entirely, or an inline slot inside
    Nutrition for the scanner / Meals Near You. Subscription status is only ever set by the
    Stripe webhook, so this button just starts Checkout; it never grants access itself. */
@@ -2966,6 +3109,394 @@ function CoachMessageContent({ content }) {
     <Suspense fallback={<div style={{ whiteSpace: "pre-wrap" }}>{content}</div>}>
       <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
     </Suspense>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Workout completion screen + shareable card                          */
+/* ------------------------------------------------------------------ */
+// Privacy rules for the shareable card (see ShareCard below), stated once here so both the
+// component and anyone reviewing it can check behavior against the same list:
+//   1. The card only ever contains data from the ONE workout just completed — never lifetime
+//      totals, other sessions, or anything that reveals how long someone's been using the app.
+//   2. Bodyweight, nutrition data, email, and location are never included, full stop — there is
+//      no code path in ShareCard that reads any of those fields.
+//   3. The athlete's name is opt-in (a checkbox, default OFF) — nothing identifying goes on the
+//      card unless the person generating it explicitly turns it on for that one card.
+//   4. Generating a card never sends it anywhere. It produces a local PNG the person can save or
+//      hand to their own device's native share sheet — Asc3end itself never posts, uploads, or
+//      transmits it, and the button that does either is only ever triggered by an explicit click.
+//   5. No invented social content — no fake like/view counts, no leaderboard comparison, nothing
+//      presented as if other people are watching.
+
+export function workoutVolume(workout) {
+  return (workout.exercises || []).reduce((s, e) => s + (e.sets || []).reduce((s2, st) => s2 + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0), 0);
+}
+
+function ShareCard({ workout, athleteName }) {
+  const canvasRef = useRef(null);
+  const [status, setStatus] = useState("idle"); // idle | rendering | ready | error
+  const [nativeShareAvailable, setNativeShareAvailable] = useState(false);
+  const blobRef = useRef(null);
+
+  const volume = Math.round(workoutVolume(workout));
+  const setCount = (workout.exercises || []).reduce((n, e) => n + (e.sets || []).length, 0);
+  const durationMin = workout.startedAt && workout.completedAt ? Math.max(1, Math.round((new Date(workout.completedAt) - workout.startedAt) / 60000)) : null;
+  const bestPR = (workout.prs || [])[0] || null;
+  const dateLabel = new Date(workout.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+
+  const svgMarkup = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="600" height="750" viewBox="0 0 600 750">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0A130F" />
+          <stop offset="100%" stop-color="#060B08" />
+        </linearGradient>
+      </defs>
+      <rect width="600" height="750" fill="url(#bg)" />
+      <rect x="24" y="24" width="552" height="702" rx="24" fill="none" stroke="#1E2E27" stroke-width="1.5" />
+      <text x="60" y="90" font-family="Oswald, sans-serif" font-size="22" letter-spacing="3" fill="#3ECF8E">ASC3END</text>
+      ${athleteName ? `<text x="60" y="128" font-family="Oswald, sans-serif" font-size="17" fill="#E7EFEA">${escapeXml(athleteName)}</text>` : ""}
+      <text x="60" y="${athleteName ? 160 : 130}" font-family="'JetBrains Mono', monospace" font-size="13" fill="#7C9188">${escapeXml(dateLabel)}</text>
+      <text x="60" y="230" font-family="Oswald, sans-serif" font-size="34" fill="#F4F8F6">${escapeXml(workout.planDayName || "Free Workout")}</text>
+      ${bestPR ? `
+        <rect x="60" y="260" width="480" height="64" rx="12" fill="#3ECF8E22" stroke="#3ECF8E" stroke-width="1.5" />
+        <text x="84" y="288" font-family="'JetBrains Mono', monospace" font-size="11" letter-spacing="1" fill="#3ECF8E">NEW PERSONAL RECORD</text>
+        <text x="84" y="312" font-family="Oswald, sans-serif" font-size="19" fill="#F4F8F6">${escapeXml(bestPR.exName)} — ${bestPR.weight}kg × ${bestPR.reps}</text>
+      ` : ""}
+      ${[
+        { label: "VOLUME", value: `${volume.toLocaleString()}kg` },
+        { label: "SETS", value: `${setCount}` },
+        { label: "DURATION", value: durationMin ? `${durationMin} min` : "—" },
+      ].map((s, i) => `
+        <text x="${60 + i * 176}" y="${bestPR ? 400 : 340}" font-family="'JetBrains Mono', monospace" font-size="11" letter-spacing="1" fill="#7C9188">${s.label}</text>
+        <text x="${60 + i * 176}" y="${(bestPR ? 400 : 340) + 40}" font-family="Oswald, sans-serif" font-size="30" fill="#F4F8F6">${s.value}</text>
+      `).join("")}
+      <text x="60" y="690" font-family="'JetBrains Mono', monospace" font-size="11" fill="#4F6058">Train, eat, and progress with Asc3end.</text>
+    </svg>
+  `.trim();
+
+  function escapeXml(s) {
+    return String(s).replace(/[<>&'"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c]));
+  }
+
+  const render = async () => {
+    setStatus("rendering");
+    try {
+      // Drawing an SVG-as-image onto a canvas doesn't reliably wait for the page's own webfonts
+      // (Oswald/JetBrains Mono, both loaded elsewhere via GlobalStyle) the first time they're
+      // needed — without this the card can silently rasterize with the browser's default
+      // sans-serif instead, which looks unfinished for something meant to be shared.
+      if (document.fonts?.ready) await document.fonts.ready;
+      const svgBlob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = url;
+      });
+      const canvas = canvasRef.current;
+      const scale = 2;
+      canvas.width = 600 * scale;
+      canvas.height = 750 * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0, 600, 750);
+      URL.revokeObjectURL(url);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      blobRef.current = blob;
+      setNativeShareAvailable(!!(navigator.share && navigator.canShare && blob && navigator.canShare({ files: [new File([blob], "workout.png", { type: "image/png" })] })));
+      setStatus("ready");
+    } catch (e) {
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { render(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const download = () => {
+    if (!blobRef.current) return;
+    const url = URL.createObjectURL(blobRef.current);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `asc3end-workout-${workout.date}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    logEvent("share_card_downloaded", {});
+  };
+
+  const nativeShare = async () => {
+    if (!blobRef.current) return;
+    try {
+      await navigator.share({
+        files: [new File([blobRef.current], "asc3end-workout.png", { type: "image/png" })],
+        title: "My Asc3end workout",
+      });
+      logEvent("share_card_shared", {});
+    } catch (e) { /* user cancelled the share sheet — not an error */ }
+  };
+
+  return (
+    <div>
+      <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)", marginBottom: 12, background: "#060B08" }}>
+        {status === "rendering" && (
+          <div style={{ aspectRatio: "600/750", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Loader2 size={22} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} />
+          </div>
+        )}
+        {status === "error" && (
+          <div style={{ aspectRatio: "600/750", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", fontSize: 12, color: "var(--ink-dim)" }}>
+            Couldn't generate the image. You can still try again below.
+          </div>
+        )}
+        <canvas ref={canvasRef} style={{ width: "100%", display: status === "ready" ? "block" : "none" }} />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        {nativeShareAvailable && (
+          <button className="atlas-btn" style={{ flex: 1 }} onClick={nativeShare} disabled={status !== "ready"}>
+            <Share2 size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Share
+          </button>
+        )}
+        <button className={nativeShareAvailable ? "atlas-btn-ghost" : "atlas-btn"} style={{ flex: 1 }} onClick={status === "error" ? render : download} disabled={status === "rendering"}>
+          <Download size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> {status === "error" ? "Retry" : "Download"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WorkoutCompleteScreen({ workout, streakBefore, streakAfter, athleteDisplayName, onDone }) {
+  const [showShare, setShowShare] = useState(false);
+  const [includeName, setIncludeName] = useState(false);
+  const xp = workout.xpBreakdown || { completion: 0, sets: 0, prBonus: 0, streakBonus: 0, total: 0 };
+  const volume = Math.round(workoutVolume(workout));
+  const setCount = (workout.exercises || []).reduce((n, e) => n + (e.sets || []).length, 0);
+  const exerciseCount = (workout.exercises || []).length;
+  const durationMin = workout.startedAt && workout.completedAt ? Math.max(1, Math.round((new Date(workout.completedAt) - workout.startedAt) / 60000)) : null;
+  const streakGrew = streakAfter > streakBefore;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 55, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "40px 18px 24px" }}>
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "linear-gradient(135deg, var(--brass), #2BAE73)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+            <Check size={30} color="#072016" strokeWidth={3} />
+          </div>
+          <h1 className="disp" style={{ fontSize: 24 }}>Workout Complete</h1>
+          <div style={{ color: "var(--ink-dim)", fontSize: 13, marginTop: 4 }}>{workout.planDayName || "Free Workout"}</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+          <div className="atlas-card" style={{ flex: 1, textAlign: "center", padding: 14 }}>
+            <div className="disp" style={{ fontSize: 20 }}>{exerciseCount}</div>
+            <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>EXERCISES</div>
+          </div>
+          <div className="atlas-card" style={{ flex: 1, textAlign: "center", padding: 14 }}>
+            <div className="disp" style={{ fontSize: 20 }}>{setCount}</div>
+            <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>SETS</div>
+          </div>
+          <div className="atlas-card" style={{ flex: 1, textAlign: "center", padding: 14 }}>
+            <div className="disp" style={{ fontSize: 20 }}>{durationMin ? `${durationMin}m` : "—"}</div>
+            <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>DURATION</div>
+          </div>
+        </div>
+
+        {workout.prs && workout.prs.length > 0 && (
+          <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--brass)" }}>
+            <div className="disp" style={{ fontSize: 13, color: "var(--brass)", marginBottom: 8 }}>
+              <Trophy size={13} style={{ verticalAlign: -2, marginRight: 5 }} />{workout.prs.length} New PR{workout.prs.length === 1 ? "" : "s"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {workout.prs.map((pr, i) => (
+                <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+                  {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {streakGrew && (
+          <div className="atlas-card" style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10, borderColor: "var(--warn)" }}>
+            <Flame size={20} color="var(--warn)" style={{ flexShrink: 0 }} />
+            <div style={{ fontSize: 13 }}>{streakAfter} day streak — keep it going.</div>
+          </div>
+        )}
+
+        <div className="atlas-card" style={{ marginBottom: 16 }}>
+          <h2 className="disp" style={{ fontSize: 14, marginBottom: 8 }}>XP Earned</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Workout completion</span><span className="mono">+{xp.completion}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Sets &amp; exercises</span><span className="mono">+{xp.sets}</span></div>
+            {xp.prBonus > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Personal record bonus</span><span className="mono">+{xp.prBonus}</span></div>}
+            {xp.streakBonus > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Streak bonus</span><span className="mono">+{xp.streakBonus}</span></div>}
+            <div style={{ borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 8, display: "flex", justifyContent: "space-between" }}>
+              <span className="disp">Total XP earned</span>
+              <span className="mono" style={{ color: "var(--brass)" }}>+{xp.total}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="atlas-card" style={{ marginBottom: 16 }}>
+          {!showShare ? (
+            <button className="atlas-btn-ghost" style={{ width: "100%" }} onClick={() => setShowShare(true)}>
+              <Share2 size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Create Shareable Card
+            </button>
+          ) : (
+            <div>
+              <h2 className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Share This Workout</h2>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer" }} className="mono">
+                <input type="checkbox" checked={includeName} onChange={(e) => setIncludeName(e.target.checked)} />
+                <span style={{ fontSize: 11.5, color: "var(--ink-dim)" }}>Include my name on the card</span>
+              </label>
+              <ShareCard workout={workout} athleteName={includeName ? athleteDisplayName : null} />
+              <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 10, fontStyle: "italic" }}>
+                Only this workout's stats are on the card — no bodyweight, nutrition, or account data. Nothing is posted anywhere until you choose to share or download it.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: "12px 18px calc(env(safe-area-inset-bottom, 0px) + 12px)" }}>
+        <button className="atlas-btn" style={{ width: "100%", padding: 14 }} onClick={onDone}>Done</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Challenges — milestones + weekly missions + opt-in personal challenges */
+/* ------------------------------------------------------------------ */
+// Deliberately no leaderboards, rankings, or any comparison against other users anywhere in this
+// screen — every number here is computed only from this one athlete's own data, per the explicit
+// "no public/social features before launch" restriction.
+
+function MissionRow({ mission }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+      <div style={{
+        width: 22, height: 22, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+        background: mission.completed ? "var(--brass)" : "var(--bg-elev2)", border: mission.completed ? "none" : "1px solid var(--line)",
+      }}>
+        {mission.completed && <Check size={13} color="#072016" strokeWidth={3} />}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, color: mission.completed ? "var(--ink)" : "var(--ink-dim)" }}>{mission.label}</div>
+        {!mission.completed && mission.target > 1 && (
+          <div className="bar-track" style={{ marginTop: 4, height: 5 }}><div className="bar-fill" style={{ width: `${(mission.current / mission.target) * 100}%`, background: "var(--steel)" }} /></div>
+        )}
+      </div>
+      {mission.target > 1 && <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", flexShrink: 0 }}>{mission.current}/{mission.target}</span>}
+    </div>
+  );
+}
+
+function ChallengeCard({ progress, onRemove, onStart, active }) {
+  const { template } = progress || {};
+  if (active) {
+    const pct = Math.min(100, (progress.current / progress.target) * 100);
+    return (
+      <div className="atlas-card" style={{ marginBottom: 10, borderColor: progress.completed ? "var(--brass)" : "var(--line)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>{template.icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <div className="disp" style={{ fontSize: 13 }}>{template.label}</div>
+              <div className="mono" style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>
+                {progress.completed ? "Completed" : progress.expired ? "Window closed" : `Day ${progress.daysElapsed} of ${progress.durationDays}`}
+              </div>
+            </div>
+          </div>
+          <button onClick={onRemove} className="atlas-btn-ghost" style={{ padding: "4px 10px", fontSize: 10, minHeight: 30, flexShrink: 0 }}>
+            {progress.finished ? "Dismiss" : "Quit"}
+          </button>
+        </div>
+        <div className="bar-track"><div className="bar-fill" style={{ width: `${pct}%`, background: progress.completed ? "var(--brass)" : "var(--steel)" }} /></div>
+        <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginTop: 6 }}>{progress.current} / {progress.target} {template.unit}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="atlas-card" style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <span style={{ fontSize: 18, flexShrink: 0 }}>{template.icon}</span>
+        <div style={{ minWidth: 0 }}>
+          <div className="disp" style={{ fontSize: 13 }}>{template.label}</div>
+          <div style={{ fontSize: 11, color: "var(--ink-dim)" }}>{template.description}</div>
+        </div>
+      </div>
+      <button onClick={onStart} className="atlas-btn-ghost" style={{ padding: "6px 12px", fontSize: 11, flexShrink: 0 }}>Start</button>
+    </div>
+  );
+}
+
+function ChallengesScreen({ workouts, nutrition, profile, streak, challenges, onStartChallenge, onRemoveChallenge, onClose }) {
+  const gamification = useMemo(() => computeGamification(workouts, streak), [workouts, streak]);
+  const missions = useMemo(() => computeWeeklyMissions(workouts, nutrition), [workouts, nutrition]);
+  const nutritionTargets = useMemo(() => getNutritionTargets(profile), [profile]);
+  const withProgress = useMemo(
+    () => challenges.map((c) => ({ instance: c, progress: computeChallengeProgress(c, workouts, nutrition, nutritionTargets) })).filter((x) => x.progress),
+    [challenges, workouts, nutrition, nutritionTargets]
+  );
+  const activeTemplateIds = new Set(withProgress.filter(({ progress }) => !progress.finished).map(({ instance }) => instance.templateId));
+  const availableTemplates = CHALLENGE_TEMPLATES.filter((t) => !activeTemplateIds.has(t.id));
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 55, overflowY: "auto" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 18px 60px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <div className="disp" style={{ fontSize: 20 }}>Challenges</div>
+          <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: 8, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Close challenges">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="atlas-card" style={{ marginBottom: 16 }}>
+          <h2 className="disp" style={{ fontSize: 14, marginBottom: 4 }}>This Week's Missions</h2>
+          <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 6 }}>Resets every Sunday.</div>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {missions.map((m) => <MissionRow key={m.id} mission={m} />)}
+          </div>
+        </div>
+
+        <div className="atlas-card" style={{ marginBottom: 16 }}>
+          <h2 className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Milestones</h2>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {gamification.badges.map((b) => (
+              <div key={b.id} title={b.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 68 }}>
+                <div style={{ fontSize: 22, filter: b.earned ? "none" : "grayscale(1)", opacity: b.earned ? 1 : 0.4 }}>{b.icon}</div>
+                <div className="mono" style={{ fontSize: 8, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
+                {!b.earned && (
+                  <div className="bar-track" style={{ width: "100%", height: 4 }}><div className="bar-fill" style={{ width: `${(b.current / b.target) * 100}%`, background: "var(--steel)" }} /></div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {withProgress.length > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            <h2 className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Your Challenges</h2>
+            {withProgress.map(({ instance, progress }) => (
+              <ChallengeCard key={instance.id} progress={progress} active onRemove={() => onRemoveChallenge(instance.id)} />
+            ))}
+          </div>
+        )}
+
+        {availableTemplates.length > 0 && (
+          <div>
+            <h2 className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Start a Challenge</h2>
+            {availableTemplates.map((t) => (
+              <ChallengeCard key={t.id} progress={{ template: t }} onStart={() => onStartChallenge(t.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -3275,6 +3806,12 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
           )}
         </div>
         {genLoading && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8 }}>{GEN_PHASES[genPhase]}</div>}
+
+        {!editingPlan && !genLoading && planActivated && profile.activePlan && (
+          <div style={{ marginTop: 10 }}>
+            <ProgramRoadmap days={profile.activePlan.days} currentDayIndex={profile.activePlan.currentDayIndex} />
+          </div>
+        )}
 
         {editingPlan && editDays && (
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3690,6 +4227,78 @@ function FoodScanner({ onAdd, onClose }) {
   );
 }
 
+/* Circular progress indicator for one macro — value can exceed target (over-eating a macro is
+   valid, not an error state), so the ring fill itself clamps at a full circle while the printed
+   number keeps showing the real, possibly-over-target value. */
+function MacroRing({ label, value, target, unit, color, size = 74 }) {
+  const pct = target > 0 ? Math.min(1, value / target) : 0;
+  const r = (size - 10) / 2;
+  const c = 2 * Math.PI * r;
+  const over = target > 0 && value > target;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--bg-elev2)" strokeWidth="7" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round"
+          strokeDasharray={`${c * pct} ${c}`}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: "stroke-dasharray 0.3s ease" }}
+        />
+        <text x="50%" y="47%" textAnchor="middle" fontSize="14" fontWeight="600" fill="var(--ink)" fontFamily="'JetBrains Mono', monospace">{Math.round(value)}</text>
+        <text x="50%" y="64%" textAnchor="middle" fontSize="8.5" fill="var(--ink-dim)" fontFamily="'JetBrains Mono', monospace">/{Math.round(target)}{unit}</text>
+      </svg>
+      <div className="mono" style={{ fontSize: 9, color: over ? "var(--warn)" : "var(--ink-dim)", letterSpacing: 0.5 }}>{label}</div>
+    </div>
+  );
+}
+
+/* One adherence level per day for the last 7 days (today included). A day with nothing logged is
+   its own "none" level, distinct from "off" — silence isn't the same claim as a bad day.
+   classifyDayAdherence itself now lives in lib/nutritionMath.js (imported above) so workoutMath.js
+   can also use it for the nutrition challenge template without creating a circular import back
+   into this file — re-exported here unchanged so nothing else in the app needs to change. */
+export { classifyDayAdherence };
+
+export function weeklyAdherence(nutrition, targets) {
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    const dayFoods = nutrition.filter((n) => n.date === iso);
+    const level = classifyDayAdherence(dayFoods, targets);
+    days.push({ date: iso, level, weekday: d.toLocaleDateString(undefined, { weekday: "narrow" }) });
+  }
+  return days;
+}
+
+export const ADHERENCE_COLOR = { good: "var(--good)", partial: "var(--warn)", off: "var(--rest)", none: "var(--bg-elev2)" };
+export const ADHERENCE_LABEL = { good: "On target", partial: "Partially on target", off: "Off target", none: "Nothing logged" };
+
+function WeeklyAdherence({ nutrition, targets }) {
+  const days = useMemo(() => weeklyAdherence(nutrition, targets), [nutrition, targets]);
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, justifyContent: "space-between" }}>
+        {days.map((d) => (
+          <div key={d.date} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }} title={`${d.date}: ${ADHERENCE_LABEL[d.level]}`}>
+            <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>{d.weekday}</div>
+            <div style={{ width: "100%", maxWidth: 32, aspectRatio: "1", borderRadius: 7, background: ADHERENCE_COLOR[d.level], border: d.level === "none" ? "1px solid var(--line)" : "none" }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, fontSize: 9.5 }} className="mono">
+        {["good", "partial", "off"].map((lvl) => (
+          <span key={lvl} style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--ink-dim)" }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: ADHERENCE_COLOR[lvl], display: "inline-block" }} />{ADHERENCE_LABEL[lvl]}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, isPremium, onUpgrade, usage, onUsageChange }) {
   const mealsRemaining = remainingMonthlyUses(FEATURES.MEALS, usage || {});
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
@@ -3850,15 +4459,18 @@ Respond with ONLY this JSON, nothing else:
           screen readers and Tab navigation can't reach content buried behind it. */}
       <div ref={backgroundRef} aria-hidden={scannerOpen || undefined}>
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        {["calories", "protein", "carbs", "fat"].map((k) => (
-          <div key={k} style={{ marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-              <span className="mono" style={{ color: "var(--ink-dim)" }}>{k.toUpperCase()}</span>
-              <span className="mono">{Math.round(totals[k])} / {targets[k]}</span>
-            </div>
-            <div className="bar-track"><div className="bar-fill" style={{ width: `${Math.min(100, (totals[k] / targets[k]) * 100)}%`, background: "var(--brass)" }} /></div>
-          </div>
-        ))}
+        <div style={{ display: "flex", justifyContent: "space-around", flexWrap: "wrap", gap: 10 }}>
+          <MacroRing label="CALORIES" value={totals.calories} target={targets.calories} unit="" color="var(--brass)" />
+          <MacroRing label="PROTEIN" value={totals.protein} target={targets.protein} unit="g" color="var(--steel)" />
+          <MacroRing label="CARBS" value={totals.carbs} target={targets.carbs} unit="g" color="var(--good)" />
+          <MacroRing label="FAT" value={totals.fat} target={targets.fat} unit="g" color="var(--warn)" />
+        </div>
+      </div>
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <h2 className="disp" style={{ fontSize: 14, marginBottom: 2 }}>7-Day Adherence</h2>
+        <div style={{ fontSize: 11.5, color: "var(--ink-dim)", marginBottom: 10 }}>How close you've landed to your targets each day.</div>
+        <WeeklyAdherence nutrition={nutrition} targets={targets} />
       </div>
 
       {!isPremium && mealsRemaining <= 0 ? (
@@ -4312,12 +4924,14 @@ export default function App() {
   const [weightlog, setWeightlog] = useState([]);
   const [customExercises, setCustomExercises] = useState([]);
   const [favorites, setFavorites] = useState([]);
+  const [challenges, setChallenges] = useState([]);
   const [tab, setTab] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
     return parseAppPath(window.location.pathname)?.tab || "dashboard";
   });
   const [session, setSession] = useState(null);
   const [finishingWorkout, setFinishingWorkout] = useState(false);
+  const [completedWorkout, setCompletedWorkout] = useState(null);
   const [finishError, setFinishError] = useState(null);
   // A ref, not just the `finishingWorkout` state, guards finishWorkout against a genuine
   // double-click: two click events dispatched in the same tick both close over the same
@@ -4356,6 +4970,7 @@ export default function App() {
   });
   const [showPricing, setShowPricing] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
+  const [showChallenges, setShowChallenges] = useState(false);
   const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "signup"
   const [publicLegalDoc, setPublicLegalDoc] = useState(null);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
@@ -4380,8 +4995,8 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return;
     (async () => {
-      const [p, w, n, wl, sess, ce, fav] = await Promise.all([
-        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises), loadKey(KEYS.favorites),
+      const [p, w, n, wl, sess, ce, fav, chal] = await Promise.all([
+        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises), loadKey(KEYS.favorites), loadKey(KEYS.challenges),
       ]);
       // Each array-shaped key is validated item-by-item before being trusted — a corrupted or
       // partially-written row (or a schema left over from an old app version) degrades to
@@ -4393,6 +5008,7 @@ export default function App() {
       const weightlog = sanitizeList(wl, isValidWeightEntry);
       const customExercises = sanitizeList(ce, isValidCustomExercise);
       const favorites = sanitizeList(fav, isValidFavorite);
+      const challenges = sanitizeList(chal, isValidChallenge);
       if (p && typeof p === "object") setProfile(p);
       setWorkouts(workouts);
       setNutrition(nutrition);
@@ -4409,6 +5025,7 @@ export default function App() {
       else if (sess) { saveKey(KEYS.session, null); } // sess existed but failed validation — clear the corrupt row
       setCustomExercises(customExercises);
       setFavorites(favorites);
+      setChallenges(challenges);
       setLoaded(true);
     })();
   }, [authUser]);
@@ -4656,6 +5273,7 @@ export default function App() {
     finishingRef.current = false;
     setFinishingWorkout(false);
     setTab("dashboard");
+    setCompletedWorkout({ ...completed, streakBefore, streakAfter });
     logEvent("workout_completed", {
       exerciseCount: completed.exercises.length,
       setCount: completed.exercises.reduce((n, e) => n + e.sets.length, 0),
@@ -4741,6 +5359,22 @@ export default function App() {
     const next = exists ? favorites.filter((f) => f.name !== food.name) : [...favorites, { name: food.name, calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat }];
     setFavorites(next);
     await saveKey(KEYS.favorites, next);
+  };
+
+  // A template can only have one unfinished instance active at a time — enforced in the
+  // Challenges UI by hiding "Start" once one exists, not here, so this stays a plain append.
+  const startChallenge = async (templateId) => {
+    const next = [...challenges, { id: uid(), templateId, startDate: todayStr() }];
+    const ok = await saveKey(KEYS.challenges, next);
+    if (ok) setChallenges(next);
+    return ok;
+  };
+
+  const removeChallenge = async (id) => {
+    const next = challenges.filter((c) => c.id !== id);
+    const ok = await saveKey(KEYS.challenges, next);
+    if (ok) setChallenges(next);
+    return ok;
   };
   const logWeight = async (weight) => {
     const next = [...weightlog, { date: todayStr(), weight }];
@@ -4886,7 +5520,21 @@ export default function App() {
   return (
     <div className="atlas-root">
       <GlobalStyle />
-      {showSupport ? (
+      {completedWorkout ? (
+        <WorkoutCompleteScreen
+          workout={completedWorkout}
+          streakBefore={completedWorkout.streakBefore}
+          streakAfter={completedWorkout.streakAfter}
+          athleteDisplayName={profile?.name || ""}
+          onDone={() => setCompletedWorkout(null)}
+        />
+      ) : showChallenges ? (
+        <ChallengesScreen
+          workouts={workouts} nutrition={nutrition} profile={profile} streak={computeStreak(workouts)}
+          challenges={challenges} onStartChallenge={startChallenge} onRemoveChallenge={removeChallenge}
+          onClose={() => setShowChallenges(false)}
+        />
+      ) : showSupport ? (
         <SupportPage onClose={() => setShowSupport(false)} />
       ) : showPricing ? (
         <PricingPage
@@ -4905,13 +5553,13 @@ export default function App() {
         />
       ) : (
         <>
-          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} />}
+          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} onOpenChallenges={() => setShowChallenges(true)} />}
           {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (
             <Suspense fallback={<div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}><Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} /></div>}>
-              <Progress profile={profile} workouts={workouts} weightlog={weightlog} />
+              <Progress profile={profile} workouts={workouts} weightlog={weightlog} customExercises={customExercises} nutrition={nutrition} />
             </Suspense>
           )}
 
