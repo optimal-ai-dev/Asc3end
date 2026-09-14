@@ -9,7 +9,7 @@
 // review has actually happened, and do not present these documents to users or investors as
 // lawyer-approved — they are the app owner's own good-faith drafts. Tracked as a launch blocker
 // in LAUNCH_READINESS.md under "Requires legal review."
-export const LEGAL_DOCUMENT_VERSION = "2026-09-12-v3";
+export const LEGAL_DOCUMENT_VERSION = "2026-09-14-v4";
 export const LEGAL_EFFECTIVE_DATE = "2026-09-12";
 
 // Client-safe (VITE_-prefixed) since this is meant to be publicly displayed, not a secret. Left
@@ -22,6 +22,19 @@ export const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || null;
 const contactLine = SUPPORT_EMAIL
   ? `email ${SUPPORT_EMAIL}`
   : "use the in-app Support area (Profile > Help & Support)";
+
+// Same VITE_-prefixed pattern as SUPPORT_EMAIL above, and for the same reason: a business name,
+// ABN, and registered address are not secrets — they're meant to be publicly displayed on legal
+// pages — but this is a 100% client-side app with no server rendering, so a non-VITE_-prefixed
+// env var is invisible to the browser bundle no matter what value it holds. (These were
+// previously defined WITHOUT the VITE_ prefix and never actually read anywhere in this file —
+// the env vars existed in Vercel but had no code path to reach the page a user actually sees.)
+export const LEGAL_BUSINESS_NAME = import.meta.env.VITE_LEGAL_BUSINESS_NAME || null;
+export const LEGAL_BUSINESS_ABN = import.meta.env.VITE_LEGAL_BUSINESS_ABN || null;
+export const LEGAL_BUSINESS_ADDRESS = import.meta.env.VITE_LEGAL_BUSINESS_ADDRESS || null;
+const providerLine = LEGAL_BUSINESS_NAME
+  ? `Asc3end is provided by ${LEGAL_BUSINESS_NAME}${LEGAL_BUSINESS_ABN ? ` (ABN ${LEGAL_BUSINESS_ABN})` : ""}${LEGAL_BUSINESS_ADDRESS ? `, of ${LEGAL_BUSINESS_ADDRESS}` : ""}.`
+  : "Business registration details have not yet been configured by the app owner.";
 
 export const LEGAL_COPY = {
   privacy: {
@@ -41,6 +54,7 @@ export const LEGAL_COPY = {
       { heading: "Children and minimum age", body: "Asc3end is not directed at children and is not intended for use by anyone under 16. We do not knowingly collect data from children under 16. If you believe a child has created an account, contact us and we will delete it." },
       { heading: "International data processing", body: "Asc3end's infrastructure providers (Supabase, Anthropic, Stripe, Vercel) may process and store data outside your own country, including in the United States. By using Asc3end you consent to this processing." },
       { heading: "Your privacy rights", body: "Depending on where you live, you may have rights to access, correct, export, or delete your personal data, and to object to certain processing. The in-app Export and Delete Account tools cover most of these directly; for anything else, " + contactLine + "." },
+      { heading: "Who provides this service", body: providerLine },
       { heading: "Contact", body: SUPPORT_EMAIL ? `Questions about this policy: ${SUPPORT_EMAIL}.` : "Questions about this policy: use the in-app Support area (Profile > Help & Support) — a dedicated privacy contact address has not yet been configured by the app owner." },
     ],
   },
@@ -57,6 +71,7 @@ export const LEGAL_COPY = {
       { heading: "Termination", body: "You can delete your own account at any time. We may suspend or terminate accounts that violate these terms, abuse the service, or attempt to circumvent billing or usage limits." },
       { heading: "Warranty and liability limitations", body: "Asc3end is provided \"as is,\" without warranties of any kind, express or implied. To the fullest extent permitted by law, the app operator is not liable for indirect, incidental, or consequential damages arising from your use of the service, including reliance on AI-generated training, nutrition, or meal-suggestion content." },
       { heading: "Changes to these terms", body: "We may update these terms as the product evolves. Material changes will ask you to re-accept before continuing to use the app." },
+      { heading: "Who provides this service", body: providerLine },
       { heading: "Contact", body: SUPPORT_EMAIL ? `Questions about these terms: ${SUPPORT_EMAIL}.` : "Questions about these terms: use the in-app Support area (Profile > Help & Support)." },
     ],
   },
@@ -81,7 +96,7 @@ export const LEGAL_COPY = {
   subscriptionTerms: {
     title: "Subscription Terms",
     sections: [
-      { heading: "Billing", body: "Asc3end+ is billed in advance on a recurring monthly ($9.99) or annual ($79.99) basis via Stripe, in the currency shown at checkout. Your subscription renews automatically until you cancel." },
+      { heading: "Billing", body: "Asc3end+ is billed in advance on a recurring monthly (AUD $9.99) or annual (AUD $79.99) basis via Stripe. Your subscription renews automatically until you cancel." },
       { heading: "Free trial (if offered)", body: "Asc3end+ checkout may offer an optional free trial period, clearly disclosed on Stripe's own checkout page before you confirm, including the exact date your card will first be charged. Starting a trial is opt-in — the Free plan itself never requires this." },
       { heading: "Cancellation", body: "Cancelling stops future renewals but does not refund the current period — you keep Asc3end+ access until the end of the period you already paid for, then your account reverts to the Free plan automatically." },
       { heading: "Price changes", body: "Prices are shown before checkout. If prices change, we'll provide notice before the change applies to your next billing period." },

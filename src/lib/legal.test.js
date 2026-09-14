@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { LEGAL_DOCUMENT_VERSION, LEGAL_EFFECTIVE_DATE, LEGAL_COPY } from "./legal";
 
 const REQUIRED_DOCS = ["privacy", "terms", "disclaimer", "aiLimitations", "subscriptionTerms", "refundPolicy", "support", "contact"];
@@ -65,5 +65,52 @@ describe("legal document version + copy", () => {
     for (const topic of TERMS_REQUIRED_TOPICS) {
       expect(headings.some((h) => h.includes(topic)), `Terms of Use missing topic: ${topic}`).toBe(true);
     }
+  });
+
+  it("Subscription Terms billing amounts are labeled AUD, not a bare '$'", () => {
+    const billing = LEGAL_COPY.subscriptionTerms.sections.find((s) => s.heading === "Billing");
+    expect(billing.body).toMatch(/AUD \$9\.99/);
+    expect(billing.body).toMatch(/AUD \$79\.99/);
+  });
+});
+
+// Regression coverage for a real gap: VITE_LEGAL_BUSINESS_NAME/ABN/ADDRESS were set in Vercel but
+// never actually read anywhere in legal.js (worse, they were originally defined WITHOUT the
+// VITE_ prefix, which makes them invisible to this 100%-client-side app's browser bundle no
+// matter what value they hold — only VITE_-prefixed vars are ever exposed to client code). These
+// tests exercise the actual env-var-to-rendered-text path with vi.stubEnv + a fresh module import,
+// so a future edit that silently breaks this wiring again fails a test instead of just quietly
+// doing nothing on the real site.
+describe("business identification — reads from VITE_-prefixed env vars, not the old unread names", () => {
+  const ORIGINAL_ENV = { ...import.meta.env };
+
+  beforeEach(() => { vi.resetModules(); });
+  afterEach(() => {
+    for (const key of Object.keys(import.meta.env)) delete import.meta.env[key];
+    Object.assign(import.meta.env, ORIGINAL_ENV);
+  });
+
+  it("names the real business on Privacy and Terms when the env vars are set", async () => {
+    vi.stubEnv("VITE_LEGAL_BUSINESS_NAME", "Tarique De Mel");
+    vi.stubEnv("VITE_LEGAL_BUSINESS_ABN", "87274187737");
+    vi.stubEnv("VITE_LEGAL_BUSINESS_ADDRESS", "40 Bareena Avenue, Rowville VIC 3178");
+    const { LEGAL_COPY: freshCopy } = await import("./legal.js?t=" + Date.now());
+    const privacySection = freshCopy.privacy.sections.find((s) => s.heading === "Who provides this service");
+    const termsSection = freshCopy.terms.sections.find((s) => s.heading === "Who provides this service");
+    expect(privacySection.body).toContain("Tarique De Mel");
+    expect(privacySection.body).toContain("87274187737");
+    expect(privacySection.body).toContain("40 Bareena Avenue, Rowville VIC 3178");
+    expect(termsSection.body).toContain("Tarique De Mel");
+  });
+
+  it("honestly discloses the gap instead of showing a blank/broken section when unset", async () => {
+    vi.stubEnv("VITE_LEGAL_BUSINESS_NAME", "");
+    vi.stubEnv("VITE_LEGAL_BUSINESS_ABN", "");
+    vi.stubEnv("VITE_LEGAL_BUSINESS_ADDRESS", "");
+    const { LEGAL_COPY: freshCopy } = await import("./legal.js?t=" + Date.now());
+    const section = freshCopy.privacy.sections.find((s) => s.heading === "Who provides this service");
+    expect(section.body).toMatch(/not yet been configured/i);
+    expect(section.body).not.toContain("undefined");
+    expect(section.body).not.toContain("null");
   });
 });

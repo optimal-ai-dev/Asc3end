@@ -58,9 +58,13 @@ const CRITICAL = [
 
 const RECOMMENDED = [
   ["VITE_SUPPORT_EMAIL", "Support/Contact pages currently say \"not yet configured by the app owner\" without it"],
-  ["LEGAL_BUSINESS_NAME", "Legal pages don't name a responsible entity without it — see LAUNCH_READINESS.md"],
-  ["LEGAL_BUSINESS_ABN", "Same — business registration details for legal pages"],
-  ["LEGAL_BUSINESS_ADDRESS", "Same — registered address for legal pages"],
+  // VITE_-prefixed, not the bare LEGAL_BUSINESS_* names from earlier — this is a 100%
+  // client-side app with no server rendering, so a non-VITE_-prefixed var is invisible to the
+  // browser bundle no matter what value it holds. (Found and fixed after the bare names were set
+  // in Vercel and had zero effect — src/lib/legal.js never had a code path to read them.)
+  ["VITE_LEGAL_BUSINESS_NAME", "Legal pages don't name a responsible entity without it — see LAUNCH_READINESS.md"],
+  ["VITE_LEGAL_BUSINESS_ABN", "Same — business registration details for legal pages"],
+  ["VITE_LEGAL_BUSINESS_ADDRESS", "Same — registered address for legal pages"],
   ["ADMIN_EMAILS", "/api/admin-metrics refuses everyone (403) without at least one allowlisted email"],
 ];
 
