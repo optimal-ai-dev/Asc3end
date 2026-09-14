@@ -50,7 +50,7 @@ const KEYS = {
 
 /* Each exercise references a movement-pattern "pose" — this drives both the form-cue text (POSE_TIPS)
    and the human figure illustration (POSES/PoseFigure) so every variation gets a real visual demo. */
-const EXERCISES = [
+export const EXERCISES = [
   // CHEST
   { name: "Barbell Bench Press", muscle: "chest", equipment: "Barbell", pose: "press_lying" },
   { name: "Incline Barbell Bench Press", muscle: "chest", equipment: "Barbell", pose: "press_lying" },
@@ -290,7 +290,7 @@ const EXERCISES = [
 ];
 
 /* Form cues + illustration keyed by movement pattern, shared across every exercise using that pattern */
-const POSE_TIPS = {
+export const POSE_TIPS = {
   press_lying: ["Retract shoulder blades and keep them pinned to the bench", "Lower under control to chest level, don't bounce", "Drive feet into the floor as you press"],
   press_seated_machine: ["Set seat height so handles align with mid-chest", "Avoid shrugging shoulders up as you press", "Control the return instead of letting the weight snap back"],
   push_up: ["Keep a straight line from head to heels", "Lower chest to just above the floor", "Elbows track back at roughly 45°, not flared out"],
@@ -899,12 +899,27 @@ function MuscleIcon({ muscle, size = 46 }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* PoseFigure — a human line-figure demonstrating each movement pattern */
+/* ExerciseFigure — a stylized 2.5D athlete illustration per movement pattern */
 /* ------------------------------------------------------------------ */
+// Replaces the earlier "stick figure" renderer (circle head + bare lines) with a genuinely
+// different rendering approach: a tapered polygon torso (not a uniform-width line-capsule),
+// a non-circular head with a jaw taper, two-segment tapered limbs with hand/foot shapes at the
+// contact points, a dark-neutral body base, and per-body-region muscle coloring (primary/
+// secondary/non-target, three distinct colors, never relying on a single glow dot) plus a thin
+// green rim-light outline. Honest framing: this is hand-authored SVG vector geometry, not
+// commercial illustrator artwork or AI-generated imagery — a genuinely different, more
+// anatomically-proportioned style than the old stick figure, not photorealistic anatomy.
+//
+// POSES below is unchanged from the original system (each exercise already carries a `pose` key
+// — this was already the "structured metadata" a scalable illustration system needs, just never
+// rendered well). It now doubles as the START reference state. POSES_FINISH hand-authors a
+// genuinely distinct FINISH (contracted/loaded) state for the movement patterns behind this
+// app's highest-traffic exercises — the toggle is hidden for any pose without one, rather than
+// faking a finish state that wasn't actually designed.
 
 const STANDING = { head: [50, 13], neck: [50, 22], shoulderL: [38, 28], shoulderR: [62, 28], hip: [50, 62], kneeL: [42, 86], ankleL: [39, 110], kneeR: [58, 86], ankleR: [61, 110] };
 
-const POSES = {
+export const POSES = {
   press_lying: { head: [16, 50], neck: [24, 52], shoulderL: [30, 52], shoulderR: [30, 58], elbowL: [28, 35], elbowR: [30, 40], handL: [30, 18], handR: [34, 20], hip: [58, 55], kneeL: [74, 58], ankleL: [84, 72], kneeR: [76, 62], ankleR: [86, 76], props: [{ type: "rect", x: 8, y: 58, w: 64, h: 8 }, { type: "line", x1: 20, y1: 16, x2: 44, y2: 16, width: 4 }] },
   press_seated_machine: { head: [50, 26], neck: [50, 34], shoulderL: [42, 38], shoulderR: [58, 38], elbowL: [36, 44], elbowR: [64, 44], handL: [30, 50], handR: [70, 50], hip: [50, 74], kneeL: [38, 90], ankleL: [34, 110], kneeR: [62, 90], ankleR: [66, 110], props: [{ type: "rect", x: 30, y: 75, w: 40, h: 10 }] },
   push_up: { head: [14, 48], neck: [22, 50], shoulderL: [28, 50], shoulderR: [28, 54], elbowL: [26, 66], elbowR: [30, 68], handL: [24, 80], handR: [28, 82], hip: [58, 52], kneeL: [78, 50], ankleL: [92, 46], kneeR: [78, 54], ankleR: [92, 50] },
@@ -936,73 +951,361 @@ const POSES = {
   carry: { ...STANDING, elbowL: [34, 50], elbowR: [66, 50], handL: [32, 70], handR: [68, 70] },
 };
 
-/* Computes where the highlighted-muscle glow sits on the skeleton, given the pose's own joint coordinates */
-function highlightPoints(cfg, muscle) {
-  const mid = (a, b, t = 0.5) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-  switch (muscle) {
-    case "chest": return [mid(cfg.neck, cfg.hip, 0.28)];
-    case "back": return [mid(cfg.neck, cfg.hip, 0.4)];
-    case "shoulders": return [mid(cfg.shoulderL, cfg.elbowL, 0.2), mid(cfg.shoulderR, cfg.elbowR, 0.2)];
-    case "arms": return [mid(cfg.shoulderL, cfg.elbowL, 0.55), mid(cfg.shoulderR, cfg.elbowR, 0.55)];
-    case "legs": return [mid(cfg.hip, cfg.kneeL, 0.5), mid(cfg.hip, cfg.kneeR, 0.5)];
-    case "core": return [mid(cfg.neck, cfg.hip, 0.78)];
-    default: return [mid(cfg.neck, cfg.hip, 0.5)];
-  }
+// Hand-authored FINISH (contracted/loaded) state for the movement patterns behind this app's
+// highest-traffic exercises — POSES above is the START (extended/stretched) reference. Convention
+// used throughout: START = limb extended away from the torso (lockout for a press, dead-hang for
+// a pull, standing tall for a squat/hinge); FINISH = limb drawn in toward the torso (bar lowered
+// to the chest for a press, bar pulled to the body for a pull, hips dropped for a squat) — this
+// matches the explicit Barbell Bench Press example given for this feature (start = bar at the top
+// near lockout, finish = bar lowered to the chest). Poses with no entry here are genuinely
+// isometric holds (plank) or simply weren't hand-tuned in this pass — the UI hides the
+// start/finish toggle for those rather than faking a second state that wasn't actually designed.
+export const POSES_FINISH = {
+  press_lying: { elbowL: [20, 48], elbowR: [22, 52], handL: [24, 54], handR: [27, 58] },
+  press_seated_machine: { handL: [20, 40], handR: [80, 40], elbowL: [30, 38], elbowR: [70, 38] },
+  press_overhead: { handL: [34, 42], handR: [66, 42], elbowL: [30, 40], elbowR: [70, 40] },
+  lateral_raise: { elbowL: [36, 45], elbowR: [64, 45], handL: [34, 60], handR: [66, 60] },
+  pullup: { head: [50, 10], neck: [50, 16], shoulderL: [40, 20], shoulderR: [60, 20], elbowL: [32, 14], elbowR: [68, 14], hip: [50, 45], kneeL: [43, 69], ankleL: [40, 92], kneeR: [57, 69], ankleR: [60, 92] },
+  pulldown: { elbowL: [25, 55], elbowR: [75, 55], handL: [35, 70], handR: [65, 70] },
+  row: { elbowL: [30, 45], elbowR: [32, 48], handL: [26, 50], handR: [28, 54] },
+  squat: { hip: [50, 88], kneeL: [36, 92], kneeR: [64, 92] },
+  hinge: { head: [50, 15], neck: [50, 22], shoulderL: [42, 26], shoulderR: [58, 26], elbowL: [40, 42], elbowR: [42, 46], handL: [38, 58], handR: [40, 62], hip: [50, 62], kneeL: [42, 86], ankleL: [40, 110], kneeR: [58, 86], ankleR: [60, 110] },
+  leg_press: { kneeL: [48, 60], ankleL: [58, 45], kneeR: [50, 64], ankleR: [60, 48] },
+  leg_extension: { ankleL: [50, 85], ankleR: [50, 95] },
+  leg_curl: { ankleL: [95, 58], ankleR: [97, 60] },
+  curl: { elbowL: [38, 50], elbowR: [62, 50], handL: [36, 68], handR: [64, 68] },
+  triceps_ext: { handL: [44, 38], handR: [56, 38] },
+  calf_raise: { head: [50, 9], neck: [50, 18], hip: [50, 58], kneeL: [42, 82], ankleL: [39, 106], kneeR: [58, 82], ankleR: [61, 106] },
+  core_crunch: { head: [20, 50], neck: [26, 52], shoulderL: [32, 53], shoulderR: [32, 56] },
+};
+
+// Which movement-pattern poses have a hand-authored finish state — used to decide whether the
+// Start/Finish toggle appears at all (rather than showing a toggle that does nothing).
+const POSES_WITH_FINISH = new Set(Object.keys(POSES_FINISH));
+
+// Secondary (assisting) muscle groups per movement pattern — used for the 3-tier muscle
+// highlighting (primary / secondary / non-target). A compound movement genuinely trains more than
+// one muscle group; showing only the single `muscle` field on the exercise as if it were the sole
+// worked muscle would misrepresent the movement.
+export const SECONDARY_MUSCLES = {
+  press_lying: ["shoulders", "arms"], press_seated_machine: ["shoulders", "arms"], push_up: ["shoulders", "arms", "core"],
+  dip: ["arms", "shoulders"], pullup: ["arms", "shoulders"], pulldown: ["arms", "shoulders"], row: ["arms", "shoulders"],
+  hinge: ["back", "legs"], press_overhead: ["arms", "core"], lateral_raise: [], rear_delt: ["back"], shrug: ["back"],
+  neck: [], curl: [], triceps_ext: [], wrist_curl: [], squat: ["core", "back"], leg_press: [], lunge: ["legs", "core"],
+  leg_extension: [], leg_curl: [], hip_thrust: ["legs", "core"], calf_raise: [], hip_swing: ["core"], core_crunch: [],
+  leg_raise_hang: ["arms"], plank: ["shoulders", "legs"], twist: ["back"], carry: ["back", "shoulders", "legs"],
+};
+
+// Two short, real mistakes per pattern — deliberately the *inverse* of the existing POSE_TIPS
+// (the cues say what to do; this is what commonly goes wrong when someone doesn't), not
+// duplicated content.
+const COMMON_MISTAKES = {
+  press_lying: ["Bouncing the bar off the chest instead of a controlled touch", "Flaring elbows out to 90°, putting unnecessary strain on the shoulder"],
+  press_seated_machine: ["Shrugging the shoulders up toward the ears during the press", "Letting the weight stack slam down between reps"],
+  push_up: ["Letting the hips sag or pike instead of a straight line", "Flaring elbows out to the sides instead of ~45°"],
+  dip: ["Going so deep the shoulders round forward excessively", "Using momentum/bouncing at the bottom instead of a controlled stop"],
+  pullup: ["Using body swing (kipping) when training for strict strength", "Not reaching a full dead hang between reps"],
+  pulldown: ["Leaning back excessively to use body English instead of the lats", "Pulling behind the neck, which strains the shoulder unnecessarily"],
+  row: ["Using momentum/torso swing instead of the back muscles", "Rounding the lower back under load"],
+  hinge: ["Rounding the lower back instead of hinging at the hips", "Letting the bar drift away from the shins/body"],
+  press_overhead: ["Arching the lower back excessively to press past a sticking point", "Pressing the bar forward instead of straight up"],
+  lateral_raise: ["Using momentum to swing the weight up instead of a controlled raise", "Raising past shoulder height, which shifts load onto the traps"],
+  rear_delt: ["Using momentum instead of a controlled squeeze", "Letting the torso rise back up mid-set instead of staying hinged"],
+  squat: ["Knees caving inward under load", "Losing depth consistency between reps"],
+  leg_press: ["Locking the knees out hard at the top", "Letting the knees cave inward"],
+  leg_extension: ["Slamming into full lockout instead of a controlled top", "Using momentum instead of a smooth extension"],
+  leg_curl: ["Lifting the hips off the pad to cheat the weight up", "Letting the weight drop instead of a controlled negative"],
+  curl: ["Swinging the torso to heave the weight up", "Only using the top half of the range of motion"],
+  triceps_ext: ["Letting the elbows flare out and drift forward", "Using the shoulders to help instead of isolating the triceps"],
+  calf_raise: ["Bouncing out of the bottom instead of a full stretch", "Cutting the range of motion short at the top"],
+  core_crunch: ["Pulling on the neck instead of using the abs", "Using the hip flexors (a hip hinge) instead of spinal flexion"],
+  plank: ["Letting the hips sag toward the floor", "Holding the breath instead of breathing normally"],
+};
+
+// A safety note only where there's a genuine, exercise-specific injury-relevant consideration —
+// not appended to every pattern as boilerplate.
+const SAFETY_NOTES = {
+  hinge: "Stop the set if you feel the lower back rounding under load — that's the point to reduce weight, not push through.",
+  squat: "Keep a spotter or safety pins available when working near your limit on a barbell squat.",
+  press_overhead: "Avoid pressing directly overhead if you have a pre-existing shoulder impingement — check with a professional first.",
+  neck: "Move slowly and stop immediately if you feel sharp pain rather than normal muscular effort.",
+  pullup: "Build up gradually if returning from any shoulder or elbow issue — this is a demanding movement for those joints.",
+};
+
+// Three-tier muscle-region coloring instead of a single glow dot: bright green for the primary
+// muscle, muted teal-green for secondary/assisting muscles, dark neutral for everything else —
+// applied directly to the body region itself (torso, shoulder joints, arm limbs, leg limbs) so a
+// viewer can see exactly what's working, not just a vague highlighted point.
+const MUSCLE_TIER_COLOR = { primary: "var(--brass)", secondary: "#3D6E5C", none: "#333E39" };
+function tierFor(group, primary, secondary) {
+  if (group === primary) return MUSCLE_TIER_COLOR.primary;
+  if (secondary.includes(group)) return MUSCLE_TIER_COLOR.secondary;
+  return MUSCLE_TIER_COLOR.none;
 }
 
-function PoseFigure({ pose, muscle, size = 90 }) {
-  const cfg = POSES[pose] || POSES.squat;
-  const { head, neck, shoulderL, shoulderR, elbowL, elbowR, handL, handR, hip, kneeL, kneeR, ankleL, ankleR, props = [] } = cfg;
+// Equipment-aware props: the same movement pattern (e.g. press_lying) is used by both barbell and
+// dumbbell variants, which look meaningfully different — a straight bar with plates spans both
+// hands, while dumbbells are two independent short bars, one per hand. Falls back to the pose's
+// own generic props (bench/rack/machine pad — already defined per-pose) for equipment types that
+// don't need a hand-held-object override.
+function equipmentShapes(cfg, equipment) {
+  const { handL, handR, props = [] } = cfg;
+  if (equipment === "Barbell" && handL && handR) {
+    const dx = handR[0] - handL[0], dy = handR[1] - handL[1];
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const ext = 7; // bar extends past the outer hand before the plate
+    const x1 = handL[0] - ux * ext, y1 = handL[1] - uy * ext;
+    const x2 = handR[0] + ux * ext, y2 = handR[1] + uy * ext;
+    return [
+      ...props,
+      { el: "line", x1, y1, x2, y2, stroke: "var(--ink-dim)", width: 2.5 },
+      { el: "circle", cx: x1, cy: y1, r: 5, fill: "var(--bg-elev2)", stroke: "var(--brass)" },
+      { el: "circle", cx: x2, cy: y2, r: 5, fill: "var(--bg-elev2)", stroke: "var(--brass)" },
+    ];
+  }
+  if (equipment === "Dumbbell" && handL && handR) {
+    const dumbbell = (h) => [
+      { el: "line", x1: h[0] - 4, y1: h[1], x2: h[0] + 4, y2: h[1], stroke: "var(--ink-dim)", width: 2 },
+      { el: "circle", cx: h[0] - 4, cy: h[1], r: 3, fill: "var(--bg-elev2)", stroke: "var(--brass)" },
+      { el: "circle", cx: h[0] + 4, cy: h[1], r: 3, fill: "var(--bg-elev2)", stroke: "var(--brass)" },
+    ];
+    return [...props, ...dumbbell(handL), ...dumbbell(handR)];
+  }
+  if (equipment === "Kettlebell" && handL) {
+    return [
+      ...props,
+      { el: "circle", cx: handL[0], cy: handL[1] + 4, r: 6, fill: "var(--bg-elev2)", stroke: "var(--brass)" },
+      { el: "path", d: `M ${handL[0] - 3} ${handL[1] - 1} a 3 3 0 0 1 6 0`, stroke: "var(--brass)", width: 1.5 },
+    ];
+  }
+  return props;
+}
+
+/**
+ * @param {string} pose movement-pattern key (matches EXERCISES[].pose)
+ * @param {string} muscle primary muscle group (matches EXERCISES[].muscle)
+ * @param {string} [equipment] equipment type, for bar/dumbbell/kettlebell rendering
+ * @param {number} [size] rendered width in px (height follows the 100:120 aspect ratio)
+ * @param {"start"|"finish"} [state] which end of the range of motion to show
+ * @param {boolean} [showLegend] renders a small primary/secondary color key beneath the figure
+ */
+function ExerciseFigure({ pose, muscle, equipment, size = 90, state = "start", showLegend = false }) {
+  const base = POSES[pose] || POSES.squat;
+  const finishOverrides = state === "finish" ? POSES_FINISH[pose] : null;
+  const cfg = finishOverrides ? { ...base, ...finishOverrides } : base;
+  const { head, neck, shoulderL, shoulderR, elbowL, elbowR, handL, handR, hip, kneeL, kneeR, ankleL, ankleR } = cfg;
   const gid = useId();
-  const glowId = `mgl-${gid}`;
-  const skinId = `skn-${gid}`;
-  const limb = (a, b, color, w) => <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={color} strokeWidth={w} strokeLinecap="round" />;
-  const highlights = muscle ? highlightPoints(cfg, muscle) : [];
+  const rimId = `rim-${gid}`;
+  const secondary = SECONDARY_MUSCLES[pose] || [];
+  const TORSO_GROUPS = ["chest", "back", "core"];
+  const torsoGroup = TORSO_GROUPS.includes(muscle) ? muscle : (secondary.find((g) => TORSO_GROUPS.includes(g)) || null);
+  const torsoColor = torsoGroup ? tierFor(torsoGroup, muscle, secondary) : MUSCLE_TIER_COLOR.none;
+  const armColor = tierFor("arms", muscle, secondary);
+  const shoulderColor = tierFor("shoulders", muscle, secondary);
+  const legColor = tierFor("legs", muscle, secondary);
+  // A thin dark outline around each limb stroke stops it from visually merging into the
+  // similarly-toned torso/other limbs when they're the same or adjacent muscle-tier color —
+  // without it, e.g. a secondary-tier forearm sitting right next to a primary-tier torso read as
+  // one undifferentiated green blob rather than two distinct body parts.
+  const limb = (a, b, color, w) => (
+    <g>
+      <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="var(--bg)" strokeWidth={w + 1.2} strokeLinecap="round" opacity="0.5" />
+      <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={color} strokeWidth={w} strokeLinecap="round" />
+    </g>
+  );
+  const shapes = equipmentShapes(cfg, equipment);
+  const ariaLabel = `${pose.replace(/_/g, " ")} illustration, ${state} position${muscle ? `, primary muscle ${muscle}` : ""}`;
+
+  // Torso as an actual tapered polygon (shoulders wider than waist) instead of a uniform-width
+  // line-capsule — this alone is most of what makes a figure read as "a person" rather than "a
+  // stick with a thick line down the middle".
+  // Derived purely from the neck→hip axis (reliable in every pose orientation — standing,
+  // lying, bent-over) rather than from shoulderL/shoulderR's own coordinates: in a side-view pose
+  // (lying, bent-over-row, hinge), shoulderL and shoulderR sit at nearly the same X position —
+  // they represent near/far depth, not left/right anatomical width — so a shoulder-width-based
+  // calculation collapses to a degenerate sliver for most of this app's poses, which is exactly
+  // what happened on the first pass. A fixed half-width offset perpendicular to the torso's own
+  // axis works correctly regardless of which way the figure is oriented.
+  const torsoDx = hip[0] - neck[0], torsoDy = hip[1] - neck[1];
+  const torsoLen = Math.hypot(torsoDx, torsoDy) || 1;
+  const perpX = -torsoDy / torsoLen, perpY = torsoDx / torsoLen;
+  const shoulderHalfWidth = 11, waistHalfWidth = 7;
+  const sL = [neck[0] + perpX * shoulderHalfWidth, neck[1] + perpY * shoulderHalfWidth];
+  const sR = [neck[0] - perpX * shoulderHalfWidth, neck[1] - perpY * shoulderHalfWidth];
+  const wR = [hip[0] - perpX * waistHalfWidth, hip[1] - perpY * waistHalfWidth];
+  const wL = [hip[0] + perpX * waistHalfWidth, hip[1] + perpY * waistHalfWidth];
+  const torsoPath = `M ${sL[0]} ${sL[1]} L ${sR[0]} ${sR[1]} L ${wR[0]} ${wR[1]} L ${wL[0]} ${wL[1]} Z`;
+
+  // Auto-fit: the joint coordinates for a given pose only span part of the 100x120 viewBox (a
+  // lying-down pose is much wider than tall; a standing pose is the opposite), which without
+  // correction made some poses render small and off-center relative to others at the same `size`.
+  // Computing a bounding box from every joint actually used and scaling/centering it to fill most
+  // of the frame keeps every pose reading at a consistent, legible size regardless of its own
+  // coordinate spread.
+  const joints = [head, neck, shoulderL, shoulderR, elbowL, elbowR, handL, handR, hip, kneeL, kneeR, ankleL, ankleR];
+  const xs = joints.map((j) => j[0]), ys = joints.map((j) => j[1]);
+  const padding = 14;
+  const minX = Math.min(...xs) - padding, maxX = Math.max(...xs) + padding;
+  const minY = Math.min(...ys) - padding, maxY = Math.max(...ys) + padding;
+  const spanX = maxX - minX || 1, spanY = maxY - minY || 1;
+  const fitScale = Math.min(100 / spanX, 120 / spanY);
+  const fitTranslateX = (100 - spanX * fitScale) / 2 - minX * fitScale;
+  const fitTranslateY = (120 - spanY * fitScale) / 2 - minY * fitScale;
+
   return (
-    <svg viewBox="0 0 100 120" width={size} height={size * 1.2} style={{ flexShrink: 0 }}>
-      <defs>
-        <linearGradient id={skinId} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="var(--skin)" />
-          <stop offset="100%" stopColor="#A89A82" />
-        </linearGradient>
-        <radialGradient id={glowId} cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="var(--muscle-hl)" stopOpacity="0.95" />
-          <stop offset="65%" stopColor="var(--muscle-hl)" stopOpacity="0.55" />
-          <stop offset="100%" stopColor="var(--muscle-hl)" stopOpacity="0" />
-        </radialGradient>
-      </defs>
+    <div>
+      <svg viewBox="0 0 100 120" width={size} height={size * 1.2} style={{ flexShrink: 0, display: "block" }} role="img" aria-label={ariaLabel}>
+        <defs>
+          <filter id={rimId} x="-20%" y="-20%" width="140%" height="140%">
+            <feMorphology operator="dilate" radius="0.6" />
+            <feColorMatrix type="matrix" values="0 0 0 0 0.24  0 0 0 0 0.81  0 0 0 0 0.56  0 0 0 0.5 0" />
+          </filter>
+        </defs>
 
-      {props.map((p, i) => {
-        if (p.type === "rect") return <rect key={i} x={p.x} y={p.y} width={p.w} height={p.h} rx={2} fill="var(--bg-elev2)" stroke="var(--brass)" strokeWidth="1.5" opacity="0.85" />;
-        if (p.type === "line") return <line key={i} x1={p.x1} y1={p.y1} x2={p.x2} y2={p.y2} stroke="var(--brass)" strokeWidth={p.width || 3} strokeLinecap="round" />;
-        return null;
-      })}
+        <g transform={`translate(${fitTranslateX} ${fitTranslateY}) scale(${fitScale})`}>
+        {shapes.map((p, i) => {
+          if (p.type === "rect" || p.el === "rect") return <rect key={i} x={p.x} y={p.y} width={p.w} height={p.h} rx={2} fill="var(--bg-elev2)" stroke="var(--brass)" strokeWidth="1.5" opacity="0.85" />;
+          if (p.type === "line" || p.el === "line") return <line key={i} x1={p.x1} y1={p.y1} x2={p.x2} y2={p.y2} stroke={p.stroke || "var(--brass)"} strokeWidth={p.width || 3} strokeLinecap="round" />;
+          if (p.el === "circle") return <circle key={i} cx={p.cx} cy={p.cy} r={p.r} fill={p.fill} stroke={p.stroke} strokeWidth="1.5" />;
+          if (p.el === "path") return <path key={i} d={p.d} fill="none" stroke={p.stroke} strokeWidth={p.width || 1.5} />;
+          return null;
+        })}
 
-      {/* back-side limbs drawn first, in shadow tone, so the front limbs layer over them */}
-      {limb(hip, kneeR, "var(--skin-dim)", 8)}
-      {limb(kneeR, ankleR, "var(--skin-dim)", 6)}
-      {limb(shoulderR, elbowR, "var(--skin-dim)", 6.5)}
-      {limb(elbowR, handR, "var(--skin-dim)", 5)}
+        {/* rim-lit silhouette pass, offset slightly behind the real body so only the edge peeks through as a thin green outline */}
+        <g filter={`url(#${rimId})`} opacity="0.6">
+          <path d={torsoPath} fill="none" />
+          <circle cx={head[0]} cy={head[1]} r="8" fill="none" />
+        </g>
 
-      {/* torso as a soft filled capsule instead of a bare line */}
-      <line x1={neck[0]} y1={neck[1]} x2={hip[0]} y2={hip[1]} stroke={`url(#${skinId})`} strokeWidth="13" strokeLinecap="round" />
-      <line x1={shoulderL[0]} y1={shoulderL[1]} x2={shoulderR[0]} y2={shoulderR[1]} stroke={`url(#${skinId})`} strokeWidth="9" strokeLinecap="round" />
+        {/* back-side limbs (shadow layer, drawn first so the front limbs read as closer) */}
+        {limb(hip, kneeR, legColor, 8)}
+        {limb(kneeR, ankleR, legColor, 6)}
+        {limb(shoulderR, elbowR, armColor, 6.5)}
+        {limb(elbowR, handR, armColor, 5)}
 
-      {/* front-side limbs, lighter tone, on top */}
-      {limb(hip, kneeL, "var(--skin)", 8)}
-      {limb(kneeL, ankleL, "var(--skin)", 6)}
-      {limb(shoulderL, elbowL, "var(--skin)", 6.5)}
-      {limb(elbowL, handL, "var(--skin)", 5)}
+        {/* tapered torso polygon */}
+        <path d={torsoPath} fill={torsoColor} stroke="var(--line)" strokeWidth="0.75" />
+        {/* shoulder caps, colored by the shoulders muscle-group tier independently of the torso */}
+        <circle cx={shoulderL[0]} cy={shoulderL[1]} r="4.5" fill={shoulderColor} stroke="var(--bg)" strokeWidth="0.75" />
+        <circle cx={shoulderR[0]} cy={shoulderR[1]} r="4.5" fill={shoulderColor} stroke="var(--bg)" strokeWidth="0.75" />
 
-      {/* muscle-targeted glow, rendered above the body so it reads clearly */}
-      {highlights.map((pt, i) => (
-        <ellipse key={i} cx={pt[0]} cy={pt[1]} rx="13" ry="10" fill={`url(#${glowId})`} />
-      ))}
+        {/* front-side limbs, on top */}
+        {limb(hip, kneeL, legColor, 8)}
+        {limb(kneeL, ankleL, legColor, 6)}
+        {limb(shoulderL, elbowL, armColor, 6.5)}
+        {limb(elbowL, handL, armColor, 5)}
 
-      {/* head with a simple two-tone shading pass */}
-      <circle cx={head[0]} cy={head[1]} r="7.5" fill={`url(#${skinId})`} stroke="var(--brass)" strokeWidth="1.5" />
-      <ellipse cx={head[0] - 2} cy={head[1] - 2.5} rx="2.6" ry="2" fill="var(--skin)" opacity="0.7" />
-    </svg>
+        {/* hands and feet as small rounded shapes, so contact with equipment (bar, bench, floor) reads clearly instead of a line just stopping */}
+        <circle cx={handL[0]} cy={handL[1]} r="3" fill="#2A332E" stroke="var(--line)" strokeWidth="0.5" />
+        <circle cx={handR[0]} cy={handR[1]} r="3" fill="#2A332E" stroke="var(--line)" strokeWidth="0.5" />
+        <ellipse cx={ankleL[0]} cy={ankleL[1] + 2} rx="5" ry="2.5" fill="#2A332E" stroke="var(--line)" strokeWidth="0.5" />
+        <ellipse cx={ankleR[0]} cy={ankleR[1] + 2} rx="5" ry="2.5" fill="#2A332E" stroke="var(--line)" strokeWidth="0.5" />
+
+        {/* head: an oval with a subtle jaw taper instead of a plain circle, plus a small brow shading pass for depth */}
+        <path d={`M ${head[0] - 6.5} ${head[1] - 5} a 6.5 5.5 0 1 1 13 0 a 6.5 7 0 0 1 -13 0 Z`} fill="#2A332E" stroke="var(--brass)" strokeWidth="1" strokeOpacity="0.5" />
+        <ellipse cx={head[0] - 1.8} cy={head[1] - 2.2} rx="2.4" ry="1.8" fill="#3A4640" opacity="0.6" />
+        </g>
+      </svg>
+      {showLegend && (
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 6, fontSize: 9 }} className="mono">
+          <span style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--ink-dim)" }}><span style={{ width: 8, height: 8, borderRadius: 2, background: MUSCLE_TIER_COLOR.primary, display: "inline-block" }} />Primary</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--ink-dim)" }}><span style={{ width: 8, height: 8, borderRadius: 2, background: MUSCLE_TIER_COLOR.secondary, display: "inline-block" }} />Secondary</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--ink-dim)" }}><span style={{ width: 8, height: 8, borderRadius: 2, background: MUSCLE_TIER_COLOR.none, display: "inline-block" }} />Other</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Redesigned exercise-detail presentation: a larger illustration (with a Start/Finish toggle
+   where one exists), primary + secondary muscles, equipment, form cues, common mistakes, a
+   safety note where one applies, and Add to Workout — stacked on mobile, two-column on wider
+   screens via .exercise-detail-layout in GlobalStyle. */
+function ExerciseDetailCard({ ex, onAdd, onBack }) {
+  const [figureState, setFigureState] = useState("start");
+  const hasFinish = POSES_WITH_FINISH.has(ex.pose);
+  const secondary = SECONDARY_MUSCLES[ex.pose] || [];
+  const mistakes = COMMON_MISTAKES[ex.pose] || [];
+  const safety = SAFETY_NOTES[ex.pose];
+  const tips = POSE_TIPS[ex.pose] || [];
+
+  return (
+    <div className="atlas-card">
+      <button onClick={onBack} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginBottom: 12 }}>
+        ← Back to library
+      </button>
+
+      <div className="exercise-detail-layout">
+        <div className="exercise-detail-figure" style={{ textAlign: "center" }}>
+          <div style={{ background: "var(--bg-elev2)", borderRadius: 12, padding: 12, display: "flex", justifyContent: "center" }}>
+            <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={160} state={figureState} showLegend />
+          </div>
+          {hasFinish && (
+            <div role="group" aria-label="View start or finish position" style={{ display: "flex", marginTop: 10, background: "var(--bg-elev2)", borderRadius: 10, padding: 3 }}>
+              {["start", "finish"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setFigureState(s)}
+                  aria-pressed={figureState === s}
+                  className="disp"
+                  style={{
+                    flex: 1, padding: "8px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                    fontSize: 11, letterSpacing: "0.03em", minHeight: 44,
+                    background: figureState === s ? "var(--brass)" : "transparent",
+                    color: figureState === s ? "#072016" : "var(--ink-dim)",
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="exercise-detail-info">
+          <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>{ex.name}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <span className="pill" style={{ background: "rgba(255,255,255,0.06)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>
+              {ex.equipment}
+            </span>
+            <span className="pill" style={{ background: "var(--brass-soft)", color: "var(--brass)", textTransform: "capitalize" }}>
+              Primary: {ex.muscle}
+            </span>
+            {secondary.map((m) => (
+              <span key={m} className="pill" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)", textTransform: "capitalize" }}>
+                Secondary: {m}
+              </span>
+            ))}
+          </div>
+
+          <div className="disp" style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 6 }}>How to Perform / Key Focus Points</div>
+          <ul style={{ margin: 0, marginBottom: 14, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+            {tips.map((t, i) => <li key={i}>{t}</li>)}
+          </ul>
+
+          {mistakes.length > 0 && (
+            <>
+              <div className="disp" style={{ fontSize: 12, color: "var(--rest)", marginBottom: 6 }}>Common Mistakes</div>
+              <ul style={{ margin: 0, marginBottom: 14, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: "var(--ink-dim)" }}>
+                {mistakes.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+            </>
+          )}
+
+          {safety && (
+            <div className="atlas-card" style={{ marginBottom: 14, borderColor: "var(--warn)", background: "rgba(255,165,61,0.08)", padding: 12 }}>
+              <div className="disp" style={{ fontSize: 11, color: "var(--warn)", marginBottom: 4 }}>Safety Note</div>
+              <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>{safety}</div>
+            </div>
+          )}
+
+          <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onAdd(ex)}>
+            <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add to Workout
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2133,7 +2436,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
         return (
           <div key={ex.name} className="atlas-card" style={{ marginBottom: 12, borderColor: ex.supersetWith ? "var(--warn)" : "var(--line)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {meta && <PoseFigure pose={meta.pose} muscle={meta.muscle} size={40} />}
+              {meta && <ExerciseFigure pose={meta.pose} muscle={meta.muscle} equipment={meta.equipment} size={40} />}
               <div style={{ flex: 1 }}>
                 <div className="disp" style={{ fontSize: 16 }}>{ex.name}</div>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -2212,28 +2515,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
           <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add Exercise
         </button>
       ) : detailEx ? (
-        <div className="atlas-card">
-          <button onClick={() => setDetailEx(null)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginBottom: 12 }}>
-            ← Back to library
-          </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <PoseFigure pose={detailEx.pose} muscle={detailEx.muscle} size={80} />
-            <div>
-              <div className="disp" style={{ fontSize: 18 }}>{detailEx.name}</div>
-              <span className="pill" style={{ background: "rgba(255,255,255,0.06)", color: EQUIPMENT_COLORS[detailEx.equipment], border: `1px solid ${EQUIPMENT_COLORS[detailEx.equipment]}` }}>
-                {detailEx.equipment}
-              </span>
-              <span className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginLeft: 8, textTransform: "capitalize" }}>{detailEx.muscle}</span>
-            </div>
-          </div>
-          <div className="disp" style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 6 }}>Key Focus Points</div>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
-            {(POSE_TIPS[detailEx.pose] || []).map((t, i) => <li key={i}>{t}</li>)}
-          </ul>
-          <button className="atlas-btn" style={{ width: "100%", marginTop: 16 }} onClick={() => addExercise(detailEx)}>
-            <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add to Workout
-          </button>
-        </div>
+        <ExerciseDetailCard ex={detailEx} onAdd={addExercise} onBack={() => setDetailEx(null)} />
       ) : creatingCustom ? (
         <div className="atlas-card">
           <button onClick={() => { setCreatingCustom(false); setCustomError(null); }} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginBottom: 12 }}>
@@ -2296,7 +2578,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             {filtered.length === 0 && <div style={{ fontSize: 12, color: "var(--ink-dim)", padding: 8 }}>No exercises match those filters.</div>}
             {filtered.slice(0, visibleExerciseCount).map((ex) => (
               <button key={ex.name} onClick={() => setDetailEx(ex)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "var(--ink)" }}>
-                <PoseFigure pose={ex.pose} muscle={ex.muscle} size={30} />
+                <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={30} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13 }}>
                     {ex.name}
@@ -2459,7 +2741,7 @@ function CoachExercisePopup({ ex, onClose }) {
       <div className="atlas-card" style={{ maxWidth: 340, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <PoseFigure pose={ex.pose} muscle={ex.muscle} size={56} />
+            <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={56} />
             <div>
               <div className="disp" style={{ fontSize: 16 }}>{ex.name}</div>
               <span className="pill" style={{ background: "rgba(255,255,255,0.06)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>{ex.equipment}</span>

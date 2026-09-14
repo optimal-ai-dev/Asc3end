@@ -199,6 +199,16 @@ export default function GlobalStyle() {
       @media (min-width: 1024px) {
         .atlas-root.landing-wide { max-width: 1040px; border-left: none; border-right: none; }
       }
+
+      /* Exercise-detail card: stacked (illustration above details) on mobile, since that's the
+         only width available; a real two-column layout once there's room, matching the explicit
+         "left: demonstration, right: details and cues" spec for the redesigned detail screen. */
+      .exercise-detail-layout { display: flex; flex-direction: column; gap: 16px; }
+      @media (min-width: 640px) {
+        .exercise-detail-layout { flex-direction: row; align-items: flex-start; }
+        .exercise-detail-figure { flex: 0 0 220px; }
+        .exercise-detail-info { flex: 1 1 auto; min-width: 0; }
+      }
     `}</style>
   );
 }
