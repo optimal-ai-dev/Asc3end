@@ -91,7 +91,7 @@ function exercisePRs(workouts, name) {
   let weightPR = null, repPR = null, oneRMPR = null, volumePR = null;
   sessions.forEach((w) => {
     const ex = w.exercises.find((e) => e.name === name);
-    const sessionVolume = ex.sets.reduce((s, st) => s + st.weight * st.reps, 0);
+    const sessionVolume = ex.sets.reduce((s, st) => s + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0);
     if (sessionVolume > 0 && (!volumePR || sessionVolume > volumePR.volume)) volumePR = { volume: sessionVolume, date: w.date };
     ex.sets.forEach((s) => {
       if (!weightPR || s.weight > weightPR.weight) weightPR = { weight: s.weight, reps: s.reps, date: w.date };

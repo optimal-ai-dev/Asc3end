@@ -8,8 +8,18 @@
 const isNonEmptyString = (v) => typeof v === "string" && v.length > 0;
 const isFiniteNumber = (v) => typeof v === "number" && Number.isFinite(v);
 
+// name/muscle/equipment remain the only REQUIRED fields — this must keep validating custom
+// exercises created before aliases/trackingType/instructions/imageUrl existed, since those rows
+// are already sitting in users' saved data. The newer fields are checked only when present, so a
+// bad value can't crash a downstream component, but their absence is never treated as invalid.
 export function isValidCustomExercise(e) {
-  return !!e && typeof e === "object" && isNonEmptyString(e.name) && isNonEmptyString(e.muscle) && isNonEmptyString(e.equipment);
+  if (!e || typeof e !== "object" || !isNonEmptyString(e.name) || !isNonEmptyString(e.muscle) || !isNonEmptyString(e.equipment)) return false;
+  if (e.aliases !== undefined && !(Array.isArray(e.aliases) && e.aliases.every((a) => typeof a === "string"))) return false;
+  if (e.secondaryMuscles !== undefined && !(Array.isArray(e.secondaryMuscles) && e.secondaryMuscles.every((m) => typeof m === "string"))) return false;
+  if (e.instructions !== undefined && !(Array.isArray(e.instructions) && e.instructions.every((i) => typeof i === "string"))) return false;
+  if (e.trackingType !== undefined && typeof e.trackingType !== "string") return false;
+  if (e.imageUrl !== undefined && e.imageUrl !== null && typeof e.imageUrl !== "string") return false;
+  return true;
 }
 
 export function isValidWorkout(w) {

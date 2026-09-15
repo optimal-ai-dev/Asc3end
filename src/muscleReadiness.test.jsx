@@ -6,6 +6,7 @@ import {
   muscleReadiness, regionForExercise, MUSCLE_REGIONS, READINESS_COLORS, READINESS_LABEL,
   FrontBodyFigure, BackBodyFigure, MuscleRecoveryDetails, EXERCISES,
 } from "./App.jsx";
+import { READINESS_MUSCLE_IDS, UNMAPPED_READINESS_REGIONS } from "./exerciseData.js";
 
 // roundedBlob() (App.jsx) emits every path as one flat "X Y X Y ..." sequence of decimal numbers
 // with no other numeric tokens — same fact mirrorX() relies on — so a path's bounding box can be
@@ -63,11 +64,24 @@ describe("READINESS_COLORS / READINESS_LABEL — the 4 required states, shared t
   });
 });
 
-describe("regionForExercise — muscle-to-SVG-region mapping", () => {
-  it("maps every real (muscle, pose) pair in EXERCISES to a real region id", () => {
-    const regionIds = new Set(MUSCLE_REGIONS.map((r) => r.id));
+describe("regionForExercise — muscle-to-region mapping", () => {
+  it("maps every exercise in EXERCISES to a real readiness region id (the 18 SVG-drawn regions plus the 3 filter/search/readiness-only regions)", () => {
+    const regionIds = new Set(READINESS_MUSCLE_IDS);
     const unmapped = EXERCISES.filter((ex) => !regionIds.has(regionForExercise(ex)));
     expect(unmapped, `exercises with no region: ${unmapped.map((e) => e.name).join(", ")}`).toEqual([]);
+  });
+
+  it("every readiness region — including the 3 not yet drawn on the body map — has at least one real exercise mapped to it (no silently-empty region)", () => {
+    const counts = {};
+    READINESS_MUSCLE_IDS.forEach((id) => (counts[id] = 0));
+    EXERCISES.forEach((ex) => { const r = regionForExercise(ex); if (r) counts[r]++; });
+    const empty = Object.entries(counts).filter(([, n]) => n === 0).map(([id]) => id);
+    expect(empty, `regions with zero exercises: ${empty.join(", ")}`).toEqual([]);
+  });
+
+  it("Abductors, Tibialis Anterior and Hip Flexors are declared as real readiness regions even though the interactive body map doesn't draw them yet", () => {
+    expect(UNMAPPED_READINESS_REGIONS.map((r) => r.id).sort()).toEqual(["abductors", "hipFlexors", "tibialisAnterior"].sort());
+    expect(READINESS_MUSCLE_IDS).toHaveLength(21);
   });
 
   it("a curl maps to biceps, a lateral raise to side delts, a leg curl to hamstrings", () => {
@@ -113,17 +127,46 @@ describe("muscleReadiness — logging a triceps exercise updates the triceps reg
   });
 });
 
-describe("adductors — no dedicated exercise data, so it honestly displays quads' real reading", () => {
-  it("the detail panel shows quads' actual computed state under the adductors label, and discloses the substitution", () => {
-    const readiness = muscleReadiness([workout(0, "Back Squat")], []);
-    expect(readiness.quads.level).toBe("fatigued");
+describe("adductors, abductors, tibialis anterior and hip flexors — real independent data, no undisclosed (or disclosed) fallback needed", () => {
+  // A prior audit found Adductor Machine/Cable Adduction/Copenhagen Plank, and the abduction/
+  // tibialis exercises, were mapping to the wrong region purely from pose reuse (not missing
+  // data) — fixing that mapping gives every one of these regions real, independently-computed
+  // readiness, so none of them need to borrow another muscle's reading anymore.
+  it("training Adductor Machine changes adductors without moving quads or glutes", () => {
+    const readiness = muscleReadiness([workout(0, "Adductor Machine")], []);
+    expect(readiness.adductors.level).toBe("fatigued");
+    expect(readiness.quads.level).toBe("unknown");
+    expect(readiness.glutes.level).toBe("unknown");
+  });
+
+  it("training Hip Abduction Machine changes abductors specifically", () => {
+    const readiness = muscleReadiness([workout(0, "Hip Abduction Machine")], []);
+    expect(readiness.abductors.level).toBe("fatigued");
+    expect(readiness.glutes.level).toBe("unknown");
+  });
+
+  it("training Tibialis Raises changes tibialisAnterior, not calves", () => {
+    const readiness = muscleReadiness([workout(0, "Tibialis Raises")], []);
+    expect(readiness.tibialisAnterior.level).toBe("fatigued");
+    expect(readiness.calves.level).toBe("unknown");
+  });
+
+  it("training a dedicated hip-flexion exercise changes hipFlexors", () => {
+    const readiness = muscleReadiness([workout(0, "Standing Knee Raise")], []);
+    expect(readiness.hipFlexors.level).toBe("fatigued");
+  });
+
+  it("the detail panel for adductors shows its own real reading, not quads', now that real data exists", () => {
+    const readiness = muscleReadiness([workout(0, "Adductor Machine"), workout(3, "Back Squat")], []);
+    expect(readiness.adductors.level).toBe("fatigued");
+    expect(readiness.quads.level).toBe("ready");
     let container = document.createElement("div");
     document.body.appendChild(container);
     act(() => { createRoot(container).render(<MuscleRecoveryDetails regionId="adductors" readiness={readiness} />); });
     const text = container.textContent;
     expect(text).toContain("Adductors");
     expect(text).toContain("Fatigued");
-    expect(text.toLowerCase()).toContain("quads");
+    expect(text.toLowerCase()).not.toContain("quads");
     container.remove();
   });
 });

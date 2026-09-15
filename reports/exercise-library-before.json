@@ -1,0 +1,1399 @@
+{
+  "generatedAt": "2026-09-15T01:54:17.221Z",
+  "totalExercises": 223,
+  "fieldsPerExercise": [
+    "name",
+    "muscle",
+    "equipment",
+    "pose"
+  ],
+  "idScheme": "name (string) is the stable join key; no separate id field exists",
+  "byMuscleGroup": {
+    "chest": 35,
+    "back": 32,
+    "shoulders": 31,
+    "arms": 44,
+    "legs": 52,
+    "core": 29
+  },
+  "byEquipment": {
+    "Barbell": 36,
+    "Dumbbell": 38,
+    "Machine": 56,
+    "Cable": 44,
+    "Bodyweight": 38,
+    "Strongman": 11
+  },
+  "byPose": {
+    "press_lying": 18,
+    "press_seated_machine": 17,
+    "push_up": 5,
+    "dip": 6,
+    "pullup": 5,
+    "pulldown": 6,
+    "row": 16,
+    "hinge": 9,
+    "press_overhead": 5,
+    "lateral_raise": 7,
+    "rear_delt": 6,
+    "shrug": 6,
+    "neck": 6,
+    "curl": 19,
+    "triceps_ext": 10,
+    "wrist_curl": 6,
+    "squat": 8,
+    "leg_press": 7,
+    "leg_extension": 1,
+    "lunge": 6,
+    "leg_curl": 6,
+    "hip_thrust": 6,
+    "calf_raise": 8,
+    "hip_swing": 6,
+    "plank": 7,
+    "core_crunch": 5,
+    "leg_raise_hang": 5,
+    "twist": 4,
+    "carry": 7
+  },
+  "approxTricepsRelatedCount": 15,
+  "exercises": [
+    {
+      "name": "Barbell Bench Press",
+      "muscle": "chest",
+      "equipment": "Barbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Incline Barbell Bench Press",
+      "muscle": "chest",
+      "equipment": "Barbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Decline Barbell Bench Press",
+      "muscle": "chest",
+      "equipment": "Barbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Reverse Grip Bench Press",
+      "muscle": "chest",
+      "equipment": "Barbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Floor Press",
+      "muscle": "chest",
+      "equipment": "Barbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Flat Dumbbell Press",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Incline Dumbbell Press",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Decline Dumbbell Press",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Dumbbell Fly",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Incline Dumbbell Fly",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Decline Dumbbell Fly",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Dumbbell Pullover",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Hex Press",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Squeeze Press",
+      "muscle": "chest",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Chest Press Machine",
+      "muscle": "chest",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Incline Chest Press Machine",
+      "muscle": "chest",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Decline Chest Press Machine",
+      "muscle": "chest",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Plate Loaded Chest Press",
+      "muscle": "chest",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Hammer Strength Chest Press",
+      "muscle": "chest",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Iso-Lateral Chest Press",
+      "muscle": "chest",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Pec Deck Machine",
+      "muscle": "chest",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Seated Fly Machine",
+      "muscle": "chest",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Cable Chest Press",
+      "muscle": "chest",
+      "equipment": "Cable",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "High-to-Low Cable Fly",
+      "muscle": "chest",
+      "equipment": "Cable",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Low-to-High Cable Fly",
+      "muscle": "chest",
+      "equipment": "Cable",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Mid Cable Fly",
+      "muscle": "chest",
+      "equipment": "Cable",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Single Arm Cable Fly",
+      "muscle": "chest",
+      "equipment": "Cable",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Standing Cable Press",
+      "muscle": "chest",
+      "equipment": "Cable",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Cable Pullover",
+      "muscle": "chest",
+      "equipment": "Cable",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Push-Up",
+      "muscle": "chest",
+      "equipment": "Bodyweight",
+      "pose": "push_up"
+    },
+    {
+      "name": "Incline Push-Up",
+      "muscle": "chest",
+      "equipment": "Bodyweight",
+      "pose": "push_up"
+    },
+    {
+      "name": "Decline Push-Up",
+      "muscle": "chest",
+      "equipment": "Bodyweight",
+      "pose": "push_up"
+    },
+    {
+      "name": "Ring Push-Up",
+      "muscle": "chest",
+      "equipment": "Bodyweight",
+      "pose": "push_up"
+    },
+    {
+      "name": "Weighted Push-Up",
+      "muscle": "chest",
+      "equipment": "Bodyweight",
+      "pose": "push_up"
+    },
+    {
+      "name": "Chest Dips",
+      "muscle": "chest",
+      "equipment": "Bodyweight",
+      "pose": "dip"
+    },
+    {
+      "name": "Pull-Up",
+      "muscle": "back",
+      "equipment": "Bodyweight",
+      "pose": "pullup"
+    },
+    {
+      "name": "Chin-Up",
+      "muscle": "back",
+      "equipment": "Bodyweight",
+      "pose": "pullup"
+    },
+    {
+      "name": "Neutral Grip Pull-Up",
+      "muscle": "back",
+      "equipment": "Bodyweight",
+      "pose": "pullup"
+    },
+    {
+      "name": "Weighted Pull-Up",
+      "muscle": "back",
+      "equipment": "Bodyweight",
+      "pose": "pullup"
+    },
+    {
+      "name": "Assisted Pull-Up",
+      "muscle": "back",
+      "equipment": "Machine",
+      "pose": "pullup"
+    },
+    {
+      "name": "Lat Pulldown",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "pulldown"
+    },
+    {
+      "name": "Wide Grip Pulldown",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "pulldown"
+    },
+    {
+      "name": "Close Grip Pulldown",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "pulldown"
+    },
+    {
+      "name": "Reverse Grip Pulldown",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "pulldown"
+    },
+    {
+      "name": "Single Arm Pulldown",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "pulldown"
+    },
+    {
+      "name": "Straight Arm Pulldown",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "pulldown"
+    },
+    {
+      "name": "Barbell Row",
+      "muscle": "back",
+      "equipment": "Barbell",
+      "pose": "row"
+    },
+    {
+      "name": "Pendlay Row",
+      "muscle": "back",
+      "equipment": "Barbell",
+      "pose": "row"
+    },
+    {
+      "name": "Dumbbell Row",
+      "muscle": "back",
+      "equipment": "Dumbbell",
+      "pose": "row"
+    },
+    {
+      "name": "Chest Supported Row (Dumbbell)",
+      "muscle": "back",
+      "equipment": "Dumbbell",
+      "pose": "row"
+    },
+    {
+      "name": "T-Bar Row",
+      "muscle": "back",
+      "equipment": "Machine",
+      "pose": "row"
+    },
+    {
+      "name": "Landmine Row",
+      "muscle": "back",
+      "equipment": "Barbell",
+      "pose": "row"
+    },
+    {
+      "name": "Seated Cable Row",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "row"
+    },
+    {
+      "name": "Wide Cable Row",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "row"
+    },
+    {
+      "name": "Close Grip Cable Row",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "row"
+    },
+    {
+      "name": "Single Arm Cable Row",
+      "muscle": "back",
+      "equipment": "Cable",
+      "pose": "row"
+    },
+    {
+      "name": "Hammer Strength High Row",
+      "muscle": "back",
+      "equipment": "Machine",
+      "pose": "row"
+    },
+    {
+      "name": "Hammer Strength Low Row",
+      "muscle": "back",
+      "equipment": "Machine",
+      "pose": "row"
+    },
+    {
+      "name": "Plate Loaded Row",
+      "muscle": "back",
+      "equipment": "Machine",
+      "pose": "row"
+    },
+    {
+      "name": "Chest Supported Machine Row",
+      "muscle": "back",
+      "equipment": "Machine",
+      "pose": "row"
+    },
+    {
+      "name": "Lever Row Machine",
+      "muscle": "back",
+      "equipment": "Machine",
+      "pose": "row"
+    },
+    {
+      "name": "Iso-Lateral Row",
+      "muscle": "back",
+      "equipment": "Machine",
+      "pose": "row"
+    },
+    {
+      "name": "Rack Pull",
+      "muscle": "back",
+      "equipment": "Barbell",
+      "pose": "hinge"
+    },
+    {
+      "name": "Deadlift",
+      "muscle": "back",
+      "equipment": "Barbell",
+      "pose": "hinge"
+    },
+    {
+      "name": "Romanian Deadlift",
+      "muscle": "back",
+      "equipment": "Barbell",
+      "pose": "hinge"
+    },
+    {
+      "name": "Snatch Grip Deadlift",
+      "muscle": "back",
+      "equipment": "Barbell",
+      "pose": "hinge"
+    },
+    {
+      "name": "Good Morning",
+      "muscle": "back",
+      "equipment": "Barbell",
+      "pose": "hinge"
+    },
+    {
+      "name": "Overhead Press (Barbell)",
+      "muscle": "shoulders",
+      "equipment": "Barbell",
+      "pose": "press_overhead"
+    },
+    {
+      "name": "Seated Barbell Press",
+      "muscle": "shoulders",
+      "equipment": "Barbell",
+      "pose": "press_overhead"
+    },
+    {
+      "name": "Dumbbell Shoulder Press",
+      "muscle": "shoulders",
+      "equipment": "Dumbbell",
+      "pose": "press_overhead"
+    },
+    {
+      "name": "Arnold Press",
+      "muscle": "shoulders",
+      "equipment": "Dumbbell",
+      "pose": "press_overhead"
+    },
+    {
+      "name": "Machine Shoulder Press",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Smith Machine Shoulder Press",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "press_seated_machine"
+    },
+    {
+      "name": "Dumbbell Lateral Raise",
+      "muscle": "shoulders",
+      "equipment": "Dumbbell",
+      "pose": "lateral_raise"
+    },
+    {
+      "name": "Cable Lateral Raise",
+      "muscle": "shoulders",
+      "equipment": "Cable",
+      "pose": "lateral_raise"
+    },
+    {
+      "name": "Machine Lateral Raise",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "lateral_raise"
+    },
+    {
+      "name": "Leaning Cable Raise",
+      "muscle": "shoulders",
+      "equipment": "Cable",
+      "pose": "lateral_raise"
+    },
+    {
+      "name": "Behind-the-Back Cable Raise",
+      "muscle": "shoulders",
+      "equipment": "Cable",
+      "pose": "lateral_raise"
+    },
+    {
+      "name": "Incline Lateral Raise",
+      "muscle": "shoulders",
+      "equipment": "Dumbbell",
+      "pose": "lateral_raise"
+    },
+    {
+      "name": "Partial Lateral Raise",
+      "muscle": "shoulders",
+      "equipment": "Dumbbell",
+      "pose": "lateral_raise"
+    },
+    {
+      "name": "Reverse Pec Deck",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "rear_delt"
+    },
+    {
+      "name": "Rear Delt Fly",
+      "muscle": "shoulders",
+      "equipment": "Dumbbell",
+      "pose": "rear_delt"
+    },
+    {
+      "name": "Cable Rear Delt Fly",
+      "muscle": "shoulders",
+      "equipment": "Cable",
+      "pose": "rear_delt"
+    },
+    {
+      "name": "Face Pull",
+      "muscle": "shoulders",
+      "equipment": "Cable",
+      "pose": "rear_delt"
+    },
+    {
+      "name": "Bent Over Lateral Raise",
+      "muscle": "shoulders",
+      "equipment": "Dumbbell",
+      "pose": "rear_delt"
+    },
+    {
+      "name": "Machine Rear Delt Fly",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "rear_delt"
+    },
+    {
+      "name": "Barbell Shrug",
+      "muscle": "shoulders",
+      "equipment": "Barbell",
+      "pose": "shrug"
+    },
+    {
+      "name": "Dumbbell Shrug",
+      "muscle": "shoulders",
+      "equipment": "Dumbbell",
+      "pose": "shrug"
+    },
+    {
+      "name": "Smith Machine Shrug",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "shrug"
+    },
+    {
+      "name": "Cable Shrug",
+      "muscle": "shoulders",
+      "equipment": "Cable",
+      "pose": "shrug"
+    },
+    {
+      "name": "Trap Bar Shrug",
+      "muscle": "shoulders",
+      "equipment": "Barbell",
+      "pose": "shrug"
+    },
+    {
+      "name": "Upright Row",
+      "muscle": "shoulders",
+      "equipment": "Barbell",
+      "pose": "shrug"
+    },
+    {
+      "name": "Neck Flexion",
+      "muscle": "shoulders",
+      "equipment": "Bodyweight",
+      "pose": "neck"
+    },
+    {
+      "name": "Neck Extension",
+      "muscle": "shoulders",
+      "equipment": "Bodyweight",
+      "pose": "neck"
+    },
+    {
+      "name": "Neck Lateral Flexion",
+      "muscle": "shoulders",
+      "equipment": "Bodyweight",
+      "pose": "neck"
+    },
+    {
+      "name": "Neck Harness Extensions",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "neck"
+    },
+    {
+      "name": "Plate Neck Curl",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "neck"
+    },
+    {
+      "name": "Four-Way Neck Machine",
+      "muscle": "shoulders",
+      "equipment": "Machine",
+      "pose": "neck"
+    },
+    {
+      "name": "Barbell Curl",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "curl"
+    },
+    {
+      "name": "EZ Bar Curl",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Dumbbell Curl",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Alternating Dumbbell Curl",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Hammer Curl",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Cross Body Hammer Curl",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Concentration Curl",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Incline Dumbbell Curl",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Spider Curl",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Preacher Curl",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Cable Curl",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "curl"
+    },
+    {
+      "name": "Rope Curl",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "curl"
+    },
+    {
+      "name": "Bayesian Curl",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "curl"
+    },
+    {
+      "name": "Single Arm Cable Curl",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "curl"
+    },
+    {
+      "name": "High Cable Curl",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "curl"
+    },
+    {
+      "name": "Reverse Curl",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "curl"
+    },
+    {
+      "name": "Preacher Curl Machine",
+      "muscle": "arms",
+      "equipment": "Machine",
+      "pose": "curl"
+    },
+    {
+      "name": "Seated Curl Machine",
+      "muscle": "arms",
+      "equipment": "Machine",
+      "pose": "curl"
+    },
+    {
+      "name": "Plate Loaded Curl Machine",
+      "muscle": "arms",
+      "equipment": "Machine",
+      "pose": "curl"
+    },
+    {
+      "name": "Skull Crusher",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Close Grip Bench Press",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Tate Press",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "JM Press",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "press_lying"
+    },
+    {
+      "name": "Dumbbell Overhead Extension",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Single Arm Overhead Extension",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Rope Pushdown",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Straight Bar Pushdown",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "V-Bar Pushdown",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Reverse Grip Pushdown",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Overhead Rope Extension",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Cross Body Cable Extension",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Single Arm Pushdown",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Triceps Extension Machine",
+      "muscle": "arms",
+      "equipment": "Machine",
+      "pose": "triceps_ext"
+    },
+    {
+      "name": "Assisted Dip Machine",
+      "muscle": "arms",
+      "equipment": "Machine",
+      "pose": "dip"
+    },
+    {
+      "name": "Plate Loaded Dip Machine",
+      "muscle": "arms",
+      "equipment": "Machine",
+      "pose": "dip"
+    },
+    {
+      "name": "Bench Dips",
+      "muscle": "arms",
+      "equipment": "Bodyweight",
+      "pose": "dip"
+    },
+    {
+      "name": "Parallel Bar Dips",
+      "muscle": "arms",
+      "equipment": "Bodyweight",
+      "pose": "dip"
+    },
+    {
+      "name": "Weighted Dips",
+      "muscle": "arms",
+      "equipment": "Bodyweight",
+      "pose": "dip"
+    },
+    {
+      "name": "Wrist Curl",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "wrist_curl"
+    },
+    {
+      "name": "Reverse Wrist Curl",
+      "muscle": "arms",
+      "equipment": "Dumbbell",
+      "pose": "wrist_curl"
+    },
+    {
+      "name": "Behind the Back Wrist Curl",
+      "muscle": "arms",
+      "equipment": "Barbell",
+      "pose": "wrist_curl"
+    },
+    {
+      "name": "Wrist Roller",
+      "muscle": "arms",
+      "equipment": "Strongman",
+      "pose": "wrist_curl"
+    },
+    {
+      "name": "Plate Pinch",
+      "muscle": "arms",
+      "equipment": "Strongman",
+      "pose": "wrist_curl"
+    },
+    {
+      "name": "Cable Wrist Curl",
+      "muscle": "arms",
+      "equipment": "Cable",
+      "pose": "wrist_curl"
+    },
+    {
+      "name": "Back Squat",
+      "muscle": "legs",
+      "equipment": "Barbell",
+      "pose": "squat"
+    },
+    {
+      "name": "Front Squat",
+      "muscle": "legs",
+      "equipment": "Barbell",
+      "pose": "squat"
+    },
+    {
+      "name": "Smith Machine Squat",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "squat"
+    },
+    {
+      "name": "Hack Squat (Barbell)",
+      "muscle": "legs",
+      "equipment": "Barbell",
+      "pose": "squat"
+    },
+    {
+      "name": "Safety Bar Squat",
+      "muscle": "legs",
+      "equipment": "Barbell",
+      "pose": "squat"
+    },
+    {
+      "name": "Goblet Squat",
+      "muscle": "legs",
+      "equipment": "Dumbbell",
+      "pose": "squat"
+    },
+    {
+      "name": "Zercher Squat",
+      "muscle": "legs",
+      "equipment": "Barbell",
+      "pose": "squat"
+    },
+    {
+      "name": "Sumo Squat",
+      "muscle": "legs",
+      "equipment": "Dumbbell",
+      "pose": "squat"
+    },
+    {
+      "name": "Leg Press",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_press"
+    },
+    {
+      "name": "Vertical Leg Press",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_press"
+    },
+    {
+      "name": "Hack Squat Machine",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_press"
+    },
+    {
+      "name": "Pendulum Squat",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_press"
+    },
+    {
+      "name": "Belt Squat",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_press"
+    },
+    {
+      "name": "V-Squat Machine",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_press"
+    },
+    {
+      "name": "Linear Hack Squat",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_press"
+    },
+    {
+      "name": "Leg Extension",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_extension"
+    },
+    {
+      "name": "Bulgarian Split Squat",
+      "muscle": "legs",
+      "equipment": "Dumbbell",
+      "pose": "lunge"
+    },
+    {
+      "name": "Walking Lunge",
+      "muscle": "legs",
+      "equipment": "Dumbbell",
+      "pose": "lunge"
+    },
+    {
+      "name": "Reverse Lunge",
+      "muscle": "legs",
+      "equipment": "Dumbbell",
+      "pose": "lunge"
+    },
+    {
+      "name": "Step-Up",
+      "muscle": "legs",
+      "equipment": "Dumbbell",
+      "pose": "lunge"
+    },
+    {
+      "name": "Split Squat",
+      "muscle": "legs",
+      "equipment": "Dumbbell",
+      "pose": "lunge"
+    },
+    {
+      "name": "Smith Machine Split Squat",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "lunge"
+    },
+    {
+      "name": "Stiff Leg Deadlift",
+      "muscle": "legs",
+      "equipment": "Barbell",
+      "pose": "hinge"
+    },
+    {
+      "name": "Seated Leg Curl",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_curl"
+    },
+    {
+      "name": "Lying Leg Curl",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_curl"
+    },
+    {
+      "name": "Standing Leg Curl",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_curl"
+    },
+    {
+      "name": "Nordic Curl",
+      "muscle": "legs",
+      "equipment": "Bodyweight",
+      "pose": "leg_curl"
+    },
+    {
+      "name": "Glute Ham Raise",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "leg_curl"
+    },
+    {
+      "name": "Cable Leg Curl",
+      "muscle": "legs",
+      "equipment": "Cable",
+      "pose": "leg_curl"
+    },
+    {
+      "name": "Hip Thrust",
+      "muscle": "legs",
+      "equipment": "Barbell",
+      "pose": "hip_thrust"
+    },
+    {
+      "name": "Smith Machine Hip Thrust",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "hip_thrust"
+    },
+    {
+      "name": "Glute Bridge",
+      "muscle": "legs",
+      "equipment": "Bodyweight",
+      "pose": "hip_thrust"
+    },
+    {
+      "name": "Cable Kickback",
+      "muscle": "legs",
+      "equipment": "Cable",
+      "pose": "hip_thrust"
+    },
+    {
+      "name": "Machine Kickback",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "hip_thrust"
+    },
+    {
+      "name": "Cable Pull Through",
+      "muscle": "legs",
+      "equipment": "Cable",
+      "pose": "hinge"
+    },
+    {
+      "name": "Frog Pumps",
+      "muscle": "legs",
+      "equipment": "Bodyweight",
+      "pose": "hip_thrust"
+    },
+    {
+      "name": "Sumo Deadlift",
+      "muscle": "legs",
+      "equipment": "Barbell",
+      "pose": "hinge"
+    },
+    {
+      "name": "Standing Calf Raise",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "calf_raise"
+    },
+    {
+      "name": "Seated Calf Raise",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "calf_raise"
+    },
+    {
+      "name": "Leg Press Calf Raise",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "calf_raise"
+    },
+    {
+      "name": "Smith Machine Calf Raise",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "calf_raise"
+    },
+    {
+      "name": "Donkey Calf Raise",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "calf_raise"
+    },
+    {
+      "name": "Single Leg Calf Raise",
+      "muscle": "legs",
+      "equipment": "Bodyweight",
+      "pose": "calf_raise"
+    },
+    {
+      "name": "Tibialis Raise Machine",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "calf_raise"
+    },
+    {
+      "name": "Tibialis Raises",
+      "muscle": "legs",
+      "equipment": "Bodyweight",
+      "pose": "calf_raise"
+    },
+    {
+      "name": "Adductor Machine",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "hip_swing"
+    },
+    {
+      "name": "Cable Adduction",
+      "muscle": "legs",
+      "equipment": "Cable",
+      "pose": "hip_swing"
+    },
+    {
+      "name": "Copenhagen Plank",
+      "muscle": "legs",
+      "equipment": "Bodyweight",
+      "pose": "plank"
+    },
+    {
+      "name": "Hip Abduction Machine",
+      "muscle": "legs",
+      "equipment": "Machine",
+      "pose": "hip_swing"
+    },
+    {
+      "name": "Cable Hip Abduction",
+      "muscle": "legs",
+      "equipment": "Cable",
+      "pose": "hip_swing"
+    },
+    {
+      "name": "Standing Band Abduction",
+      "muscle": "legs",
+      "equipment": "Bodyweight",
+      "pose": "hip_swing"
+    },
+    {
+      "name": "Side Lying Leg Raise",
+      "muscle": "legs",
+      "equipment": "Bodyweight",
+      "pose": "hip_swing"
+    },
+    {
+      "name": "Cable Crunch",
+      "muscle": "core",
+      "equipment": "Cable",
+      "pose": "core_crunch"
+    },
+    {
+      "name": "Machine Crunch",
+      "muscle": "core",
+      "equipment": "Machine",
+      "pose": "core_crunch"
+    },
+    {
+      "name": "Decline Crunch",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "core_crunch"
+    },
+    {
+      "name": "Stability Ball Crunch",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "core_crunch"
+    },
+    {
+      "name": "Weighted Crunch",
+      "muscle": "core",
+      "equipment": "Dumbbell",
+      "pose": "core_crunch"
+    },
+    {
+      "name": "Hanging Leg Raise",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "leg_raise_hang"
+    },
+    {
+      "name": "Hanging Knee Raise",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "leg_raise_hang"
+    },
+    {
+      "name": "Lying Leg Raise",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "leg_raise_hang"
+    },
+    {
+      "name": "Reverse Crunch",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "leg_raise_hang"
+    },
+    {
+      "name": "Toes to Bar",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "leg_raise_hang"
+    },
+    {
+      "name": "Cable Woodchopper",
+      "muscle": "core",
+      "equipment": "Cable",
+      "pose": "twist"
+    },
+    {
+      "name": "Russian Twist",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "twist"
+    },
+    {
+      "name": "Side Plank",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "plank"
+    },
+    {
+      "name": "Landmine Twist",
+      "muscle": "core",
+      "equipment": "Barbell",
+      "pose": "twist"
+    },
+    {
+      "name": "Bicycle Crunch",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "twist"
+    },
+    {
+      "name": "Plank",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "plank"
+    },
+    {
+      "name": "Dead Bug",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "plank"
+    },
+    {
+      "name": "Pallof Press",
+      "muscle": "core",
+      "equipment": "Cable",
+      "pose": "plank"
+    },
+    {
+      "name": "Ab Wheel Rollout",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "plank"
+    },
+    {
+      "name": "TRX Fallout",
+      "muscle": "core",
+      "equipment": "Bodyweight",
+      "pose": "plank"
+    },
+    {
+      "name": "Sled Push",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "carry"
+    },
+    {
+      "name": "Sled Pull",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "carry"
+    },
+    {
+      "name": "Battle Ropes",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "carry"
+    },
+    {
+      "name": "Farmer's Carry",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "carry"
+    },
+    {
+      "name": "Atlas Stone Lift",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "carry"
+    },
+    {
+      "name": "Yoke Carry",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "carry"
+    },
+    {
+      "name": "Log Press",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "press_overhead"
+    },
+    {
+      "name": "Tire Flips",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "hinge"
+    },
+    {
+      "name": "Heavy Kettlebell Carry",
+      "muscle": "core",
+      "equipment": "Strongman",
+      "pose": "carry"
+    }
+  ]
+}

@@ -29,6 +29,13 @@ import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, isValidChatMessage, isValidChallenge, sanitizeList } from "./lib/validation";
 import { parseAppPath, buildAppPath } from "./lib/routing";
 import { FEEDBACK_TYPES, MAX_MESSAGE_LENGTH, submitFeedback } from "./lib/feedback";
+import {
+  MUSCLE_GROUPS, MUSCLE_REGIONS, UNMAPPED_READINESS_REGIONS, READINESS_MUSCLE_IDS, REGION_LABEL,
+  READINESS_DISPLAY_SOURCE, EQUIPMENT_TYPES, MUSCLE_POSITIONS, EQUIPMENT_COLORS, MUSCLE_DEFAULT_POSE,
+  TRACKING_TYPES, TRACKING_TYPE_LABEL, WEIGHT_REPS_TRACKING_TYPES,
+  POSE_TIPS, SECONDARY_REGIONS_BY_POSE, POSE_TO_REGION, GROUP_DEFAULT_REGION, regionForExercise,
+  EXERCISES, getExerciseGuidance, matchesExerciseSearch, getExerciseAlternatives,
+} from "./exerciseData";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
 // people who actually open the Progress tab, instead of loading on every page for everyone.
@@ -50,289 +57,43 @@ const KEYS = {
   challenges: "atlas:challenges",
 };
 
-/* Each exercise references a movement-pattern "pose" — this drives both the form-cue text (POSE_TIPS)
-   and the human figure illustration (POSES/PoseFigure) so every variation gets a real visual demo. */
-export const EXERCISES = [
-  // CHEST
-  { name: "Barbell Bench Press", muscle: "chest", equipment: "Barbell", pose: "press_lying" },
-  { name: "Incline Barbell Bench Press", muscle: "chest", equipment: "Barbell", pose: "press_lying" },
-  { name: "Decline Barbell Bench Press", muscle: "chest", equipment: "Barbell", pose: "press_lying" },
-  { name: "Reverse Grip Bench Press", muscle: "chest", equipment: "Barbell", pose: "press_lying" },
-  { name: "Floor Press", muscle: "chest", equipment: "Barbell", pose: "press_lying" },
-  { name: "Flat Dumbbell Press", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Incline Dumbbell Press", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Decline Dumbbell Press", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Dumbbell Fly", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Incline Dumbbell Fly", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Decline Dumbbell Fly", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Dumbbell Pullover", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Hex Press", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Squeeze Press", muscle: "chest", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "Chest Press Machine", muscle: "chest", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Incline Chest Press Machine", muscle: "chest", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Decline Chest Press Machine", muscle: "chest", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Plate Loaded Chest Press", muscle: "chest", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Hammer Strength Chest Press", muscle: "chest", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Iso-Lateral Chest Press", muscle: "chest", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Pec Deck Machine", muscle: "chest", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Seated Fly Machine", muscle: "chest", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Cable Chest Press", muscle: "chest", equipment: "Cable", pose: "press_seated_machine" },
-  { name: "High-to-Low Cable Fly", muscle: "chest", equipment: "Cable", pose: "press_seated_machine" },
-  { name: "Low-to-High Cable Fly", muscle: "chest", equipment: "Cable", pose: "press_seated_machine" },
-  { name: "Mid Cable Fly", muscle: "chest", equipment: "Cable", pose: "press_seated_machine" },
-  { name: "Single Arm Cable Fly", muscle: "chest", equipment: "Cable", pose: "press_seated_machine" },
-  { name: "Standing Cable Press", muscle: "chest", equipment: "Cable", pose: "press_seated_machine" },
-  { name: "Cable Pullover", muscle: "chest", equipment: "Cable", pose: "press_seated_machine" },
-  { name: "Push-Up", muscle: "chest", equipment: "Bodyweight", pose: "push_up" },
-  { name: "Incline Push-Up", muscle: "chest", equipment: "Bodyweight", pose: "push_up" },
-  { name: "Decline Push-Up", muscle: "chest", equipment: "Bodyweight", pose: "push_up" },
-  { name: "Ring Push-Up", muscle: "chest", equipment: "Bodyweight", pose: "push_up" },
-  { name: "Weighted Push-Up", muscle: "chest", equipment: "Bodyweight", pose: "push_up" },
-  { name: "Chest Dips", muscle: "chest", equipment: "Bodyweight", pose: "dip" },
+// EXERCISES, POSE_TIPS, MUSCLE_GROUPS, EQUIPMENT_TYPES, MUSCLE_POSITIONS, EQUIPMENT_COLORS and
+// MUSCLE_DEFAULT_POSE now live in ./exerciseData.js (imported above) — extracted so the ~450-entry
+// catalogue can be read, validated and tested independently of this component file. Re-exported
+// below so every existing `import { EXERCISES, ... } from "./App"` elsewhere in the codebase keeps
+// working unchanged.
+export { EXERCISES, MUSCLE_GROUPS, MUSCLE_REGIONS, regionForExercise, POSE_TIPS };
 
-  // BACK
-  { name: "Pull-Up", muscle: "back", equipment: "Bodyweight", pose: "pullup" },
-  { name: "Chin-Up", muscle: "back", equipment: "Bodyweight", pose: "pullup" },
-  { name: "Neutral Grip Pull-Up", muscle: "back", equipment: "Bodyweight", pose: "pullup" },
-  { name: "Weighted Pull-Up", muscle: "back", equipment: "Bodyweight", pose: "pullup" },
-  { name: "Assisted Pull-Up", muscle: "back", equipment: "Machine", pose: "pullup" },
-  { name: "Lat Pulldown", muscle: "back", equipment: "Cable", pose: "pulldown" },
-  { name: "Wide Grip Pulldown", muscle: "back", equipment: "Cable", pose: "pulldown" },
-  { name: "Close Grip Pulldown", muscle: "back", equipment: "Cable", pose: "pulldown" },
-  { name: "Reverse Grip Pulldown", muscle: "back", equipment: "Cable", pose: "pulldown" },
-  { name: "Single Arm Pulldown", muscle: "back", equipment: "Cable", pose: "pulldown" },
-  { name: "Straight Arm Pulldown", muscle: "back", equipment: "Cable", pose: "pulldown" },
-  { name: "Barbell Row", muscle: "back", equipment: "Barbell", pose: "row" },
-  { name: "Pendlay Row", muscle: "back", equipment: "Barbell", pose: "row" },
-  { name: "Dumbbell Row", muscle: "back", equipment: "Dumbbell", pose: "row" },
-  { name: "Chest Supported Row (Dumbbell)", muscle: "back", equipment: "Dumbbell", pose: "row" },
-  { name: "T-Bar Row", muscle: "back", equipment: "Machine", pose: "row" },
-  { name: "Landmine Row", muscle: "back", equipment: "Barbell", pose: "row" },
-  { name: "Seated Cable Row", muscle: "back", equipment: "Cable", pose: "row" },
-  { name: "Wide Cable Row", muscle: "back", equipment: "Cable", pose: "row" },
-  { name: "Close Grip Cable Row", muscle: "back", equipment: "Cable", pose: "row" },
-  { name: "Single Arm Cable Row", muscle: "back", equipment: "Cable", pose: "row" },
-  { name: "Hammer Strength High Row", muscle: "back", equipment: "Machine", pose: "row" },
-  { name: "Hammer Strength Low Row", muscle: "back", equipment: "Machine", pose: "row" },
-  { name: "Plate Loaded Row", muscle: "back", equipment: "Machine", pose: "row" },
-  { name: "Chest Supported Machine Row", muscle: "back", equipment: "Machine", pose: "row" },
-  { name: "Lever Row Machine", muscle: "back", equipment: "Machine", pose: "row" },
-  { name: "Iso-Lateral Row", muscle: "back", equipment: "Machine", pose: "row" },
-  { name: "Rack Pull", muscle: "back", equipment: "Barbell", pose: "hinge" },
-  { name: "Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge" },
-  { name: "Romanian Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge" },
-  { name: "Snatch Grip Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge" },
-  { name: "Good Morning", muscle: "back", equipment: "Barbell", pose: "hinge" },
+// Every readiness region (the 18 drawn on the body map plus the 3 filter/search-only ones),
+// grouped by coarse muscle group — used to scope the Train picker's region filter to whichever
+// coarse group is currently selected (e.g. picking "Arms" reveals Biceps/Triceps/Forearms as
+// sub-filters) instead of showing all 21 regions in one flat, overwhelming row.
+const ALL_READINESS_REGIONS = [...MUSCLE_REGIONS, ...UNMAPPED_READINESS_REGIONS];
+const REGIONS_BY_GROUP = MUSCLE_GROUPS.reduce((acc, g) => {
+  acc[g] = ALL_READINESS_REGIONS.filter((r) => r.group === g).map((r) => r.id);
+  return acc;
+}, {});
 
-  // SHOULDERS
-  { name: "Overhead Press (Barbell)", muscle: "shoulders", equipment: "Barbell", pose: "press_overhead" },
-  { name: "Seated Barbell Press", muscle: "shoulders", equipment: "Barbell", pose: "press_overhead" },
-  { name: "Dumbbell Shoulder Press", muscle: "shoulders", equipment: "Dumbbell", pose: "press_overhead" },
-  { name: "Arnold Press", muscle: "shoulders", equipment: "Dumbbell", pose: "press_overhead" },
-  { name: "Machine Shoulder Press", muscle: "shoulders", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Smith Machine Shoulder Press", muscle: "shoulders", equipment: "Machine", pose: "press_seated_machine" },
-  { name: "Dumbbell Lateral Raise", muscle: "shoulders", equipment: "Dumbbell", pose: "lateral_raise" },
-  { name: "Cable Lateral Raise", muscle: "shoulders", equipment: "Cable", pose: "lateral_raise" },
-  { name: "Machine Lateral Raise", muscle: "shoulders", equipment: "Machine", pose: "lateral_raise" },
-  { name: "Leaning Cable Raise", muscle: "shoulders", equipment: "Cable", pose: "lateral_raise" },
-  { name: "Behind-the-Back Cable Raise", muscle: "shoulders", equipment: "Cable", pose: "lateral_raise" },
-  { name: "Incline Lateral Raise", muscle: "shoulders", equipment: "Dumbbell", pose: "lateral_raise" },
-  { name: "Partial Lateral Raise", muscle: "shoulders", equipment: "Dumbbell", pose: "lateral_raise" },
-  { name: "Reverse Pec Deck", muscle: "shoulders", equipment: "Machine", pose: "rear_delt" },
-  { name: "Rear Delt Fly", muscle: "shoulders", equipment: "Dumbbell", pose: "rear_delt" },
-  { name: "Cable Rear Delt Fly", muscle: "shoulders", equipment: "Cable", pose: "rear_delt" },
-  { name: "Face Pull", muscle: "shoulders", equipment: "Cable", pose: "rear_delt" },
-  { name: "Bent Over Lateral Raise", muscle: "shoulders", equipment: "Dumbbell", pose: "rear_delt" },
-  { name: "Machine Rear Delt Fly", muscle: "shoulders", equipment: "Machine", pose: "rear_delt" },
-  { name: "Barbell Shrug", muscle: "shoulders", equipment: "Barbell", pose: "shrug" },
-  { name: "Dumbbell Shrug", muscle: "shoulders", equipment: "Dumbbell", pose: "shrug" },
-  { name: "Smith Machine Shrug", muscle: "shoulders", equipment: "Machine", pose: "shrug" },
-  { name: "Cable Shrug", muscle: "shoulders", equipment: "Cable", pose: "shrug" },
-  { name: "Trap Bar Shrug", muscle: "shoulders", equipment: "Barbell", pose: "shrug" },
-  { name: "Upright Row", muscle: "shoulders", equipment: "Barbell", pose: "shrug" },
-  { name: "Neck Flexion", muscle: "shoulders", equipment: "Bodyweight", pose: "neck" },
-  { name: "Neck Extension", muscle: "shoulders", equipment: "Bodyweight", pose: "neck" },
-  { name: "Neck Lateral Flexion", muscle: "shoulders", equipment: "Bodyweight", pose: "neck" },
-  { name: "Neck Harness Extensions", muscle: "shoulders", equipment: "Machine", pose: "neck" },
-  { name: "Plate Neck Curl", muscle: "shoulders", equipment: "Machine", pose: "neck" },
-  { name: "Four-Way Neck Machine", muscle: "shoulders", equipment: "Machine", pose: "neck" },
-
-  // ARMS — biceps, triceps, forearms
-  { name: "Barbell Curl", muscle: "arms", equipment: "Barbell", pose: "curl" },
-  { name: "EZ Bar Curl", muscle: "arms", equipment: "Barbell", pose: "curl" },
-  { name: "Dumbbell Curl", muscle: "arms", equipment: "Dumbbell", pose: "curl" },
-  { name: "Alternating Dumbbell Curl", muscle: "arms", equipment: "Dumbbell", pose: "curl" },
-  { name: "Hammer Curl", muscle: "arms", equipment: "Dumbbell", pose: "curl" },
-  { name: "Cross Body Hammer Curl", muscle: "arms", equipment: "Dumbbell", pose: "curl" },
-  { name: "Concentration Curl", muscle: "arms", equipment: "Dumbbell", pose: "curl" },
-  { name: "Incline Dumbbell Curl", muscle: "arms", equipment: "Dumbbell", pose: "curl" },
-  { name: "Spider Curl", muscle: "arms", equipment: "Barbell", pose: "curl" },
-  { name: "Preacher Curl", muscle: "arms", equipment: "Barbell", pose: "curl" },
-  { name: "Cable Curl", muscle: "arms", equipment: "Cable", pose: "curl" },
-  { name: "Rope Curl", muscle: "arms", equipment: "Cable", pose: "curl" },
-  { name: "Bayesian Curl", muscle: "arms", equipment: "Cable", pose: "curl" },
-  { name: "Single Arm Cable Curl", muscle: "arms", equipment: "Cable", pose: "curl" },
-  { name: "High Cable Curl", muscle: "arms", equipment: "Cable", pose: "curl" },
-  { name: "Reverse Curl", muscle: "arms", equipment: "Barbell", pose: "curl" },
-  { name: "Preacher Curl Machine", muscle: "arms", equipment: "Machine", pose: "curl" },
-  { name: "Seated Curl Machine", muscle: "arms", equipment: "Machine", pose: "curl" },
-  { name: "Plate Loaded Curl Machine", muscle: "arms", equipment: "Machine", pose: "curl" },
-  { name: "Skull Crusher", muscle: "arms", equipment: "Barbell", pose: "press_lying" },
-  { name: "Close Grip Bench Press", muscle: "arms", equipment: "Barbell", pose: "press_lying" },
-  { name: "Tate Press", muscle: "arms", equipment: "Dumbbell", pose: "press_lying" },
-  { name: "JM Press", muscle: "arms", equipment: "Barbell", pose: "press_lying" },
-  { name: "Dumbbell Overhead Extension", muscle: "arms", equipment: "Dumbbell", pose: "triceps_ext" },
-  { name: "Single Arm Overhead Extension", muscle: "arms", equipment: "Dumbbell", pose: "triceps_ext" },
-  { name: "Rope Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext" },
-  { name: "Straight Bar Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext" },
-  { name: "V-Bar Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext" },
-  { name: "Reverse Grip Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext" },
-  { name: "Overhead Rope Extension", muscle: "arms", equipment: "Cable", pose: "triceps_ext" },
-  { name: "Cross Body Cable Extension", muscle: "arms", equipment: "Cable", pose: "triceps_ext" },
-  { name: "Single Arm Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext" },
-  { name: "Triceps Extension Machine", muscle: "arms", equipment: "Machine", pose: "triceps_ext" },
-  { name: "Assisted Dip Machine", muscle: "arms", equipment: "Machine", pose: "dip" },
-  { name: "Plate Loaded Dip Machine", muscle: "arms", equipment: "Machine", pose: "dip" },
-  { name: "Bench Dips", muscle: "arms", equipment: "Bodyweight", pose: "dip" },
-  { name: "Parallel Bar Dips", muscle: "arms", equipment: "Bodyweight", pose: "dip" },
-  { name: "Weighted Dips", muscle: "arms", equipment: "Bodyweight", pose: "dip" },
-  { name: "Wrist Curl", muscle: "arms", equipment: "Dumbbell", pose: "wrist_curl" },
-  { name: "Reverse Wrist Curl", muscle: "arms", equipment: "Dumbbell", pose: "wrist_curl" },
-  { name: "Behind the Back Wrist Curl", muscle: "arms", equipment: "Barbell", pose: "wrist_curl" },
-  { name: "Wrist Roller", muscle: "arms", equipment: "Strongman", pose: "wrist_curl" },
-  { name: "Plate Pinch", muscle: "arms", equipment: "Strongman", pose: "wrist_curl" },
-  { name: "Cable Wrist Curl", muscle: "arms", equipment: "Cable", pose: "wrist_curl" },
-
-  // LEGS — quads, hamstrings, glutes, calves, adductors, abductors
-  { name: "Back Squat", muscle: "legs", equipment: "Barbell", pose: "squat" },
-  { name: "Front Squat", muscle: "legs", equipment: "Barbell", pose: "squat" },
-  { name: "Smith Machine Squat", muscle: "legs", equipment: "Machine", pose: "squat" },
-  { name: "Hack Squat (Barbell)", muscle: "legs", equipment: "Barbell", pose: "squat" },
-  { name: "Safety Bar Squat", muscle: "legs", equipment: "Barbell", pose: "squat" },
-  { name: "Goblet Squat", muscle: "legs", equipment: "Dumbbell", pose: "squat" },
-  { name: "Zercher Squat", muscle: "legs", equipment: "Barbell", pose: "squat" },
-  { name: "Sumo Squat", muscle: "legs", equipment: "Dumbbell", pose: "squat" },
-  { name: "Leg Press", muscle: "legs", equipment: "Machine", pose: "leg_press" },
-  { name: "Vertical Leg Press", muscle: "legs", equipment: "Machine", pose: "leg_press" },
-  { name: "Hack Squat Machine", muscle: "legs", equipment: "Machine", pose: "leg_press" },
-  { name: "Pendulum Squat", muscle: "legs", equipment: "Machine", pose: "leg_press" },
-  { name: "Belt Squat", muscle: "legs", equipment: "Machine", pose: "leg_press" },
-  { name: "V-Squat Machine", muscle: "legs", equipment: "Machine", pose: "leg_press" },
-  { name: "Linear Hack Squat", muscle: "legs", equipment: "Machine", pose: "leg_press" },
-  { name: "Leg Extension", muscle: "legs", equipment: "Machine", pose: "leg_extension" },
-  { name: "Bulgarian Split Squat", muscle: "legs", equipment: "Dumbbell", pose: "lunge" },
-  { name: "Walking Lunge", muscle: "legs", equipment: "Dumbbell", pose: "lunge" },
-  { name: "Reverse Lunge", muscle: "legs", equipment: "Dumbbell", pose: "lunge" },
-  { name: "Step-Up", muscle: "legs", equipment: "Dumbbell", pose: "lunge" },
-  { name: "Split Squat", muscle: "legs", equipment: "Dumbbell", pose: "lunge" },
-  { name: "Smith Machine Split Squat", muscle: "legs", equipment: "Machine", pose: "lunge" },
-  { name: "Stiff Leg Deadlift", muscle: "legs", equipment: "Barbell", pose: "hinge" },
-  { name: "Seated Leg Curl", muscle: "legs", equipment: "Machine", pose: "leg_curl" },
-  { name: "Lying Leg Curl", muscle: "legs", equipment: "Machine", pose: "leg_curl" },
-  { name: "Standing Leg Curl", muscle: "legs", equipment: "Machine", pose: "leg_curl" },
-  { name: "Nordic Curl", muscle: "legs", equipment: "Bodyweight", pose: "leg_curl" },
-  { name: "Glute Ham Raise", muscle: "legs", equipment: "Machine", pose: "leg_curl" },
-  { name: "Cable Leg Curl", muscle: "legs", equipment: "Cable", pose: "leg_curl" },
-  { name: "Hip Thrust", muscle: "legs", equipment: "Barbell", pose: "hip_thrust" },
-  { name: "Smith Machine Hip Thrust", muscle: "legs", equipment: "Machine", pose: "hip_thrust" },
-  { name: "Glute Bridge", muscle: "legs", equipment: "Bodyweight", pose: "hip_thrust" },
-  { name: "Cable Kickback", muscle: "legs", equipment: "Cable", pose: "hip_thrust" },
-  { name: "Machine Kickback", muscle: "legs", equipment: "Machine", pose: "hip_thrust" },
-  { name: "Cable Pull Through", muscle: "legs", equipment: "Cable", pose: "hinge" },
-  { name: "Frog Pumps", muscle: "legs", equipment: "Bodyweight", pose: "hip_thrust" },
-  { name: "Sumo Deadlift", muscle: "legs", equipment: "Barbell", pose: "hinge" },
-  { name: "Standing Calf Raise", muscle: "legs", equipment: "Machine", pose: "calf_raise" },
-  { name: "Seated Calf Raise", muscle: "legs", equipment: "Machine", pose: "calf_raise" },
-  { name: "Leg Press Calf Raise", muscle: "legs", equipment: "Machine", pose: "calf_raise" },
-  { name: "Smith Machine Calf Raise", muscle: "legs", equipment: "Machine", pose: "calf_raise" },
-  { name: "Donkey Calf Raise", muscle: "legs", equipment: "Machine", pose: "calf_raise" },
-  { name: "Single Leg Calf Raise", muscle: "legs", equipment: "Bodyweight", pose: "calf_raise" },
-  { name: "Tibialis Raise Machine", muscle: "legs", equipment: "Machine", pose: "calf_raise" },
-  { name: "Tibialis Raises", muscle: "legs", equipment: "Bodyweight", pose: "calf_raise" },
-  { name: "Adductor Machine", muscle: "legs", equipment: "Machine", pose: "hip_swing" },
-  { name: "Cable Adduction", muscle: "legs", equipment: "Cable", pose: "hip_swing" },
-  { name: "Copenhagen Plank", muscle: "legs", equipment: "Bodyweight", pose: "plank" },
-  { name: "Hip Abduction Machine", muscle: "legs", equipment: "Machine", pose: "hip_swing" },
-  { name: "Cable Hip Abduction", muscle: "legs", equipment: "Cable", pose: "hip_swing" },
-  { name: "Standing Band Abduction", muscle: "legs", equipment: "Bodyweight", pose: "hip_swing" },
-  { name: "Side Lying Leg Raise", muscle: "legs", equipment: "Bodyweight", pose: "hip_swing" },
-
-  // CORE
-  { name: "Cable Crunch", muscle: "core", equipment: "Cable", pose: "core_crunch" },
-  { name: "Machine Crunch", muscle: "core", equipment: "Machine", pose: "core_crunch" },
-  { name: "Decline Crunch", muscle: "core", equipment: "Bodyweight", pose: "core_crunch" },
-  { name: "Stability Ball Crunch", muscle: "core", equipment: "Bodyweight", pose: "core_crunch" },
-  { name: "Weighted Crunch", muscle: "core", equipment: "Dumbbell", pose: "core_crunch" },
-  { name: "Hanging Leg Raise", muscle: "core", equipment: "Bodyweight", pose: "leg_raise_hang" },
-  { name: "Hanging Knee Raise", muscle: "core", equipment: "Bodyweight", pose: "leg_raise_hang" },
-  { name: "Lying Leg Raise", muscle: "core", equipment: "Bodyweight", pose: "leg_raise_hang" },
-  { name: "Reverse Crunch", muscle: "core", equipment: "Bodyweight", pose: "leg_raise_hang" },
-  { name: "Toes to Bar", muscle: "core", equipment: "Bodyweight", pose: "leg_raise_hang" },
-  { name: "Cable Woodchopper", muscle: "core", equipment: "Cable", pose: "twist" },
-  { name: "Russian Twist", muscle: "core", equipment: "Bodyweight", pose: "twist" },
-  { name: "Side Plank", muscle: "core", equipment: "Bodyweight", pose: "plank" },
-  { name: "Landmine Twist", muscle: "core", equipment: "Barbell", pose: "twist" },
-  { name: "Bicycle Crunch", muscle: "core", equipment: "Bodyweight", pose: "twist" },
-  { name: "Plank", muscle: "core", equipment: "Bodyweight", pose: "plank" },
-  { name: "Dead Bug", muscle: "core", equipment: "Bodyweight", pose: "plank" },
-  { name: "Pallof Press", muscle: "core", equipment: "Cable", pose: "plank" },
-  { name: "Ab Wheel Rollout", muscle: "core", equipment: "Bodyweight", pose: "plank" },
-  { name: "TRX Fallout", muscle: "core", equipment: "Bodyweight", pose: "plank" },
-
-  // STRONGMAN / CONDITIONING
-  { name: "Sled Push", muscle: "core", equipment: "Strongman", pose: "carry" },
-  { name: "Sled Pull", muscle: "core", equipment: "Strongman", pose: "carry" },
-  { name: "Battle Ropes", muscle: "core", equipment: "Strongman", pose: "carry" },
-  { name: "Farmer's Carry", muscle: "core", equipment: "Strongman", pose: "carry" },
-  { name: "Atlas Stone Lift", muscle: "core", equipment: "Strongman", pose: "carry" },
-  { name: "Yoke Carry", muscle: "core", equipment: "Strongman", pose: "carry" },
-  { name: "Log Press", muscle: "core", equipment: "Strongman", pose: "press_overhead" },
-  { name: "Tire Flips", muscle: "core", equipment: "Strongman", pose: "hinge" },
-  { name: "Heavy Kettlebell Carry", muscle: "core", equipment: "Strongman", pose: "carry" },
-];
-
-/* Form cues + illustration keyed by movement pattern, shared across every exercise using that pattern */
-export const POSE_TIPS = {
-  press_lying: ["Retract shoulder blades and keep them pinned to the bench", "Lower under control to chest level, don't bounce", "Drive feet into the floor as you press"],
-  press_seated_machine: ["Set seat height so handles align with mid-chest", "Avoid shrugging shoulders up as you press", "Control the return instead of letting the weight snap back"],
-  push_up: ["Keep a straight line from head to heels", "Lower chest to just above the floor", "Elbows track back at roughly 45°, not flared out"],
-  dip: ["Lean torso forward to bias chest, upright to bias triceps", "Lower until shoulders are level with elbows", "Avoid excessive shoulder rounding at the bottom"],
-  pullup: ["Start from a dead hang each rep", "Drive elbows down and back, chest toward the bar", "Avoid excessive swinging if training for strength"],
-  pulldown: ["Lead with elbows down and back, not hands", "Avoid leaning back excessively to cheat the weight", "Pull to upper chest and pause briefly"],
-  row: ["Keep the torso angle fixed through the set", "Pull elbows back, squeeze shoulder blades together", "Avoid using momentum to heave the weight"],
-  hinge: ["Keep the weight close to the body throughout", "Brace core hard before initiating the pull", "Drive hips forward to finish, don't lean back excessively"],
-  press_overhead: ["Brace core and glutes to protect the lower back", "Bar or dumbbells travel straight up", "Fully lock out overhead, don't stop short"],
-  lateral_raise: ["Lead with elbows, not hands", "Raise to roughly shoulder height, no higher", "Control the negative instead of dropping the weight"],
-  rear_delt: ["Hinge forward until torso is near parallel to the floor", "Lead with elbows, squeeze shoulder blades at the top", "Keep a slight, fixed bend in the elbows"],
-  shrug: ["Lift straight up, avoid rolling the shoulders", "Pause briefly at the top contraction", "Control the descent rather than dropping the weight"],
-  neck: ["Move slowly and stop well short of pain", "Use light resistance until control is established", "Keep the rest of the spine neutral throughout"],
-  curl: ["Keep elbows pinned to your sides", "Avoid swinging the torso to move the weight", "Control the lowering phase, don't just drop it"],
-  triceps_ext: ["Keep elbows fixed and close to your sides or head", "Extend fully but avoid snapping the elbow joint", "Control the return instead of letting it fly back"],
-  wrist_curl: ["Move through the wrist only, forearm stays still", "Use a full range of motion, don't rush it", "Light weight is enough — this is a small joint"],
-  squat: ["Brace core before descending, keep it tight throughout", "Knees track in line with toes, don't cave inward", "Hit consistent depth every rep"],
-  leg_press: ["Don't let knees cave inward under load", "Avoid locking knees out hard at the top", "Lower until knees reach roughly 90°"],
-  lunge: ["Front knee tracks over the ankle, not past the toes", "Keep torso upright through the movement", "Push through the front heel to stand"],
-  leg_extension: ["Avoid slamming into full lockout at the top", "Control the negative on the way down", "Align the knee joint with the machine's pivot point"],
-  leg_curl: ["Avoid lifting hips up to cheat the rep", "Control the eccentric instead of letting it snap back", "Use a full range from extended to fully curled"],
-  hip_thrust: ["Drive through heels, squeeze glutes hard at the top", "Chin tucked, avoid hyperextending the lower back", "Full lockout with hips extended, not partial reps"],
-  calf_raise: ["Full stretch at the bottom before pressing up", "Pause briefly at peak contraction", "Avoid bouncing out of the bottom position"],
-  hip_swing: ["Move through a controlled range, no jerking", "Keep the working hip stable, avoid rotating the torso", "Squeeze at the end range for a beat"],
-  core_crunch: ["Round the spine to crunch, don't just hinge at the hips", "Keep hips fixed, movement comes from the torso", "Exhale forcefully on the way up"],
-  leg_raise_hang: ["Curl the pelvis, don't just swing the legs", "Control the descent instead of dropping fast", "Minimize body swing throughout the set"],
-  plank: ["Straight line from shoulders to heels (or hips, for side plank)", "Brace like you're about to be tapped in the stomach", "Avoid letting hips sag or pike up"],
-  twist: ["Rotate from the torso, keep hips relatively still", "Control the tempo instead of flinging side to side", "Keep movements deliberate, not momentum-driven"],
-  carry: ["Brace core and stand tall, avoid leaning to one side", "Keep shoulders back, don't let the weight round you forward", "Take controlled steps rather than rushing"],
-};
-
-export const MUSCLE_GROUPS = ["chest", "back", "shoulders", "arms", "legs", "core"];
-const EQUIPMENT_TYPES = ["Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight", "Strongman"];
-const MUSCLE_POSITIONS = { shoulders: [50, 22], chest: [50, 40], arms: [78, 42], back: [22, 42], core: [50, 58], legs: [50, 82] };
-const EQUIPMENT_COLORS = { Barbell: "var(--brass)", Dumbbell: "var(--steel)", Machine: "var(--warn)", Cable: "var(--good)", Bodyweight: "var(--ink-dim)", Strongman: "var(--rest)" };
-
-/* Custom exercises don't have a hand-picked movement pattern, so give each muscle group a
-   reasonable default pose — this keeps the illustration and form cues meaningful instead of
-   falling back to an empty/misleading generic figure. */
-const MUSCLE_DEFAULT_POSE = { chest: "press_lying", back: "row", shoulders: "press_overhead", arms: "curl", legs: "squat", core: "plank" };
+// A representative, bounded sample of exercise names for the AI plan-generation prompt — not the
+// full catalogue. Embedding every exercise name in the prompt used to cost roughly one token per
+// name and scale linearly with catalogue size (223 names at launch, ~450+ after this expansion,
+// more with every future addition); the AI plan generator has never required an exact catalogue
+// match anyway (its output is matched loosely by name, not validated against EXERCISES), so a
+// smaller but genuinely diverse vocabulary — up to 2 exercises per equipment type per muscle group
+// — gives the same practical guidance at a small fraction of the token cost, and stays roughly
+// constant as the catalogue grows rather than growing with it.
+const PLAN_PROMPT_VOCABULARY = (() => {
+  const PLAN_GROUPS = ["chest", "back", "shoulders", "arms", "legs", "core"];
+  const names = [];
+  PLAN_GROUPS.forEach((group) => {
+    const seenEquipment = {};
+    EXERCISES.filter((e) => e.muscle === group).forEach((e) => {
+      seenEquipment[e.equipment] = (seenEquipment[e.equipment] || 0) + 1;
+      if (seenEquipment[e.equipment] <= 2) names.push(e.name);
+    });
+  });
+  return names.join(", ");
+})();
 
 const SET_TYPES = ["normal", "warmup", "drop", "failure"];
 const SET_TYPE_LABELS = { normal: "Normal", warmup: "Warm-up", drop: "Drop Set", failure: "Failure" };
@@ -444,6 +205,33 @@ function scoreBestMeal(places, guidance) {
 // "Incline Dumbbell Press": the words are all there, just not in that exact contiguous order,
 // which is exactly the bug this was written to fix — a real user reported "incline dumbbell
 // press" finding nothing despite that exact exercise existing.
+/** Human-readable summary of one logged set, in whatever unit its tracking type actually uses —
+ *  never assumes weight×reps. Used everywhere a set needs to render as a single line (active
+ *  workout, workout history, workout detail modal). */
+export function formatSet(set, trackingType = "weight_reps") {
+  const fmtDur = (s) => { const m = Math.floor(s / 60), sec = s % 60; return m > 0 ? `${m}:${String(sec).padStart(2, "0")}` : `${s}s`; };
+  const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)}km` : `${m}m`);
+  switch (trackingType) {
+    case "bodyweight_reps":
+      return set.weight ? `BW+${set.weight}kg × ${set.reps}` : `${set.reps} reps (bodyweight)`;
+    case "assisted_bodyweight":
+      return `${set.reps} reps (${set.assistWeight || 0}kg assist)`;
+    case "reps_only":
+      return `${set.reps} reps`;
+    case "duration":
+    case "isometric_hold":
+      return fmtDur(set.durationSeconds || 0);
+    case "distance_duration":
+      return [set.distanceMeters ? fmtDist(set.distanceMeters) : null, set.durationSeconds ? fmtDur(set.durationSeconds) : null].filter(Boolean).join(" / ") || "—";
+    case "weight_distance":
+      return [`${set.weight}kg`, set.distanceMeters ? fmtDist(set.distanceMeters) : null, set.durationSeconds ? fmtDur(set.durationSeconds) : null].filter(Boolean).join(" · ");
+    case "weighted_duration":
+      return `${set.weight}kg × ${fmtDur(set.durationSeconds || 0)}`;
+    default:
+      return `${set.weight}kg × ${set.reps}`;
+  }
+}
+
 export function matchesSearch(name, query) {
   const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return true;
@@ -879,85 +667,31 @@ export const READINESS_LABEL = {
   ready: "Ready", partial: "Partially recovered", fatigued: "Fatigued", unknown: "Insufficient data",
 };
 
-// `group` is the parent MUSCLE_GROUPS bucket — used only as a fallback (see GROUP_DEFAULT_REGION)
-// and to pre-filter Train's exercise picker from the "View Exercises" button; it plays no part in
-// the actual per-region recovery number, which is computed independently for every region below.
-export const MUSCLE_REGIONS = [
-  { id: "chest", label: "Chest", group: "chest", view: "front" },
-  { id: "frontDelts", label: "Front Delts", group: "shoulders", view: "front" },
-  { id: "sideDelts", label: "Side Delts", group: "shoulders", view: "both" },
-  { id: "rearDelts", label: "Rear Delts", group: "shoulders", view: "back" },
-  { id: "biceps", label: "Biceps", group: "arms", view: "front" },
-  { id: "triceps", label: "Triceps", group: "arms", view: "back" },
-  { id: "forearms", label: "Forearms", group: "arms", view: "both" },
-  { id: "abs", label: "Abs", group: "core", view: "front" },
-  { id: "obliques", label: "Obliques", group: "core", view: "front" },
-  { id: "traps", label: "Traps", group: "shoulders", view: "back" },
-  { id: "upperBack", label: "Upper Back", group: "back", view: "back" },
-  { id: "lats", label: "Lats", group: "back", view: "back" },
-  { id: "lowerBack", label: "Lower Back", group: "back", view: "back" },
-  { id: "glutes", label: "Glutes", group: "legs", view: "back" },
-  { id: "quads", label: "Quads", group: "legs", view: "front" },
-  { id: "adductors", label: "Adductors", group: "legs", view: "front" },
-  { id: "hamstrings", label: "Hamstrings", group: "legs", view: "back" },
-  { id: "calves", label: "Calves", group: "legs", view: "both" },
-];
-
-// Asc3end's exercise data has no dedicated adduction/adductor exercise pose — there is genuinely
-// no logged data specific to inner-thigh work to compute an independent readiness for it. Rather
-// than fabricate a number, the adductors region displays the same real, already-computed reading
-// as quads (the closest trained region — squats/lunges do meaningfully load the adductors) and
-// says so in its own detail panel. This is a deliberate, disclosed display-only substitution, not
-// a second calculation: `muscleReadiness()` below never writes an "adductors" key itself.
-const READINESS_DISPLAY_SOURCE = { adductors: "quads" };
-
-// Real, existing per-exercise data (muscle + pose) mapped onto the 17 regions above. Built from
-// every (muscle, pose) combination that actually occurs in EXERCISES — verified against the
-// live data, not guessed. Two deliberate judgment calls, noted here rather than hidden:
-//  - Shrugs and neck exercises are tagged muscle:"shoulders" in Asc3end's data (not "back"), so
-//    they drive the Traps region's readiness from that real data rather than being silently
-//    reassigned to the back group just because "traps" is anatomically closer to the back.
-//  - "neck" has no dedicated region in this 17-region set; neck training is grouped into Traps
-//    as the nearest real region rather than dropped.
-const POSE_TO_REGION = {
-  chest: { press_lying: "chest", press_seated_machine: "chest", push_up: "chest", dip: "chest" },
-  shoulders: {
-    press_overhead: "frontDelts", press_seated_machine: "frontDelts",
-    lateral_raise: "sideDelts",
-    rear_delt: "rearDelts",
-    shrug: "traps", neck: "traps",
-  },
-  back: { pullup: "lats", pulldown: "lats", row: "upperBack", hinge: "lowerBack" },
-  arms: { curl: "biceps", press_lying: "triceps", triceps_ext: "triceps", dip: "triceps", wrist_curl: "forearms" },
-  legs: {
-    squat: "quads", leg_press: "quads", leg_extension: "quads", lunge: "quads", plank: "quads",
-    hinge: "hamstrings", leg_curl: "hamstrings",
-    hip_thrust: "glutes", hip_swing: "glutes",
-    calf_raise: "calves",
-  },
-  core: { core_crunch: "abs", leg_raise_hang: "abs", plank: "abs", press_overhead: "abs", hinge: "abs", twist: "obliques", carry: "obliques" },
-};
-// A custom (user-created) exercise has a muscle but no `pose` — and any exercise whose pose
-// isn't in the table above (a future addition to EXERCISES, for instance) needs somewhere safe
-// to land too. Falls back to one representative region per group rather than dropping the set
-// from the readiness map entirely.
-const GROUP_DEFAULT_REGION = { chest: "chest", shoulders: "frontDelts", back: "upperBack", arms: "biceps", legs: "quads", core: "abs" };
-
-export function regionForExercise(ex) {
-  if (!ex) return null;
-  return POSE_TO_REGION[ex.muscle]?.[ex.pose] || GROUP_DEFAULT_REGION[ex.muscle] || null;
-}
+// MUSCLE_REGIONS, READINESS_DISPLAY_SOURCE, POSE_TO_REGION, GROUP_DEFAULT_REGION and
+// regionForExercise now live in ./exerciseData.js (imported above), extended there to cover every
+// pose this expansion introduces. UNMAPPED_READINESS_REGIONS (abductors, tibialis anterior, hip
+// flexors) are real, independently-computed readiness regions with real exercise data behind them
+// — they're just not drawn on this SVG figure yet (see the final report for why).
 
 /* The same recovery estimate Asc3end has always used, applied per-region instead of per-group.
    Handles every edge case by construction, not by special-casing: a deleted or edited workout is
    simply absent from (or different in) the `workouts` array the next time this runs — there is
    no separate cache to go stale. Multiple sessions on one day both contribute to that day's
    recentSets normally. A rest day just means no workout matches that date. A brand-new account
-   (or a region nothing has ever trained) reports "unknown", never a fabricated percentage. */
+   (or a region nothing has ever trained) reports "unknown", never a fabricated percentage.
+
+   Secondary load: a pressing or dip-pattern exercise genuinely does stimulate the triceps even
+   when its primary region is chest or front delts — SECONDARY_REGIONS_BY_POSE (exerciseData.js)
+   says which regions that is, per movement pattern. Secondary regions get their recency (`hours`/
+   `lastDate`) updated, so triceps correctly shows more fatigued after a heavy bench session — but
+   NOT their `recentSets`/`recentSessions` count, which stays reserved for direct work on that
+   region. This is a deliberate distinction: it answers "when did this muscle last do *something*"
+   honestly for both primary and secondary stimulus, without double-counting training volume that
+   was never actually triceps-focused sets. */
 export function muscleReadiness(workouts, customExercises = []) {
   const now = Date.now();
   const status = {};
-  MUSCLE_REGIONS.forEach((r) => (status[r.id] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
+  READINESS_MUSCLE_IDS.forEach((id) => (status[id] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
   const allEx = [...EXERCISES, ...customExercises];
   (workouts || []).forEach((w) => {
     const t = new Date(w.date).getTime();
@@ -971,6 +705,10 @@ export function muscleReadiness(workouts, customExercises = []) {
       if (hrs < s.hours) { s.hours = hrs; s.lastDate = w.date; }
       // "Recent" = last 7 days, same window muscleRecovery always used.
       if (hrs <= 168) { s.recentSets += (e.sets || []).length; hitThisWorkout.add(regionId); }
+      (SECONDARY_REGIONS_BY_POSE[ex?.pose] || []).forEach((secId) => {
+        const secStatus = status[secId];
+        if (secStatus && hrs < secStatus.hours) { secStatus.hours = hrs; secStatus.lastDate = w.date; }
+      });
     });
     hitThisWorkout.forEach((r) => status[r].recentSessions++);
   });
@@ -1751,17 +1489,37 @@ function ExerciseFigure({ pose, muscle, equipment, size = 90, state = "start", s
   );
 }
 
+/* Small inline exercise thumbnail (exercise picker rows, active-workout cards) — same media-status
+   gate as the full detail view, just a more compact placeholder, so a pending-media exercise never
+   silently shows an inaccurate demonstration anywhere in the app, not only on its detail page. */
+function ExerciseThumb({ ex, size = 40 }) {
+  if (!ex) return null;
+  if (ex.mediaStatus !== "approved") {
+    return (
+      <div
+        role="img" aria-label="Demonstration coming soon"
+        style={{ width: size, height: size, borderRadius: 8, background: "var(--bg-elev2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+      >
+        <Camera size={Math.max(12, size * 0.35)} color="var(--ink-dim)" style={{ opacity: 0.5 }} />
+      </div>
+    );
+  }
+  return <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={size} />;
+}
+
 /* Redesigned exercise-detail presentation: a larger illustration (with a Start/Finish toggle
    where one exists), primary + secondary muscles, equipment, form cues, common mistakes, a
    safety note where one applies, and Add to Workout — stacked on mobile, two-column on wider
    screens via .exercise-detail-layout in GlobalStyle. */
-function ExerciseDetailCard({ ex, onAdd, onBack }) {
+function ExerciseDetailCard({ ex, onAdd, onBack, onArchive }) {
   const [figureState, setFigureState] = useState("start");
   const hasFinish = POSES_WITH_FINISH.has(ex.pose);
   const secondary = SECONDARY_MUSCLES[ex.pose] || [];
-  const mistakes = COMMON_MISTAKES[ex.pose] || [];
-  const safety = SAFETY_NOTES[ex.pose];
-  const tips = POSE_TIPS[ex.pose] || [];
+  const guidance = getExerciseGuidance(ex);
+  const mistakes = guidance.commonMistakes;
+  const safety = guidance.safetyNote;
+  const tips = guidance.formCues;
+  const mediaApproved = ex.mediaStatus === "approved";
 
   return (
     <div className="atlas-card">
@@ -1771,10 +1529,18 @@ function ExerciseDetailCard({ ex, onAdd, onBack }) {
 
       <div className="exercise-detail-layout">
         <div className="exercise-detail-figure" style={{ textAlign: "center" }}>
-          <div style={{ background: "var(--bg-elev2)", borderRadius: 12, padding: 12, display: "flex", justifyContent: "center" }}>
-            <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={160} state={figureState} showLegend />
+          <div style={{ background: "var(--bg-elev2)", borderRadius: 12, padding: 12, display: "flex", justifyContent: "center", alignItems: "center", minHeight: 160 }}>
+            {mediaApproved ? (
+              <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={160} state={figureState} showLegend />
+            ) : (
+              <div role="img" aria-label="Demonstration coming soon" style={{ color: "var(--ink-dim)", fontSize: 12.5, padding: "24px 12px", textAlign: "center", lineHeight: 1.6 }}>
+                <Camera size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
+                <div>Demonstration coming soon</div>
+                <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>We'd rather show nothing than an inaccurate movement demo.</div>
+              </div>
+            )}
           </div>
-          {hasFinish && (
+          {mediaApproved && hasFinish && (
             <div role="group" aria-label="View start or finish position" style={{ display: "flex", marginTop: 10, background: "var(--bg-elev2)", borderRadius: 10, padding: 3 }}>
               {["start", "finish"].map((s) => (
                 <button
@@ -1812,7 +1578,21 @@ function ExerciseDetailCard({ ex, onAdd, onBack }) {
             ))}
           </div>
 
-          <div className="disp" style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 6 }}>How to Perform / Key Focus Points</div>
+          {guidance.setup && (
+            <div style={{ marginBottom: 14 }}>
+              <div className="disp" style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 6 }}>Setup</div>
+              <div style={{ fontSize: 13, lineHeight: 1.6 }}>{guidance.setup}</div>
+            </div>
+          )}
+          {guidance.execution && (
+            <div style={{ marginBottom: 14 }}>
+              <div className="disp" style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 6 }}>Execution</div>
+              <div style={{ fontSize: 13, lineHeight: 1.6 }}>{guidance.execution}</div>
+              {guidance.breathingCue && <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 6, fontStyle: "italic" }}>{guidance.breathingCue}</div>}
+            </div>
+          )}
+
+          <div className="disp" style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 6 }}>Key Form Cues</div>
           <ul style={{ margin: 0, marginBottom: 14, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
             {tips.map((t, i) => <li key={i}>{t}</li>)}
           </ul>
@@ -1836,6 +1616,14 @@ function ExerciseDetailCard({ ex, onAdd, onBack }) {
           <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onAdd(ex)}>
             <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add to Workout
           </button>
+          {onArchive && (
+            <button
+              className="atlas-btn-ghost" style={{ width: "100%", marginTop: 8, borderColor: "var(--line)", color: "var(--ink-dim)" }}
+              onClick={onArchive}
+            >
+              Archive this custom exercise
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -2676,22 +2464,26 @@ function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }
   );
 }
 
-function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise, onEditWorkout, onDeleteWorkout, initialMuscleFilter }) {
+function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise, onArchiveCustomExercise, onEditWorkout, onDeleteWorkout, initialMuscleFilter }) {
   const [picker, setPicker] = useState(false);
   const [search, setSearch] = useState("");
   const [muscleFilter, setMuscleFilter] = useState(initialMuscleFilter || "all");
   const [equipFilter, setEquipFilter] = useState("all");
+  const [regionFilter, setRegionFilter] = useState("all");
   // Progressive rendering for the exercise picker (223 entries, each an SVG PoseFigure — cheap
   // individually, not free 223-at-once on a low-powered phone): render a capped batch and reveal
   // more on demand instead of mounting every filtered match at once. Search/filtering itself
   // still runs over the full list either way; only what's actually rendered is capped.
   const EXERCISE_PAGE_SIZE = 40;
   const [visibleExerciseCount, setVisibleExerciseCount] = useState(EXERCISE_PAGE_SIZE);
-  useEffect(() => { setVisibleExerciseCount(EXERCISE_PAGE_SIZE); }, [search, muscleFilter, equipFilter]);
+  useEffect(() => { setVisibleExerciseCount(EXERCISE_PAGE_SIZE); }, [search, muscleFilter, equipFilter, regionFilter]);
   const [detailEx, setDetailEx] = useState(null);
   const [openCues, setOpenCues] = useState({});
   const [weightIn, setWeightIn] = useState({});
   const [repsIn, setRepsIn] = useState({});
+  const [durationIn, setDurationIn] = useState({});
+  const [distanceIn, setDistanceIn] = useState({});
+  const [assistIn, setAssistIn] = useState({});
   const [prToast, setPrToast] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [restDuration, setRestDuration] = useState(90);
@@ -2700,6 +2492,10 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const [customName, setCustomName] = useState("");
   const [customMuscle, setCustomMuscle] = useState(MUSCLE_GROUPS[0]);
   const [customEquip, setCustomEquip] = useState(EQUIPMENT_TYPES[0]);
+  const [customAliases, setCustomAliases] = useState("");
+  const [customTrackingType, setCustomTrackingType] = useState("weight_reps");
+  const [customNotes, setCustomNotes] = useState("");
+  const [customImageUrl, setCustomImageUrl] = useState("");
   const [customError, setCustomError] = useState(null);
   const [typeIn, setTypeIn] = useState({});
   const [reviewing, setReviewing] = useState(false);
@@ -2760,7 +2556,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
           {history.length === 0 && <div style={{ color: "var(--ink-dim)", fontSize: 13 }}>No workouts logged yet.</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {history.map((w) => {
-              const volume = w.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + st.weight * st.reps, 0), 0);
+              const volume = w.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0), 0);
               return (
                 <button
                   key={w.id}
@@ -2800,10 +2596,15 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
 
   const allExercises = [...EXERCISES, ...customExercises];
 
+  // Archived custom exercises stay in `allExercises` (so historical workouts, PRs and volume still
+  // resolve their name correctly) but are hidden from the picker itself — that's what "archived"
+  // means here: not selectable for new workouts, without breaking anything already logged.
   const filtered = allExercises.filter((e) =>
-    matchesSearch(e.name, search) &&
+    !e.archived &&
+    matchesExerciseSearch(e, search) &&
     (muscleFilter === "all" || e.muscle === muscleFilter) &&
-    (equipFilter === "all" || e.equipment === equipFilter)
+    (equipFilter === "all" || e.equipment === equipFilter) &&
+    (regionFilter === "all" || regionForExercise(e) === regionFilter)
   );
 
   const addExercise = (ex) => {
@@ -2816,40 +2617,93 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const createCustomExercise = () => {
     const trimmed = customName.trim();
     if (!trimmed) { setCustomError("Give it a name."); return; }
-    if (allExercises.some((e) => e.name.toLowerCase() === trimmed.toLowerCase())) {
-      setCustomError("An exercise with that name already exists.");
+    const lower = trimmed.toLowerCase();
+    // Check both canonical names AND aliases — a custom exercise named "RDL" would otherwise sit
+    // right next to Romanian Deadlift in search as if it were a second, different exercise, which
+    // is exactly the ambiguity aliases exist to prevent.
+    const collision = allExercises.some((e) => e.name.toLowerCase() === lower || (e.aliases || []).some((a) => a.toLowerCase() === lower));
+    if (collision) {
+      setCustomError("An exercise with that name (or a close alias of one) already exists.");
       return;
     }
-    const ex = { name: trimmed, muscle: customMuscle, equipment: customEquip, pose: MUSCLE_DEFAULT_POSE[customMuscle], isCustom: true };
+    const aliases = customAliases.split(",").map((a) => a.trim()).filter(Boolean);
+    const ex = {
+      name: trimmed, muscle: customMuscle, equipment: customEquip, pose: MUSCLE_DEFAULT_POSE[customMuscle], isCustom: true,
+      aliases, trackingType: customTrackingType, secondaryMuscles: [],
+      instructions: customNotes.trim() ? [customNotes.trim()] : [],
+      imageUrl: customImageUrl.trim() || null,
+    };
     onAddCustomExercise(ex);
     addExercise(ex);
     setCreatingCustom(false);
     setCustomName("");
     setCustomMuscle(MUSCLE_GROUPS[0]);
     setCustomEquip(EQUIPMENT_TYPES[0]);
+    setCustomAliases("");
+    setCustomTrackingType("weight_reps");
+    setCustomNotes("");
+    setCustomImageUrl("");
     setCustomError(null);
   };
 
   const addSet = (exName) => {
+    const trackingType = (allExercises.find((e) => e.name === exName)?.trackingType) || "weight_reps";
     const w = +weightIn[exName]; const r = +repsIn[exName];
-    if (!w || !r) return;
+    const dur = +durationIn[exName]; const dist = +distanceIn[exName]; const assist = +assistIn[exName];
+
+    // Each tracking type has its own "what's required to log a set" rule — a plank has no weight
+    // to require, a treadmill run has no reps. This replaces the old blanket "weight AND reps or
+    // nothing logs" check, which silently blocked logging any exercise that wasn't weight+reps
+    // shaped (every bodyweight/duration/distance exercise in the catalogue, old and new).
+    let set;
+    if (trackingType === "bodyweight_reps") {
+      if (!r) return;
+      set = { reps: r, weight: w || 0 };
+    } else if (trackingType === "assisted_bodyweight") {
+      if (!r) return;
+      set = { reps: r, assistWeight: assist || 0 };
+    } else if (trackingType === "reps_only") {
+      if (!r) return;
+      set = { reps: r };
+    } else if (trackingType === "duration" || trackingType === "isometric_hold") {
+      if (!dur) return;
+      set = { durationSeconds: dur };
+    } else if (trackingType === "distance_duration") {
+      if (!dur && !dist) return;
+      set = { durationSeconds: dur || null, distanceMeters: dist || null };
+    } else if (trackingType === "weight_distance") {
+      if (!w || (!dur && !dist)) return;
+      set = { weight: w, durationSeconds: dur || null, distanceMeters: dist || null };
+    } else if (trackingType === "weighted_duration") {
+      if (!w || !dur) return;
+      set = { weight: w, durationSeconds: dur };
+    } else {
+      // weight_reps, bodyweight_plus_weight, per_side_weight — the original, still-most-common shape
+      if (!w || !r) return;
+      set = { weight: w, reps: r };
+    }
+
     const isFirstSetEver = workouts.length === 0 && session.exercises.every((e) => e.sets.length === 0);
     const setType = typeIn[exName] || "normal";
+    set.type = setType;
     const historySets = [
       ...workouts.flatMap((wk) => wk.exercises.filter((e) => e.name === exName).flatMap((e) => e.sets)),
       ...(session.exercises.find((e) => e.name === exName)?.sets || []),
     ];
-    const pr = setType === "normal" ? evaluatePR(historySets, w, r) : { isPR: false };
+    const pr = setType === "normal" && WEIGHT_REPS_TRACKING_TYPES.has(trackingType) ? evaluatePR(historySets, w, r) : { isPR: false };
     const linked = session.exercises.find((e) => e.name === exName)?.supersetWith;
     setSession((s) => ({
       ...s,
-      exercises: s.exercises.map((e) => e.name === exName ? { ...e, sets: [...e.sets, { weight: w, reps: r, type: setType }] } : e),
+      exercises: s.exercises.map((e) => e.name === exName ? { ...e, sets: [...e.sets, set] } : e),
       // skip the auto rest timer when logging inside a superset — rest happens after both movements, not between them
       restEndAt: linked ? s.restEndAt : Date.now() + restDuration * 1000,
     }));
     restAlertedRef.current = false;
     setWeightIn((v) => ({ ...v, [exName]: "" }));
     setRepsIn((v) => ({ ...v, [exName]: "" }));
+    setDurationIn((v) => ({ ...v, [exName]: "" }));
+    setDistanceIn((v) => ({ ...v, [exName]: "" }));
+    setAssistIn((v) => ({ ...v, [exName]: "" }));
     if (pr.isPR) {
       setPrToast({ exName, weight: w, reps: r, type: pr.type });
       playPRSound();
@@ -2884,7 +2738,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   };
 
   const totalSets = session.exercises.reduce((s, e) => s + e.sets.length, 0);
-  const totalVolume = session.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + st.weight * st.reps, 0), 0);
+  const totalVolume = session.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0), 0);
   const musclesTrained = [...new Set(session.exercises.map((ex) => allExercises.find((e) => e.name === ex.name)?.muscle).filter(Boolean))];
   const skippedExercises = session.exercises.filter((ex) => ex.sets.length === 0);
   const targetSetsTotal = session.exercises.reduce((s, ex) => s + (ex.targetSets || 0), 0);
@@ -2958,7 +2812,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
         return (
           <div key={ex.name} className="atlas-card" style={{ marginBottom: 12, borderColor: ex.supersetWith ? "var(--warn)" : "var(--line)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {meta && <ExerciseFigure pose={meta.pose} muscle={meta.muscle} equipment={meta.equipment} size={40} />}
+              {meta && <ExerciseThumb ex={meta} size={40} />}
               <div style={{ flex: 1 }}>
                 <div className="disp" style={{ fontSize: 16 }}>{ex.name}</div>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -3004,9 +2858,9 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             {ex.sets.map((s, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: "1px solid var(--line)" }}>
                 <span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)", width: 20 }}>{i + 1}</span>
-                <span className="mono" style={{ flex: 1 }}>{s.weight}kg × {s.reps}</span>
+                <span className="mono" style={{ flex: 1 }}>{formatSet(s, meta?.trackingType)}</span>
                 {s.type && s.type !== "normal" && <span className="pill" style={{ fontSize: 9, background: SET_TYPE_COLORS[s.type] + "22", color: SET_TYPE_COLORS[s.type] }}>{SET_TYPE_LABELS[s.type]}</span>}
-                {isPR(ex.name, s.weight) && <Trophy size={14} color="var(--brass)" />}
+                {WEIGHT_REPS_TRACKING_TYPES.has(meta?.trackingType || "weight_reps") && isPR(ex.name, s.weight) && <Trophy size={14} color="var(--brass)" />}
                 <button onClick={() => removeSet(ex.name, i)} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label={`Remove set ${i + 1} for ${ex.name}`}>
                   <X size={14} color="var(--ink-dim)" />
                 </button>
@@ -3023,11 +2877,60 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
                 }}>{SET_TYPE_LABELS[t]}</button>
               ))}
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={(e) => setWeightIn((v) => ({ ...v, [ex.name]: e.target.value }))} aria-label={`Weight in kg for ${ex.name}`} />
-              <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={(e) => setRepsIn((v) => ({ ...v, [ex.name]: e.target.value }))} aria-label={`Reps for ${ex.name}`} />
-              <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
-            </div>
+            {/* Each tracking type shows only the inputs that actually mean something for it — a
+                plank never asks for weight, a treadmill run never asks for reps. */}
+            {(() => {
+              const tt = meta?.trackingType || "weight_reps";
+              const setNum = (setter) => (e) => setter((v) => ({ ...v, [ex.name]: e.target.value }));
+              if (tt === "bodyweight_reps") return (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <input className="atlas-input" placeholder="+kg (optional)" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Added weight in kg for ${ex.name}`} />
+                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
+                </div>
+              );
+              if (tt === "assisted_bodyweight") return (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <input className="atlas-input" placeholder="assist kg" type="number" value={assistIn[ex.name] || ""} onChange={setNum(setAssistIn)} aria-label={`Assistance weight in kg for ${ex.name}`} />
+                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
+                </div>
+              );
+              if (tt === "reps_only") return (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
+                </div>
+              );
+              if (tt === "duration" || tt === "isometric_hold") return (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
+                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
+                </div>
+              );
+              if (tt === "distance_duration") return (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="atlas-input" placeholder="meters" type="number" value={distanceIn[ex.name] || ""} onChange={setNum(setDistanceIn)} aria-label={`Distance in meters for ${ex.name}`} />
+                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
+                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
+                </div>
+              );
+              if (tt === "weight_distance" || tt === "weighted_duration") return (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
+                  {tt === "weight_distance" && <input className="atlas-input" placeholder="meters" type="number" value={distanceIn[ex.name] || ""} onChange={setNum(setDistanceIn)} aria-label={`Distance in meters for ${ex.name}`} />}
+                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
+                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
+                </div>
+              );
+              return (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
+                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
+                </div>
+              );
+            })()}
           </div>
         );
       })}
@@ -3037,7 +2940,10 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
           <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add Exercise
         </button>
       ) : detailEx ? (
-        <ExerciseDetailCard ex={detailEx} onAdd={addExercise} onBack={() => setDetailEx(null)} />
+        <ExerciseDetailCard
+          ex={detailEx} onAdd={addExercise} onBack={() => setDetailEx(null)}
+          onArchive={detailEx.isCustom ? async () => { await onArchiveCustomExercise(detailEx.name); setDetailEx(null); } : null}
+        />
       ) : creatingCustom ? (
         <div className="atlas-card">
           <button onClick={() => { setCreatingCustom(false); setCustomError(null); }} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginBottom: 12 }}>
@@ -3065,6 +2971,24 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
                 ))}
               </div>
             </div>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>HOW IS IT LOGGED?</div>
+              <select className="atlas-input" value={customTrackingType} onChange={(e) => setCustomTrackingType(e.target.value)}>
+                {TRACKING_TYPES.map((t) => <option key={t} value={t}>{TRACKING_TYPE_LABEL[t]}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>ALIASES / OTHER NAMES (optional, comma-separated)</div>
+              <input className="atlas-input" placeholder="e.g. Y Raise, Cable Y" value={customAliases} onChange={(e) => setCustomAliases(e.target.value)} />
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>NOTES / INSTRUCTIONS (optional)</div>
+              <textarea className="atlas-input" rows={2} placeholder="How you set it up and perform it" value={customNotes} onChange={(e) => setCustomNotes(e.target.value)} />
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>IMAGE URL (optional — a link you own the rights to)</div>
+              <input className="atlas-input" placeholder="https://..." value={customImageUrl} onChange={(e) => setCustomImageUrl(e.target.value)} />
+            </div>
             {customError && <div className="mono" style={{ color: "var(--rest)", fontSize: 12 }}>{customError}</div>}
             <button className="atlas-btn" style={{ width: "100%", marginTop: 6 }} onClick={createCustomExercise}>
               <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Create & Add to Workout
@@ -3078,11 +3002,19 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             <input autoFocus className="atlas-input" placeholder="Search exercises" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
-            <button onClick={() => setMuscleFilter("all")} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: muscleFilter === "all" ? "var(--brass-soft)" : "transparent", color: muscleFilter === "all" ? "var(--brass)" : "var(--ink-dim)" }}>All</button>
+            <button onClick={() => { setMuscleFilter("all"); setRegionFilter("all"); }} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: muscleFilter === "all" ? "var(--brass-soft)" : "transparent", color: muscleFilter === "all" ? "var(--brass)" : "var(--ink-dim)" }}>All</button>
             {MUSCLE_GROUPS.map((m) => (
-              <button key={m} onClick={() => setMuscleFilter(m)} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", textTransform: "capitalize", background: muscleFilter === m ? "var(--brass-soft)" : "transparent", color: muscleFilter === m ? "var(--brass)" : "var(--ink-dim)" }}>{m}</button>
+              <button key={m} onClick={() => { setMuscleFilter(m); setRegionFilter("all"); }} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", textTransform: "capitalize", background: muscleFilter === m ? "var(--brass-soft)" : "transparent", color: muscleFilter === m ? "var(--brass)" : "var(--ink-dim)" }}>{m}</button>
             ))}
           </div>
+          {muscleFilter !== "all" && (REGIONS_BY_GROUP[muscleFilter] || []).length > 1 && (
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }} role="group" aria-label={`Filter ${muscleFilter} by specific muscle`}>
+              <button onClick={() => setRegionFilter("all")} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: regionFilter === "all" ? "var(--bg-elev2)" : "transparent", color: regionFilter === "all" ? "var(--ink)" : "var(--ink-dim)" }}>Any {muscleFilter}</button>
+              {REGIONS_BY_GROUP[muscleFilter].map((r) => (
+                <button key={r} onClick={() => setRegionFilter(r)} className="pill" style={{ cursor: "pointer", border: `1px solid ${regionFilter === r ? "var(--brass)" : "var(--line)"}`, background: regionFilter === r ? "var(--brass-soft)" : "transparent", color: regionFilter === r ? "var(--brass)" : "var(--ink-dim)" }}>{REGION_LABEL[r]}</button>
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
             <button onClick={() => setEquipFilter("all")} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: equipFilter === "all" ? "var(--bg-elev2)" : "transparent", color: equipFilter === "all" ? "var(--ink)" : "var(--ink-dim)" }}>Any Equipment</button>
             {EQUIPMENT_TYPES.map((eq) => (
@@ -3097,10 +3029,14 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             <Plus size={14} /> Create Custom Exercise
           </button>
           <div style={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
-            {filtered.length === 0 && <div style={{ fontSize: 12, color: "var(--ink-dim)", padding: 8 }}>No exercises match those filters.</div>}
+            {filtered.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", padding: 8 }}>
+                No exercises match those filters. Use "Create Custom Exercise" above to add your own.
+              </div>
+            )}
             {filtered.slice(0, visibleExerciseCount).map((ex) => (
               <button key={ex.name} onClick={() => setDetailEx(ex)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "var(--ink)" }}>
-                <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={30} />
+                <ExerciseThumb ex={ex} size={30} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13 }}>
                     {ex.name}
@@ -3263,7 +3199,7 @@ function CoachExercisePopup({ ex, onClose }) {
       <div className="atlas-card" style={{ maxWidth: 340, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={56} />
+            <ExerciseThumb ex={ex} size={56} />
             <div>
               <div className="disp" style={{ fontSize: 16 }}>{ex.name}</div>
               <span className="pill" style={{ background: "rgba(255,255,255,0.06)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>{ex.equipment}</span>
@@ -4032,7 +3968,7 @@ Experience: ${profile.experience}
 Age: ${profile.age}, Weight: ${profile.weightKg}kg, Height: ${profile.heightCm}cm
 Return ONLY valid JSON (no markdown fences, no preamble) matching exactly this schema:
 {"days":[{"day":"Day 1: Push","muscleGroups":[{"muscle":"chest","exercises":[{"name":"Barbell Bench Press","sets":4,"reps":"6-10"}]}]}]}
-Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${profile.trainingDays} day entries. Use exercise names matching this list as closely as possible: ${EXERCISES.map((e) => e.name).join(", ")}`;
+Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${profile.trainingDays} day entries. Use exercise names matching this style, drawing from real gym equipment and movement patterns (barbell/dumbbell/cable/machine/bodyweight): ${PLAN_PROMPT_VOCABULARY}`;
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
       const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}`, "coach");
       const parsed = extractJSON(text);
@@ -5839,6 +5775,16 @@ export default function App() {
     return ex;
   };
 
+  // Archives (never hard-deletes) a custom exercise — a past workout can still reference it by
+  // name, so removing the record outright would break history exactly the way this expansion was
+  // required not to. Archiving just hides it from the picker going forward; toggle again to
+  // restore, matching "editable and archivable" rather than a one-way delete.
+  const archiveCustomExercise = async (name, archived = true) => {
+    const next = customExercises.map((ex) => (ex.name === name ? { ...ex, archived } : ex));
+    setCustomExercises(next);
+    await saveKey(KEYS.customExercises, next);
+  };
+
   const updateProfile = async (patch) => {
     const next = { ...profile, ...patch };
     setProfile(next);
@@ -6004,7 +5950,7 @@ export default function App() {
       ) : (
         <>
           {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} onOpenChallenges={() => setShowChallenges(true)} onViewExercises={onViewExercises} />}
-          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} initialMuscleFilter={trainMuscleFilter} />}
+          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onArchiveCustomExercise={archiveCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} initialMuscleFilter={trainMuscleFilter} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (
