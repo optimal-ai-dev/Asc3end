@@ -853,93 +853,407 @@ function StreakRing({ streak, size = 92 }) {
   );
 }
 
-/* 15 named muscle regions, each mapped onto one of the app's existing 6 MUSCLE_GROUPS — a
-   display-layer breakdown, not a second recovery calculation. Every region's dot color comes
-   straight from muscleRecovery()'s already-computed status for its parent group, so "Biceps" and
-   "Triceps" (both -> arms) always agree with each other and with the group-level map. `view`
-   is "front", "back", or "both" (shown on either view — reusing the same skeleton coordinates,
-   since front/back are never rendered simultaneously so there's no collision). */
-export const MUSCLE_MAP_15 = [
-  { key: "frontDelts", label: "Front Delts", group: "shoulders", view: "front", points: [[30, 32], [70, 32]] },
-  { key: "rearDelts", label: "Rear Delts", group: "shoulders", view: "back", points: [[30, 32], [70, 32]] },
-  { key: "chest", label: "Chest", group: "chest", view: "front", points: [[41, 42], [59, 42]] },
-  { key: "traps", label: "Traps", group: "back", view: "back", points: [[50, 26]] },
-  { key: "upperBack", label: "Upper Back", group: "back", view: "back", points: [[41, 42], [59, 42]] },
-  { key: "lats", label: "Lats", group: "back", view: "back", points: [[34, 56], [66, 56]] },
-  { key: "biceps", label: "Biceps", group: "arms", view: "front", points: [[23, 48], [77, 48]] },
-  { key: "triceps", label: "Triceps", group: "arms", view: "back", points: [[23, 48], [77, 48]] },
-  { key: "forearms", label: "Forearms", group: "arms", view: "both", points: [[19, 68], [81, 68]] },
-  { key: "abs", label: "Abs", group: "core", view: "front", points: [[50, 50]] },
-  { key: "lowerBack", label: "Lower Back", group: "core", view: "back", points: [[50, 60]] },
-  { key: "glutes", label: "Glutes", group: "legs", view: "back", points: [[44, 72], [56, 72]] },
-  { key: "quads", label: "Quads", group: "legs", view: "front", points: [[40, 98], [60, 98]] },
-  { key: "hamstrings", label: "Hamstrings", group: "legs", view: "back", points: [[40, 98], [60, 98]] },
-  { key: "calves", label: "Calves", group: "legs", view: "both", points: [[38, 128], [62, 128]] },
+/* ------------------------------------------------------------------ */
+/* Muscle Readiness Map                                                */
+/* ------------------------------------------------------------------ */
+// Replaces the earlier 15-dot MuscleMap15 system with 17 genuine anatomical SVG regions (chest,
+// front/side/rear delts, biceps, triceps, forearms, abs, obliques, traps, upper back, lats,
+// lower back, glutes, quads, hamstrings, calves), each independently selectable and colored by
+// Asc3end's own recovery estimate for that specific region — not a second calculation system,
+// just finer granularity on the same trusted "hours since last set, sets in the last 7 days"
+// algorithm the app has always used (previously only exposed at 6-group granularity).
+//
+// Finer granularity comes from each exercise's existing `pose` field (already used elsewhere —
+// ExerciseFigure illustrations, coaching cues — not new data invented for this feature): a Curl
+// trains biceps, a Lateral Raise trains side delts, a Leg Curl trains hamstrings, etc. See
+// POSE_TO_REGION below. A region with zero matching logged sets ever reports level "unknown" —
+// it is never given a color by silently borrowing its parent group's status.
+
+export const READINESS_COLORS = {
+  ready: "var(--readiness-ready)",
+  partial: "var(--readiness-partial)",
+  fatigued: "var(--readiness-fatigued)",
+  unknown: "var(--readiness-unknown)",
+};
+export const READINESS_LABEL = {
+  ready: "Ready", partial: "Partially recovered", fatigued: "Fatigued", unknown: "Insufficient data",
+};
+
+// `group` is the parent MUSCLE_GROUPS bucket — used only as a fallback (see GROUP_DEFAULT_REGION)
+// and to pre-filter Train's exercise picker from the "View Exercises" button; it plays no part in
+// the actual per-region recovery number, which is computed independently for every region below.
+export const MUSCLE_REGIONS = [
+  { id: "chest", label: "Chest", group: "chest", view: "front" },
+  { id: "frontDelts", label: "Front Delts", group: "shoulders", view: "front" },
+  { id: "sideDelts", label: "Side Delts", group: "shoulders", view: "both" },
+  { id: "rearDelts", label: "Rear Delts", group: "shoulders", view: "back" },
+  { id: "biceps", label: "Biceps", group: "arms", view: "front" },
+  { id: "triceps", label: "Triceps", group: "arms", view: "back" },
+  { id: "forearms", label: "Forearms", group: "arms", view: "both" },
+  { id: "abs", label: "Abs", group: "core", view: "front" },
+  { id: "obliques", label: "Obliques", group: "core", view: "front" },
+  { id: "traps", label: "Traps", group: "shoulders", view: "back" },
+  { id: "upperBack", label: "Upper Back", group: "back", view: "back" },
+  { id: "lats", label: "Lats", group: "back", view: "back" },
+  { id: "lowerBack", label: "Lower Back", group: "back", view: "back" },
+  { id: "glutes", label: "Glutes", group: "legs", view: "back" },
+  { id: "quads", label: "Quads", group: "legs", view: "front" },
+  { id: "hamstrings", label: "Hamstrings", group: "legs", view: "back" },
+  { id: "calves", label: "Calves", group: "legs", view: "back" },
 ];
 
-function limbLine(points, width) {
+// Real, existing per-exercise data (muscle + pose) mapped onto the 17 regions above. Built from
+// every (muscle, pose) combination that actually occurs in EXERCISES — verified against the
+// live data, not guessed. Two deliberate judgment calls, noted here rather than hidden:
+//  - Shrugs and neck exercises are tagged muscle:"shoulders" in Asc3end's data (not "back"), so
+//    they drive the Traps region's readiness from that real data rather than being silently
+//    reassigned to the back group just because "traps" is anatomically closer to the back.
+//  - "neck" has no dedicated region in this 17-region set; neck training is grouped into Traps
+//    as the nearest real region rather than dropped.
+const POSE_TO_REGION = {
+  chest: { press_lying: "chest", press_seated_machine: "chest", push_up: "chest", dip: "chest" },
+  shoulders: {
+    press_overhead: "frontDelts", press_seated_machine: "frontDelts",
+    lateral_raise: "sideDelts",
+    rear_delt: "rearDelts",
+    shrug: "traps", neck: "traps",
+  },
+  back: { pullup: "lats", pulldown: "lats", row: "upperBack", hinge: "lowerBack" },
+  arms: { curl: "biceps", press_lying: "triceps", triceps_ext: "triceps", dip: "triceps", wrist_curl: "forearms" },
+  legs: {
+    squat: "quads", leg_press: "quads", leg_extension: "quads", lunge: "quads", plank: "quads",
+    hinge: "hamstrings", leg_curl: "hamstrings",
+    hip_thrust: "glutes", hip_swing: "glutes",
+    calf_raise: "calves",
+  },
+  core: { core_crunch: "abs", leg_raise_hang: "abs", plank: "abs", press_overhead: "abs", hinge: "abs", twist: "obliques", carry: "obliques" },
+};
+// A custom (user-created) exercise has a muscle but no `pose` — and any exercise whose pose
+// isn't in the table above (a future addition to EXERCISES, for instance) needs somewhere safe
+// to land too. Falls back to one representative region per group rather than dropping the set
+// from the readiness map entirely.
+const GROUP_DEFAULT_REGION = { chest: "chest", shoulders: "frontDelts", back: "upperBack", arms: "biceps", legs: "quads", core: "abs" };
+
+export function regionForExercise(ex) {
+  if (!ex) return null;
+  return POSE_TO_REGION[ex.muscle]?.[ex.pose] || GROUP_DEFAULT_REGION[ex.muscle] || null;
+}
+
+/* The same recovery estimate Asc3end has always used, applied per-region instead of per-group.
+   Handles every edge case by construction, not by special-casing: a deleted or edited workout is
+   simply absent from (or different in) the `workouts` array the next time this runs — there is
+   no separate cache to go stale. Multiple sessions on one day both contribute to that day's
+   recentSets normally. A rest day just means no workout matches that date. A brand-new account
+   (or a region nothing has ever trained) reports "unknown", never a fabricated percentage. */
+export function muscleReadiness(workouts, customExercises = []) {
+  const now = Date.now();
+  const status = {};
+  MUSCLE_REGIONS.forEach((r) => (status[r.id] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
+  const allEx = [...EXERCISES, ...customExercises];
+  (workouts || []).forEach((w) => {
+    const t = new Date(w.date).getTime();
+    const hrs = (now - t) / 3600000;
+    const hitThisWorkout = new Set();
+    (w.exercises || []).forEach((e) => {
+      const ex = allEx.find((x) => x.name === e.name);
+      const regionId = regionForExercise(ex);
+      if (!regionId) return;
+      const s = status[regionId];
+      if (hrs < s.hours) { s.hours = hrs; s.lastDate = w.date; }
+      // "Recent" = last 7 days, same window muscleRecovery always used.
+      if (hrs <= 168) { s.recentSets += (e.sets || []).length; hitThisWorkout.add(regionId); }
+    });
+    hitThisWorkout.forEach((r) => status[r].recentSessions++);
+  });
+  Object.keys(status).forEach((r) => {
+    const s = status[r];
+    const h = s.hours;
+    s.level = !Number.isFinite(h) ? "unknown" : h < 24 ? "fatigued" : h < 48 ? "partial" : "ready";
+    // Rough estimate only — real recovery time varies by muscle, volume, intensity, sleep, and
+    // individual factors. Both figures below are two views of the exact same h-vs-48h ratio, so
+    // they can never disagree with each other or with `level`.
+    s.hoursUntilReady = Number.isFinite(h) ? Math.max(0, Math.round(48 - h)) : null;
+    s.recoveryPercent = Number.isFinite(h) ? Math.max(0, Math.min(100, Math.round((h / 48) * 100))) : null;
+  });
+  return status;
+}
+
+/* Turns one polygon (a plain [x,y] point list) into a smooth closed path by rounding every
+   vertex with a quadratic curve — the general-purpose technique every muscle region below uses
+   to read as an organic rounded shape instead of a sharp-cornered polygon, without hand-tuning a
+   full bezier network for all 17 of them individually. */
+function roundedBlob(points, curvature = 0.32) {
+  const n = points.length;
+  let d = "";
+  for (let i = 0; i < n; i++) {
+    const [x, y] = points[i];
+    const [px, py] = points[(i - 1 + n) % n];
+    const [nx, ny] = points[(i + 1) % n];
+    const cx1 = x + (px - x) * curvature, cy1 = y + (py - y) * curvature;
+    const cx2 = x + (nx - x) * curvature, cy2 = y + (ny - y) * curvature;
+    d += i === 0 ? `M ${cx1.toFixed(1)} ${cy1.toFixed(1)} ` : "";
+    d += `Q ${x.toFixed(1)} ${y.toFixed(1)} ${cx2.toFixed(1)} ${cy2.toFixed(1)} `;
+  }
+  return d + "Z";
+}
+
+/* Mirrors a path's absolute X coordinates around the figure's centerline (x=120) — every region
+   below is authored as a left-side polygon; the matching right-side path is generated from it
+   here rather than hand-duplicated, which is what guarantees the figure is exactly symmetric. */
+function mirrorX(d, axis = 120) {
+  return d.replace(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g, (_, x, y) => `${(2 * axis - parseFloat(x)).toFixed(1)},${y}`);
+}
+
+const blob = (points) => roundedBlob(points);
+const bilateral = (leftPoints) => { const d = blob(leftPoints); return [d, mirrorX(d)]; };
+
+/* Hand-authored polygon geometry for a realistic (not stick-figure, not superhero) standing
+   figure, viewBox 0 0 240 640. Front and back views share the exact same body silhouette — only
+   the muscle overlays layered on top differ, since that's how a real body actually works. */
+// Landmarks below were tuned by rendering the figure and measuring actual on-screen bounding
+// boxes rather than guessed once and left alone — the first pass had the torso polygon wide
+// enough to overlap the arm capsules, which made the figure read as an armless blob with a
+// tiny cluster of muscle regions near the neck. Shoulders are now the widest point (x 42-198),
+// with the torso clearly narrower (x 86-154) so the arms hang visibly outside it.
+const BODY_SKELETON = {
+  head: { cx: 120, cy: 46, rx: 24, ry: 30 },
+  neck: blob([[109, 74], [131, 74], [134, 96], [106, 96]]),
+  torso: blob([[86, 100], [154, 100], [145, 228], [150, 280], [90, 280], [95, 228]]),
+  armUpper: bilateral([[48, 104], [78, 100], [72, 158], [50, 226], [40, 224]]),
+  armLower: bilateral([[46, 224], [64, 222], [58, 328], [44, 330]]),
+  hand: bilateral([[44, 328], [62, 328], [60, 362], [42, 362]]),
+  thigh: bilateral([[84, 282], [116, 282], [112, 452], [92, 452]]),
+  calf: bilateral([[86, 454], [113, 454], [107, 584], [90, 584]]),
+  foot: bilateral([[83, 582], [111, 582], [115, 602], [80, 602]]),
+};
+
+const REGION_SHAPES = {
+  chest: bilateral([[90, 108], [118, 105], [120, 145], [102, 160], [87, 148]]),
+  frontDelts: bilateral([[47, 106], [76, 100], [79, 136], [61, 145], [43, 130]]),
+  sideDelts: bilateral([[40, 112], [55, 104], [59, 138], [48, 144], [36, 128]]),
+  rearDelts: bilateral([[47, 106], [76, 100], [79, 136], [61, 145], [43, 130]]),
+  biceps: bilateral([[49, 150], [72, 148], [66, 220], [47, 220]]),
+  triceps: bilateral([[49, 150], [72, 148], [66, 220], [47, 220]]),
+  forearms: bilateral([[47, 226], [65, 224], [60, 326], [45, 328]]),
+  abs: blob([[100, 174], [140, 174], [136, 268], [104, 268]]),
+  obliques: bilateral([[87, 180], [102, 176], [106, 264], [94, 270], [84, 218]]),
+  traps: blob([[100, 102], [140, 102], [130, 166], [120, 186], [110, 166]]),
+  upperBack: bilateral([[84, 180], [118, 176], [122, 222], [100, 228], [81, 212]]),
+  lats: bilateral([[71, 194], [100, 188], [108, 260], [95, 284], [73, 252]]),
+  lowerBack: blob([[102, 268], [138, 268], [134, 298], [106, 298]]),
+  glutes: bilateral([[84, 282], [117, 282], [114, 334], [88, 334]]),
+  quads: bilateral([[84, 284], [116, 284], [112, 450], [92, 450]]),
+  hamstrings: bilateral([[84, 284], [116, 284], [112, 450], [92, 450]]),
+  calves: bilateral([[86, 456], [113, 456], [107, 582], [90, 582]]),
+};
+
+function BodySkeleton() {
+  const s = BODY_SKELETON;
   return (
-    <>
-      <polyline points={points} fill="none" stroke="var(--ink-dim)" strokeWidth={width + 1.5} strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points={points} fill="none" stroke="var(--bg-elev2)" strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" />
-    </>
+    <g fill="var(--bg-elev2)" stroke="var(--readiness-outline)" strokeOpacity="0.4" strokeWidth="1.5">
+      <ellipse cx={s.head.cx} cy={s.head.cy} rx={s.head.rx} ry={s.head.ry} />
+      <path d={s.neck} />
+      <path d={s.torso} />
+      {s.armUpper.map((d, i) => <path key={`au${i}`} d={d} />)}
+      {s.armLower.map((d, i) => <path key={`al${i}`} d={d} />)}
+      {s.hand.map((d, i) => <path key={`h${i}`} d={d} rx="6" />)}
+      {s.thigh.map((d, i) => <path key={`t${i}`} d={d} />)}
+      {s.calf.map((d, i) => <path key={`c${i}`} d={d} />)}
+      {s.foot.map((d, i) => <path key={`f${i}`} d={d} />)}
+    </g>
   );
 }
 
-const RECOVERY_LEVEL_LABEL = { ready: "Ready", partial: "Partially recovered", rest: "Resting" };
-
-export function MuscleMap15({ status, view, selected, onSelect, maxWidth = 220 }) {
-  const colors = { ready: "var(--good)", partial: "var(--warn)", rest: "var(--rest)" };
-  const regions = MUSCLE_MAP_15.filter((m) => m.view === view || m.view === "both");
+/* One selectable muscle region — a real ARIA button (role="button", tabIndex, aria-pressed), not
+   a decorative shape, so it's reachable and operable with just a keyboard. Text state always
+   accompanies color (aria-label + the visible detail panel below), per "don't rely on color
+   alone." */
+function MuscleRegion({ id, label, state, shape, selected, onSelect }) {
+  const isSel = selected === id;
+  const paths = Array.isArray(shape) ? shape : [shape];
   return (
-    // role="group" (not "img") so the interactive <g> regions below stay in the accessibility
-    // tree as individually reachable, labeled buttons instead of collapsing into one flat image.
-    <svg viewBox="0 0 100 165" style={{ width: "100%", maxWidth, display: "block", margin: "0 auto" }} role="group" aria-label={`${view === "front" ? "Front" : "Back"} muscle recovery map`}>
-      <ellipse cx="50" cy="14" rx="9" ry="9" fill="var(--bg-elev2)" stroke="var(--ink-dim)" strokeWidth="1" />
-      <line x1="50" y1="23" x2="50" y2="28" stroke="var(--ink-dim)" strokeWidth="1" />
-      <path d="M 34 28 L 66 28 L 58 66 L 42 66 Z" fill="var(--bg-elev2)" stroke="var(--ink-dim)" strokeWidth="1" />
-      {limbLine("30,30 22,54 18,78", 7)}
-      {limbLine("70,30 78,54 82,78", 7)}
-      {limbLine("42,68 40,106 38,146", 8)}
-      {limbLine("58,68 60,106 62,146", 8)}
-      {regions.map((m) => {
-        const lvl = status[m.group]?.level || "ready";
-        const isSel = selected === m.key;
-        return (
-          <g
-            key={m.key}
-            onClick={() => onSelect?.(m.key)}
-            onKeyDown={(e) => { if (onSelect && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onSelect(m.key); } }}
-            role={onSelect ? "button" : undefined}
-            tabIndex={onSelect ? 0 : undefined}
-            aria-pressed={onSelect ? isSel : undefined}
-            aria-label={`${m.label}: ${RECOVERY_LEVEL_LABEL[lvl]}`}
-            style={{ cursor: onSelect ? "pointer" : "default", outline: "none" }}
-          >
-            {m.points.map(([x, y], i) => (
-              <circle key={i} cx={x} cy={y} r={isSel ? 6.5 : 5} fill={colors[lvl]} opacity="0.9" stroke={isSel ? "var(--ink)" : "none"} strokeWidth="1" />
-            ))}
-          </g>
-        );
-      })}
+    <g
+      onClick={() => onSelect?.(id)}
+      onKeyDown={(e) => { if (onSelect && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onSelect(id); } }}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      aria-pressed={onSelect ? isSel : undefined}
+      aria-label={`${label}: ${READINESS_LABEL[state]}`}
+      style={{ cursor: onSelect ? "pointer" : "default", outline: "none" }}
+    >
+      {paths.map((d, i) => (
+        <path
+          key={i} d={d}
+          fill={READINESS_COLORS[state]}
+          fillOpacity={isSel ? 1 : 0.85}
+          stroke={isSel ? "var(--ink)" : "var(--readiness-outline)"}
+          strokeWidth={isSel ? 2.5 : 1.25}
+          strokeOpacity={isSel ? 1 : 0.55}
+          style={{ transition: "fill-opacity 0.15s ease" }}
+        />
+      ))}
+    </g>
+  );
+}
+
+const FRONT_REGION_IDS = MUSCLE_REGIONS.filter((r) => r.view === "front" || r.view === "both").map((r) => r.id);
+const BACK_REGION_IDS = MUSCLE_REGIONS.filter((r) => r.view === "back" || r.view === "both").map((r) => r.id);
+const REGION_BY_ID = Object.fromEntries(MUSCLE_REGIONS.map((r) => [r.id, r]));
+
+function BodyFigure({ view, readiness, selected, onSelect, maxWidth }) {
+  const ids = view === "front" ? FRONT_REGION_IDS : BACK_REGION_IDS;
+  return (
+    <svg
+      viewBox="0 0 240 620" style={{ width: "100%", maxWidth, display: "block", margin: "0 auto" }}
+      role="group" aria-label={`${view === "front" ? "Front" : "Back"} muscle readiness map`}
+    >
+      <BodySkeleton />
+      {ids.map((id) => (
+        <MuscleRegion
+          key={id} id={id} label={REGION_BY_ID[id].label}
+          state={readiness[id]?.level || "unknown"}
+          shape={REGION_SHAPES[id]}
+          selected={selected} onSelect={onSelect}
+        />
+      ))}
     </svg>
   );
 }
 
-/* Plain-text equivalent of the map above, for anyone who can't tap/see the SVG dots — every
-   region, grouped by current recovery status, using the same status object. */
-export function MuscleMap15TextAlternative({ status, view }) {
-  const regions = MUSCLE_MAP_15.filter((m) => m.view === view || m.view === "both");
-  const byLevel = { ready: [], partial: [], rest: [] };
-  regions.forEach((m) => byLevel[status[m.group]?.level || "ready"].push(m.label));
+export function FrontBodyFigure({ readiness, selected, onSelect, maxWidth = 240 }) {
+  return <BodyFigure view="front" readiness={readiness} selected={selected} onSelect={onSelect} maxWidth={maxWidth} />;
+}
+export function BackBodyFigure({ readiness, selected, onSelect, maxWidth = 240 }) {
+  return <BodyFigure view="back" readiness={readiness} selected={selected} onSelect={onSelect} maxWidth={maxWidth} />;
+}
+
+export function MuscleReadinessLegend() {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
+      {["ready", "partial", "fatigued", "unknown"].map((lvl) => (
+        <span key={lvl} className="mono" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: "var(--ink-dim)" }}>
+          <span style={{ width: 9, height: 9, borderRadius: 5, background: READINESS_COLORS[lvl], display: "inline-block", flexShrink: 0 }} />
+          {READINESS_LABEL[lvl]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* Plain-text equivalent of the figures, for anyone who can't see or tap the SVG — every region
+   on the given view, grouped by current state, using the exact same readiness object. */
+export function MuscleReadinessTextList({ readiness, view }) {
+  const ids = view === "front" ? FRONT_REGION_IDS : view === "back" ? BACK_REGION_IDS : MUSCLE_REGIONS.map((r) => r.id);
+  const byLevel = { ready: [], partial: [], fatigued: [], unknown: [] };
+  ids.forEach((id) => byLevel[readiness[id]?.level || "unknown"].push(REGION_BY_ID[id].label));
   return (
     <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-      {["ready", "partial", "rest"].map((lvl) => byLevel[lvl].length > 0 && (
+      {["ready", "partial", "fatigued", "unknown"].map((lvl) => byLevel[lvl].length > 0 && (
         <li key={lvl} style={{ fontSize: 11.5, color: "var(--ink-dim)", marginBottom: 3 }}>
-          <span style={{ color: "var(--ink)" }}>{RECOVERY_LEVEL_LABEL[lvl]}:</span> {byLevel[lvl].join(", ")}
+          <span style={{ color: "var(--ink)" }}>{READINESS_LABEL[lvl]}:</span> {byLevel[lvl].join(", ")}
         </li>
       ))}
     </ul>
+  );
+}
+
+function fmtRelativeDate(iso) {
+  if (!iso) return null;
+  const days = Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/* Rationale/action copy is generated from the same computed numbers shown above it, never a
+   canned string per muscle — so it can never say something the numbers on screen contradict. */
+function readinessRationale(label, s) {
+  if (s.level === "unknown") {
+    return { why: `No logged sets for ${label.toLowerCase()} yet, so there isn't enough history to estimate recovery.`, action: `Log a workout that trains ${label.toLowerCase()} to start tracking it.` };
+  }
+  const when = fmtRelativeDate(s.lastDate)?.toLowerCase() || "recently";
+  if (s.level === "fatigued") {
+    return { why: `Trained ${when} — recently enough that it's still fatigued, based on ${s.recentSets} set${s.recentSets === 1 ? "" : "s"} logged in the last 7 days.`, action: "Consider resting this muscle today and training something else." };
+  }
+  if (s.level === "partial") {
+    return { why: `Trained ${when} and still recovering, based on ${s.recentSets} set${s.recentSets === 1 ? "" : "s"} logged in the last 7 days.`, action: "You can train another muscle group today, or reduce volume if you still want to hit this one." };
+  }
+  return { why: `Last trained ${when} — enough time has passed that it's no longer estimated to be fatigued.`, action: "Good to train today." };
+}
+
+/* The rich per-muscle panel: name, status, percentage, last-trained date, recent workload,
+   estimated recovery time, plain-language rationale, suggested action, and a way to jump to
+   exercises for it. Every value here is read straight off the same readiness[] entry the figure
+   used to choose that region's color — nothing here can disagree with what's on screen. */
+export function MuscleRecoveryDetails({ regionId, readiness, onViewExercises }) {
+  const region = REGION_BY_ID[regionId];
+  const s = readiness[regionId];
+  if (!region || !s) return null;
+  const { why, action } = readinessRationale(region.label, s);
+  return (
+    <div style={{ padding: 14, background: "var(--bg-elev2)", borderRadius: "var(--radius-md)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+        <div>
+          <div className="disp" style={{ fontSize: 15 }}>{region.label}</div>
+          <div className="mono" style={{ fontSize: 11.5, color: READINESS_COLORS[s.level] }}>
+            {READINESS_LABEL[s.level]}{s.recoveryPercent != null && ` — ${s.recoveryPercent}%`}
+          </div>
+        </div>
+        <span style={{ width: 12, height: 12, borderRadius: 6, background: READINESS_COLORS[s.level], flexShrink: 0, marginTop: 4 }} aria-hidden="true" />
+      </div>
+
+      {s.level === "unknown" ? (
+        <div className="mono" style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.7 }}>Not trained yet.</div>
+      ) : (
+        <div className="mono" style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.9 }}>
+          Last trained: {fmtRelativeDate(s.lastDate)}<br />
+          Recent workload: {s.recentSets} working set{s.recentSets === 1 ? "" : "s"}<br />
+          {s.level === "ready" ? "Ready to train now." : `Estimated ready: ~${s.hoursUntilReady}h`}
+        </div>
+      )}
+
+      <div style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 10, fontStyle: "italic", color: "var(--ink-dim)" }}>&ldquo;{why}&rdquo;</div>
+      <div style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 6 }}>{action}</div>
+
+      {onViewExercises && (
+        <button onClick={() => onViewExercises(region.group)} className="atlas-btn-ghost" style={{ width: "100%", marginTop: 10, fontSize: 11.5, padding: "8px 10px" }}>
+          View {region.label} Exercises
+        </button>
+      )}
+
+      <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 10, fontStyle: "italic" }}>
+        Training estimate based on time since last trained — not a medical measurement.
+      </div>
+    </div>
+  );
+}
+
+/* Compact composition for Home: a single front figure, a plain-language summary, and a link to
+   the full front-and-back map on Progress. Shares every SVG region/path with the full version
+   below — nothing here is a second, differently-drawn figure. */
+export function MuscleReadinessMap({ readiness, onViewFullBody, onViewExercises }) {
+  const [selected, setSelected] = useState(null);
+  const readyCount = FRONT_REGION_IDS.filter((id) => readiness[id]?.level === "ready").length;
+  const knownCount = FRONT_REGION_IDS.filter((id) => readiness[id]?.level !== "unknown").length;
+  return (
+    <div>
+      <FrontBodyFigure readiness={readiness} selected={selected} onSelect={(id) => setSelected(selected === id ? null : id)} maxWidth={125} />
+      <div style={{ textAlign: "center", marginTop: 8 }}>
+        <MuscleReadinessLegend />
+        <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8 }}>
+          {knownCount === 0 ? "Log a workout to start tracking readiness." : `${readyCount} of ${FRONT_REGION_IDS.length} muscle groups ready`}
+        </div>
+      </div>
+      {selected && (
+        <div style={{ marginTop: 10 }}>
+          <MuscleRecoveryDetails regionId={selected} readiness={readiness} onViewExercises={onViewExercises} />
+        </div>
+      )}
+      {onViewFullBody && (
+        <button onClick={onViewFullBody} className="atlas-btn-ghost" style={{ width: "100%", marginTop: 10 }}>View Full Body</button>
+      )}
+    </div>
   );
 }
 
@@ -1409,10 +1723,9 @@ function playRestDoneSound() {
   } catch (e) { /* audio unavailable, fail silently */ }
 }
 
-function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, subscriptionState, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile, onOpenChallenges }) {
+function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, subscriptionState, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile, onOpenChallenges, onViewExercises }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
-  const status = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
-  const [selectedMuscle, setSelectedMuscle] = useState(null);
+  const readiness = useMemo(() => muscleReadiness(workouts, customExercises), [workouts, customExercises]);
   const targets = useMemo(() => getNutritionTargets(profile), [profile]);
   const todayFoods = nutrition.filter((n) => n.date === todayStr());
   const totals = todayFoods.reduce(
@@ -1544,35 +1857,8 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
       </div>
 
       <div className="atlas-card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <h2 className="disp" style={{ fontSize: 15 }}>Muscle Recovery</h2>
-          <button onClick={() => onNav("progress")} className="atlas-btn-ghost" style={{ padding: "4px 10px", fontSize: 10, minHeight: 30 }}>Full map</button>
-        </div>
-        <MuscleMap15 status={status} view="front" selected={selectedMuscle} onSelect={(k) => setSelectedMuscle(selectedMuscle === k ? null : k)} maxWidth={170} />
-        <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 8 }}>
-          <span className="pill" style={{ background: "rgba(116,165,120,0.15)", color: "var(--good)" }}>● Ready</span>
-          <span className="pill" style={{ background: "rgba(255,182,72,0.15)", color: "var(--warn)" }}>● Partial</span>
-          <span className="pill" style={{ background: "rgba(184,91,94,0.15)", color: "var(--rest)" }}>● Resting</span>
-        </div>
-        {selectedMuscle && (() => {
-          const region = MUSCLE_MAP_15.find((m) => m.key === selectedMuscle);
-          const g = status[region.group];
-          return (
-            <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
-              <div className="disp" style={{ fontSize: 12, marginBottom: 4 }}>{region.label}</div>
-              {!Number.isFinite(g.hours) ? (
-                <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>Not trained yet.</div>
-              ) : (
-                <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.7 }}>
-                  Last trained: {fmtDate(g.lastDate)} ({Math.round(g.hours)}h ago)<br />
-                  {g.recentSets} set{g.recentSets === 1 ? "" : "s"} across {g.recentSessions} session{g.recentSessions === 1 ? "" : "s"} in the last 7 days<br />
-                  {g.level === "ready" ? "Ready to train." : `Est. fully ready in ~${g.hoursUntilReady}h`}
-                </div>
-              )}
-            </div>
-          );
-        })()}
-        <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>Estimate based on time since last trained — not a medical measurement. Tap a muscle for detail.</div>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 8 }}>Muscle Readiness</h2>
+        <MuscleReadinessMap readiness={readiness} onViewFullBody={() => onNav("progress")} onViewExercises={onViewExercises} />
       </div>
 
       <div className="atlas-card">
@@ -2231,10 +2517,10 @@ function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }
   );
 }
 
-function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise, onEditWorkout, onDeleteWorkout }) {
+function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise, onEditWorkout, onDeleteWorkout, initialMuscleFilter }) {
   const [picker, setPicker] = useState(false);
   const [search, setSearch] = useState("");
-  const [muscleFilter, setMuscleFilter] = useState("all");
+  const [muscleFilter, setMuscleFilter] = useState(initialMuscleFilter || "all");
   const [equipFilter, setEquipFilter] = useState("all");
   // Progressive rendering for the exercise picker (223 entries, each an SVG PoseFigure — cheap
   // individually, not free 223-at-once on a low-powered phone): render a capped batch and reveal
@@ -4971,6 +5257,11 @@ export default function App() {
   const [showPricing, setShowPricing] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
   const [showChallenges, setShowChallenges] = useState(false);
+  // Seeds Train's exercise-picker muscle filter when the athlete taps "View Exercises" from a
+  // muscle-readiness detail panel — a convenience, not a forced navigation: it never auto-starts
+  // a workout on the athlete's behalf, it just has the filter ready once they do.
+  const [trainMuscleFilter, setTrainMuscleFilter] = useState(null);
+  const onViewExercises = (group) => { setTrainMuscleFilter(group); setTab("train"); };
   const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "signup"
   const [publicLegalDoc, setPublicLegalDoc] = useState(null);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
@@ -5553,8 +5844,8 @@ export default function App() {
         />
       ) : (
         <>
-          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} onOpenChallenges={() => setShowChallenges(true)} />}
-          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} />}
+          {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} onOpenChallenges={() => setShowChallenges(true)} onViewExercises={onViewExercises} />}
+          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} initialMuscleFilter={trainMuscleFilter} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (

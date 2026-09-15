@@ -24,6 +24,16 @@ export default function GlobalStyle() {
         --warn: #FFA53D;
         --rest: #FF6B81;
 
+        /* Muscle Readiness Map palette — its own dedicated tokens (not a reuse of --good/--warn/
+           --rest) because this feature's colors were specified as exact hex values distinct from
+           the app's general-purpose status colors, even though "ready" happens to land on the
+           same green as --brass. Every readiness component reads these, never a literal hex. */
+        --readiness-ready: #3ECF8E;
+        --readiness-partial: #F3B33D;
+        --readiness-fatigued: #FF6B6B;
+        --readiness-unknown: #33423B;
+        --readiness-outline: #71D6A5;
+
         /* Formalized design tokens (Launch visual upgrade, Phase 1) — the palette above was
            already correct and well-used; these are the values that WERE being repeated inline
            and inconsistently (8px here, 10px there, 12px somewhere else for what was meant to be

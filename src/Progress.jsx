@@ -1,16 +1,35 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Trophy, ChevronLeft, ChevronRight, X, FileText } from "lucide-react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
-import { muscleRecovery, MuscleMap15, MuscleMap15TextAlternative, MUSCLE_MAP_15, EXERCISES, MUSCLE_GROUPS, classifyDayAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL, workoutVolume } from "./App.jsx";
+import {
+  muscleReadiness, FrontBodyFigure, BackBodyFigure, MuscleReadinessLegend, MuscleRecoveryDetails, MuscleReadinessTextList,
+  EXERCISES, MUSCLE_GROUPS, classifyDayAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL, workoutVolume,
+} from "./App.jsx";
 import { getNutritionTargets } from "./lib/nutritionMath";
 
-/* muscleRecovery/MuscleMap15 are imported from App.jsx rather than reimplemented here so the
-   full recovery map on this page can never drift out of sync with the compact one on Home —
-   both read the exact same 6-group calculation. This doesn't add to Progress's own lazy-loaded
-   bundle weight: App.jsx is already fully loaded and evaluated by the time a user can navigate
-   to this tab, since Progress only ever renders from inside the already-running App tree. */
+/* muscleReadiness/the body figures are imported from App.jsx rather than reimplemented here so
+   the full map on this page can never drift out of sync with the compact one on Home — both read
+   the exact same per-region calculation and the exact same SVG region paths. This doesn't add to
+   Progress's own lazy-loaded bundle weight: App.jsx is already fully loaded and evaluated by the
+   time a user can navigate to this tab, since Progress only ever renders from inside the
+   already-running App tree. */
+
+// Desktop shows front and back figures side by side; narrow/mobile shows one at a time via a
+// segmented control, since two full-height figures side by side would be unusably small on a
+// 320-390px phone. 768px matches the app's existing tablet breakpoint convention.
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = () => setIsDesktop(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return isDesktop;
+}
 
 /* This file is loaded lazily (see App.jsx) so recharts — the single largest dependency in the
    app (~525KB) — is only downloaded when someone actually opens the Progress tab, instead of
@@ -439,7 +458,9 @@ export default function Progress({ profile, workouts, weightlog, customExercises
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
   const [mapView, setMapView] = useState("front");
   const [selectedRegion, setSelectedRegion] = useState(null);
-  const recoveryStatus = useMemo(() => muscleRecovery(workouts, customExercises), [workouts, customExercises]);
+  const readiness = useMemo(() => muscleReadiness(workouts, customExercises), [workouts, customExercises]);
+  const readinessUpdatedAt = useMemo(() => new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }), [readiness]);
+  const isDesktop = useIsDesktop();
 
   // Dedupe same-day entries (keep the latest) before charting — otherwise logging twice in one
   // day plots two points with an identical x-axis label, which reads as a rendering bug.
@@ -636,57 +657,64 @@ export default function Progress({ profile, workouts, weightlog, customExercises
       )}
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
-          <h2 className="disp" style={{ fontSize: 14 }}>Muscle Recovery Map</h2>
-          <div style={{ display: "flex", gap: 4 }}>
-            {["front", "back"].map((v) => (
-              <button
-                key={v}
-                onClick={() => { setMapView(v); setSelectedRegion(null); }}
-                className="pill"
-                style={{ cursor: "pointer", textTransform: "capitalize", border: `1px solid ${mapView === v ? "var(--brass)" : "var(--line)"}`, background: mapView === v ? "var(--brass-soft)" : "transparent", color: mapView === v ? "var(--brass)" : "var(--ink-dim)" }}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <MuscleMap15 status={recoveryStatus} view={mapView} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={240} />
-
-        <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 8 }}>
-          <span className="pill" style={{ background: "rgba(116,165,120,0.15)", color: "var(--good)" }}>● Ready</span>
-          <span className="pill" style={{ background: "rgba(255,182,72,0.15)", color: "var(--warn)" }}>● Partial</span>
-          <span className="pill" style={{ background: "rgba(184,91,94,0.15)", color: "var(--rest)" }}>● Resting</span>
-        </div>
-
-        {selectedRegion && (() => {
-          const region = MUSCLE_MAP_15.find((m) => m.key === selectedRegion);
-          const g = recoveryStatus[region.group];
-          return (
-            <div style={{ marginTop: 10, padding: 10, background: "var(--bg-elev2)", borderRadius: 8 }}>
-              <div className="disp" style={{ fontSize: 12, marginBottom: 4 }}>{region.label}</div>
-              {!Number.isFinite(g.hours) ? (
-                <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>Not trained yet.</div>
-              ) : (
-                <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.7 }}>
-                  Last trained: {fmtDate(g.lastDate)} ({Math.round(g.hours)}h ago)<br />
-                  {g.recentSets} set{g.recentSets === 1 ? "" : "s"} across {g.recentSessions} session{g.recentSessions === 1 ? "" : "s"} in the last 7 days<br />
-                  {g.level === "ready" ? "Ready to train." : `Est. fully ready in ~${g.hoursUntilReady}h`}
-                </div>
-              )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8, flexWrap: "wrap" }}>
+          <h2 className="disp" style={{ fontSize: 14 }}>Muscle Readiness Map</h2>
+          {!isDesktop && (
+            <div style={{ display: "flex", gap: 4 }} role="tablist" aria-label="Front or back view">
+              {["front", "back"].map((v) => (
+                <button
+                  key={v}
+                  onClick={() => { setMapView(v); setSelectedRegion(null); }}
+                  role="tab"
+                  aria-selected={mapView === v}
+                  className="pill"
+                  style={{ cursor: "pointer", textTransform: "capitalize", minHeight: 32, border: `1px solid ${mapView === v ? "var(--brass)" : "var(--line)"}`, background: mapView === v ? "var(--brass-soft)" : "transparent", color: mapView === v ? "var(--brass)" : "var(--ink-dim)" }}
+                >
+                  {v}
+                </button>
+              ))}
             </div>
-          );
-        })()}
+          )}
+        </div>
+        <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 10 }}>Last updated {readinessUpdatedAt}</div>
+
+        {isDesktop ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div>
+              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", textAlign: "center", marginBottom: 4 }}>FRONT</div>
+              <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={260} />
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", textAlign: "center", marginBottom: 4 }}>BACK</div>
+              <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={260} />
+            </div>
+          </div>
+        ) : mapView === "front" ? (
+          <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={280} />
+        ) : (
+          <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={280} />
+        )}
+
+        <div style={{ marginTop: 10 }}>
+          <MuscleReadinessLegend />
+        </div>
+
+        {selectedRegion && (
+          <div style={{ marginTop: 10 }}>
+            <MuscleRecoveryDetails regionId={selectedRegion} readiness={readiness} />
+          </div>
+        )}
 
         <details style={{ marginTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--ink-dim)" }}>Show as text list</summary>
+          <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--ink-dim)", minHeight: 28, display: "inline-flex", alignItems: "center" }}>Show as text list</summary>
           <div style={{ marginTop: 8 }}>
-            <MuscleMap15TextAlternative status={recoveryStatus} view={mapView} />
+            <MuscleReadinessTextList readiness={readiness} view={isDesktop ? "both" : mapView} />
           </div>
         </details>
 
-        <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>Estimate based on time since last trained — not a medical measurement. Tap a muscle for detail.</div>
+        <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 10, fontStyle: "italic", lineHeight: 1.6 }}>
+          Each region's readiness is estimated from hours since it was last trained and how many sets it's had in the last 7 days — a training estimate, not a medical measurement. Tap or select a muscle for detail.
+        </div>
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
