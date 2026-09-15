@@ -679,33 +679,52 @@ export default function Progress({ profile, workouts, weightlog, customExercises
         <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 10 }}>Last updated {readinessUpdatedAt}</div>
 
         {isDesktop ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div>
-              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", textAlign: "center", marginBottom: 4 }}>FRONT</div>
-              <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={260} />
+          // Figures on the left (fixed width, ~380px tall each), detail panel filling the rest of
+          // the card's width to the right — this is what actually uses the available card width;
+          // stretching the figures themselves to fill it would just distort their proportions.
+          <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 16, flexShrink: 0 }}>
+              <div>
+                <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", textAlign: "center", marginBottom: 4 }}>FRONT</div>
+                <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={125} />
+              </div>
+              <div>
+                <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", textAlign: "center", marginBottom: 4 }}>BACK</div>
+                <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={125} />
+              </div>
             </div>
-            <div>
-              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", textAlign: "center", marginBottom: 4 }}>BACK</div>
-              <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={260} />
+            <div style={{ flex: "1 1 240px", minWidth: 240 }}>
+              <MuscleReadinessLegend />
+              <div style={{ marginTop: 12 }}>
+                {selectedRegion ? (
+                  <MuscleRecoveryDetails regionId={selectedRegion} readiness={readiness} />
+                ) : (
+                  <div className="empty-state" style={{ padding: "20px 12px" }}>
+                    <div className="empty-state-body">Select a muscle on either figure to see its readiness detail.</div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        ) : mapView === "front" ? (
-          <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={280} />
         ) : (
-          <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={280} />
+          <>
+            {mapView === "front" ? (
+              <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={300} />
+            ) : (
+              <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={300} />
+            )}
+            <div style={{ marginTop: 10 }}>
+              <MuscleReadinessLegend />
+            </div>
+            {selectedRegion && (
+              <div style={{ marginTop: 10 }}>
+                <MuscleRecoveryDetails regionId={selectedRegion} readiness={readiness} />
+              </div>
+            )}
+          </>
         )}
 
-        <div style={{ marginTop: 10 }}>
-          <MuscleReadinessLegend />
-        </div>
-
-        {selectedRegion && (
-          <div style={{ marginTop: 10 }}>
-            <MuscleRecoveryDetails regionId={selectedRegion} readiness={readiness} />
-          </div>
-        )}
-
-        <details style={{ marginTop: 10 }}>
+        <details style={{ marginTop: 12 }}>
           <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--ink-dim)", minHeight: 28, display: "inline-flex", alignItems: "center" }}>Show as text list</summary>
           <div style={{ marginTop: 8 }}>
             <MuscleReadinessTextList readiness={readiness} view={isDesktop ? "both" : mapView} />

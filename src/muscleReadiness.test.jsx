@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { act } from "react";
 import {
   muscleReadiness, regionForExercise, MUSCLE_REGIONS, READINESS_COLORS, READINESS_LABEL,
-  FrontBodyFigure, BackBodyFigure, EXERCISES,
+  FrontBodyFigure, BackBodyFigure, MuscleRecoveryDetails, EXERCISES,
 } from "./App.jsx";
 
 function uid() { return Math.random().toString(36).slice(2); }
@@ -17,14 +17,19 @@ function workout(daysAgo, exerciseName, sets = [{ weight: 50, reps: 8, type: "wo
   return { id: uid(), date: isoDaysAgo(daysAgo), exercises: [{ name: exerciseName, sets }] };
 }
 
-describe("MUSCLE_REGIONS — the 17 required regions exist, one entry each", () => {
-  it("has exactly 17 regions with the requested ids", () => {
+describe("MUSCLE_REGIONS — the 18 required regions exist, one entry each", () => {
+  it("has exactly 18 regions with the requested ids", () => {
     const expected = [
       "chest", "frontDelts", "sideDelts", "rearDelts", "biceps", "triceps", "forearms",
-      "abs", "obliques", "traps", "upperBack", "lats", "lowerBack", "glutes", "quads", "hamstrings", "calves",
+      "abs", "obliques", "traps", "upperBack", "lats", "lowerBack", "glutes", "quads", "adductors", "hamstrings", "calves",
     ];
     expect(MUSCLE_REGIONS.map((r) => r.id).sort()).toEqual([...expected].sort());
-    expect(MUSCLE_REGIONS).toHaveLength(17);
+    expect(MUSCLE_REGIONS).toHaveLength(18);
+  });
+
+  it("calves and forearms are visible on both front and back (real anatomy — both are visible from either angle)", () => {
+    expect(MUSCLE_REGIONS.find((r) => r.id === "calves").view).toBe("both");
+    expect(MUSCLE_REGIONS.find((r) => r.id === "forearms").view).toBe("both");
   });
 
   it("every region declares a view of front, back, or both", () => {
@@ -68,6 +73,21 @@ describe("regionForExercise — muscle-to-SVG-region mapping", () => {
   it("returns null for a missing exercise instead of throwing", () => {
     expect(regionForExercise(null)).toBeNull();
     expect(regionForExercise(undefined)).toBeNull();
+  });
+});
+
+describe("adductors — no dedicated exercise data, so it honestly displays quads' real reading", () => {
+  it("the detail panel shows quads' actual computed state under the adductors label, and discloses the substitution", () => {
+    const readiness = muscleReadiness([workout(0, "Back Squat")], []);
+    expect(readiness.quads.level).toBe("fatigued");
+    let container = document.createElement("div");
+    document.body.appendChild(container);
+    act(() => { createRoot(container).render(<MuscleRecoveryDetails regionId="adductors" readiness={readiness} />); });
+    const text = container.textContent;
+    expect(text).toContain("Adductors");
+    expect(text).toContain("Fatigued");
+    expect(text.toLowerCase()).toContain("quads");
+    container.remove();
   });
 });
 

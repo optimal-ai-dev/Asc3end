@@ -898,9 +898,18 @@ export const MUSCLE_REGIONS = [
   { id: "lowerBack", label: "Lower Back", group: "back", view: "back" },
   { id: "glutes", label: "Glutes", group: "legs", view: "back" },
   { id: "quads", label: "Quads", group: "legs", view: "front" },
+  { id: "adductors", label: "Adductors", group: "legs", view: "front" },
   { id: "hamstrings", label: "Hamstrings", group: "legs", view: "back" },
-  { id: "calves", label: "Calves", group: "legs", view: "back" },
+  { id: "calves", label: "Calves", group: "legs", view: "both" },
 ];
+
+// Asc3end's exercise data has no dedicated adduction/adductor exercise pose — there is genuinely
+// no logged data specific to inner-thigh work to compute an independent readiness for it. Rather
+// than fabricate a number, the adductors region displays the same real, already-computed reading
+// as quads (the closest trained region — squats/lunges do meaningfully load the adductors) and
+// says so in its own detail panel. This is a deliberate, disclosed display-only substitution, not
+// a second calculation: `muscleReadiness()` below never writes an "adductors" key itself.
+const READINESS_DISPLAY_SOURCE = { adductors: "quads" };
 
 // Real, existing per-exercise data (muscle + pose) mapped onto the 17 regions above. Built from
 // every (muscle, pose) combination that actually occurs in EXERCISES — verified against the
@@ -979,10 +988,10 @@ export function muscleReadiness(workouts, customExercises = []) {
 }
 
 /* Turns one polygon (a plain [x,y] point list) into a smooth closed path by rounding every
-   vertex with a quadratic curve — the general-purpose technique every muscle region below uses
-   to read as an organic rounded shape instead of a sharp-cornered polygon, without hand-tuning a
-   full bezier network for all 17 of them individually. */
-function roundedBlob(points, curvature = 0.32) {
+   vertex with a quadratic curve. Used for every muscle region below so edges read as organic
+   muscle curves rather than sharp polygon corners — the rounding itself was never the problem
+   with the first version of this figure; the shapes it rounded were disconnected. */
+function roundedBlob(points, curvature = 0.28) {
   const n = points.length;
   let d = "";
   for (let i = 0; i < n; i++) {
@@ -997,69 +1006,157 @@ function roundedBlob(points, curvature = 0.32) {
   return d + "Z";
 }
 
-/* Mirrors a path's absolute X coordinates around the figure's centerline (x=120) — every region
+/* Mirrors a path's absolute X coordinates around the figure's centerline (x=100) — every region
    below is authored as a left-side polygon; the matching right-side path is generated from it
-   here rather than hand-duplicated, which is what guarantees the figure is exactly symmetric. */
-function mirrorX(d, axis = 120) {
-  return d.replace(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g, (_, x, y) => `${(2 * axis - parseFloat(x)).toFixed(1)},${y}`);
+   here, which is what guarantees the figure is exactly symmetric rather than hand-duplicated and
+   liable to drift.
+   roundedBlob() below emits every coordinate as "X Y" (space-separated, each an M or Q command
+   argument) rather than "X,Y" — the entire path is one flat, strictly-alternating X,Y,X,Y,...
+   sequence of numbers with no other numeric tokens mixed in, so the correct thing to mirror is
+   every EVEN-indexed number (0-based) in the whole string, not "numbers before a comma". An
+   earlier version of this function matched on a comma that never actually appears in the output,
+   which silently mirrored nothing — every "right side" path was rendering exactly on top of its
+   left-side twin, which is why the figure looked one-sided/incomplete. */
+function mirrorX(d, axis = 100) {
+  let i = 0;
+  return d.replace(/-?\d+\.\d+/g, (numStr) => {
+    const isX = i % 2 === 0;
+    i++;
+    return isX ? (2 * axis - parseFloat(numStr)).toFixed(1) : numStr;
+  });
 }
 
 const blob = (points) => roundedBlob(points);
 const bilateral = (leftPoints) => { const d = blob(leftPoints); return [d, mirrorX(d)]; };
 
-/* Hand-authored polygon geometry for a realistic (not stick-figure, not superhero) standing
-   figure, viewBox 0 0 240 640. Front and back views share the exact same body silhouette — only
-   the muscle overlays layered on top differ, since that's how a real body actually works. */
-// Landmarks below were tuned by rendering the figure and measuring actual on-screen bounding
-// boxes rather than guessed once and left alone — the first pass had the torso polygon wide
-// enough to overlap the arm capsules, which made the figure read as an armless blob with a
-// tiny cluster of muscle regions near the neck. Shoulders are now the widest point (x 42-198),
-// with the torso clearly narrower (x 86-154) so the arms hang visibly outside it.
-const BODY_SKELETON = {
-  head: { cx: 120, cy: 46, rx: 24, ry: 30 },
-  neck: blob([[109, 74], [131, 74], [134, 96], [106, 96]]),
-  torso: blob([[86, 100], [154, 100], [145, 228], [150, 280], [90, 280], [95, 228]]),
-  armUpper: bilateral([[48, 104], [78, 100], [72, 158], [50, 226], [40, 224]]),
-  armLower: bilateral([[46, 224], [64, 222], [58, 328], [44, 330]]),
-  hand: bilateral([[44, 328], [62, 328], [60, 362], [42, 362]]),
-  thigh: bilateral([[84, 282], [116, 282], [112, 452], [92, 452]]),
-  calf: bilateral([[86, 454], [113, 454], [107, 584], [90, 584]]),
-  foot: bilateral([[83, 582], [111, 582], [115, 602], [80, 602]]),
+/* ------------------------------------------------------------------ */
+/* Figure geometry, take two.                                          */
+/* ------------------------------------------------------------------ */
+// The first version drew each muscle as an independent floating capsule near an unrelated
+// skeleton shape, at a tiny render size — the result was a lopsided, disconnected mannequin, not
+// a body. This version is built the way a real anatomical illustration actually is: adjacent
+// regions share EXACT boundary coordinates (the elbow point closing biceps is the same point
+// that opens forearms; the knee point closing quads is the same point that opens calves; the
+// deltoid's inner edge is the torso's own shoulder edge), so there is no gap between them by
+// construction, not by luck. viewBox 0 0 200 620, centerline x=100 — proportioned from actual
+// measured shoulder/waist/hip/limb ratios, not guessed once and left alone.
+const CX = 100;
+
+// Torso stations: y, and the half-width of the torso silhouette at that height.
+const TORSO = {
+  shoulderY: 108, shoulderHW: 74,
+  chestY: 148, chestHW: 58,
+  obliqueTopY: 192, obliqueTopHW: 50,
+  waistY: 246, waistHW: 40,
+  hipY: 282, hipHW: 48,
 };
+const absHW = 17; // half-width of the abs strip, independent of the torso's own outer edge
+
+// Arm stations (left side; mirrored for right). Each entry shares its coordinates with the
+// station before/after it, so biceps/triceps and forearms always meet with zero gap.
+const ARM = {
+  shoulder: { y: 114, hw: 19 },
+  bicepMid: { y: 168, hw: 20 },
+  elbow: { y: 224, hw: 13 },
+  forearmMid: { y: 264, hw: 12 },
+  wrist: { y: 326, hw: 8 },
+};
+const armX = { shoulder: 30, bicepMid: 23, elbow: 19, forearmMid: 18, wrist: 22 };
+
+// Leg stations: explicit outer (lateral) and inner (medial) edge X per height, chosen with a
+// generous, constant gap between the two legs' inner edges so they never visually merge into one
+// mass the way the first version's legs did.
+const LEG = [
+  { y: 282, outer: 42, inner: 90 }, // hip / thigh top
+  { y: 368, outer: 36, inner: 84 }, // thigh mid
+  { y: 458, outer: 48, inner: 80 }, // knee
+  { y: 512, outer: 46, inner: 78 }, // calf bulge
+  { y: 580, outer: 56, inner: 72 }, // ankle
+];
+const ADDUCTOR_INSET = 16; // width of the inner-thigh strip carved out of the leg's medial edge
+
+function legEdge(i, side) { return LEG[i][side]; }
 
 const REGION_SHAPES = {
-  chest: bilateral([[90, 108], [118, 105], [120, 145], [102, 160], [87, 148]]),
-  frontDelts: bilateral([[47, 106], [76, 100], [79, 136], [61, 145], [43, 130]]),
-  sideDelts: bilateral([[40, 112], [55, 104], [59, 138], [48, 144], [36, 128]]),
-  rearDelts: bilateral([[47, 106], [76, 100], [79, 136], [61, 145], [43, 130]]),
-  biceps: bilateral([[49, 150], [72, 148], [66, 220], [47, 220]]),
-  triceps: bilateral([[49, 150], [72, 148], [66, 220], [47, 220]]),
-  forearms: bilateral([[47, 226], [65, 224], [60, 326], [45, 328]]),
-  abs: blob([[100, 174], [140, 174], [136, 268], [104, 268]]),
-  obliques: bilateral([[87, 180], [102, 176], [106, 264], [94, 270], [84, 218]]),
-  traps: blob([[100, 102], [140, 102], [130, 166], [120, 186], [110, 166]]),
-  upperBack: bilateral([[84, 180], [118, 176], [122, 222], [100, 228], [81, 212]]),
-  lats: bilateral([[71, 194], [100, 188], [108, 260], [95, 284], [73, 252]]),
-  lowerBack: blob([[102, 268], [138, 268], [134, 298], [106, 298]]),
-  glutes: bilateral([[84, 282], [117, 282], [114, 334], [88, 334]]),
-  quads: bilateral([[84, 284], [116, 284], [112, 450], [92, 450]]),
-  hamstrings: bilateral([[84, 284], [116, 284], [112, 450], [92, 450]]),
-  calves: bilateral([[86, 456], [113, 456], [107, 582], [90, 582]]),
+  chest: bilateral([
+    [24, TORSO.shoulderY], [42, TORSO.chestY], [CX - absHW, TORSO.chestY], [CX - absHW, TORSO.shoulderY + 6], [58, TORSO.shoulderY],
+  ]),
+  frontDelts: bilateral([
+    [24, TORSO.shoulderY], [58, TORSO.shoulderY], [50, TORSO.shoulderY - 6], [armX.shoulder + ARM.shoulder.hw + 2, ARM.shoulder.y - 4], [armX.shoulder - ARM.shoulder.hw + 4, ARM.shoulder.y + 6], [14, TORSO.shoulderY + 12],
+  ]),
+  sideDelts: bilateral([
+    [armX.shoulder - ARM.shoulder.hw, ARM.shoulder.y - 2], [16, TORSO.shoulderY + 4], [10, TORSO.shoulderY + 22], [armX.shoulder - ARM.shoulder.hw - 4, ARM.shoulder.y + 20],
+  ]),
+  rearDelts: bilateral([
+    [24, TORSO.shoulderY], [58, TORSO.shoulderY], [50, TORSO.shoulderY - 6], [armX.shoulder + ARM.shoulder.hw + 2, ARM.shoulder.y - 4], [armX.shoulder - ARM.shoulder.hw + 4, ARM.shoulder.y + 6], [14, TORSO.shoulderY + 12],
+  ]),
+  biceps: bilateral([
+    [armX.shoulder - ARM.shoulder.hw, ARM.shoulder.y], [armX.bicepMid - ARM.bicepMid.hw, ARM.bicepMid.y], [armX.elbow - ARM.elbow.hw, ARM.elbow.y],
+    [armX.elbow + ARM.elbow.hw, ARM.elbow.y], [armX.bicepMid + ARM.bicepMid.hw, ARM.bicepMid.y], [armX.shoulder + ARM.shoulder.hw, ARM.shoulder.y],
+  ]),
+  triceps: bilateral([
+    [armX.shoulder - ARM.shoulder.hw, ARM.shoulder.y], [armX.bicepMid - ARM.bicepMid.hw, ARM.bicepMid.y], [armX.elbow - ARM.elbow.hw, ARM.elbow.y],
+    [armX.elbow + ARM.elbow.hw, ARM.elbow.y], [armX.bicepMid + ARM.bicepMid.hw, ARM.bicepMid.y], [armX.shoulder + ARM.shoulder.hw, ARM.shoulder.y],
+  ]),
+  forearms: bilateral([
+    [armX.elbow - ARM.elbow.hw, ARM.elbow.y], [armX.forearmMid - ARM.forearmMid.hw, ARM.forearmMid.y], [armX.wrist - ARM.wrist.hw, ARM.wrist.y],
+    [armX.wrist + ARM.wrist.hw, ARM.wrist.y], [armX.forearmMid + ARM.forearmMid.hw, ARM.forearmMid.y], [armX.elbow + ARM.elbow.hw, ARM.elbow.y],
+  ]),
+  abs: blob([
+    [CX - absHW, TORSO.chestY + 8], [CX + absHW, TORSO.chestY + 8], [CX + absHW - 3, TORSO.waistY], [CX - absHW + 3, TORSO.waistY],
+  ]),
+  obliques: bilateral([
+    [42, TORSO.chestY], [CX - absHW, TORSO.chestY + 8], [CX - absHW + 3, TORSO.waistY], [58, TORSO.waistY], [50, TORSO.obliqueTopY],
+  ]),
+  traps: blob([
+    [CX - 26, TORSO.shoulderY - 4], [CX + 26, TORSO.shoulderY - 4], [CX + 14, TORSO.shoulderY + 44], [CX, TORSO.shoulderY + 58], [CX - 14, TORSO.shoulderY + 44],
+  ]),
+  upperBack: bilateral([
+    [24, TORSO.shoulderY], [58, TORSO.shoulderY], [CX - absHW, TORSO.shoulderY + 40], [CX - absHW, TORSO.obliqueTopY], [40, TORSO.obliqueTopY + 4], [30, TORSO.chestY],
+  ]),
+  lats: bilateral([
+    [30, TORSO.chestY], [40, TORSO.obliqueTopY + 4], [CX - absHW, TORSO.obliqueTopY], [CX - absHW + 3, TORSO.waistY], [58, TORSO.waistY], [48, TORSO.obliqueTopY + 10],
+  ]),
+  lowerBack: blob([
+    [CX - 20, TORSO.waistY], [CX + 20, TORSO.waistY], [CX + 16, TORSO.hipY], [CX - 16, TORSO.hipY],
+  ]),
+  glutes: bilateral([
+    [legEdge(0, "outer") - 4, LEG[0].y], [legEdge(0, "inner"), LEG[0].y], [legEdge(0, "inner") - 4, LEG[0].y + 38], [legEdge(0, "outer") + 2, LEG[0].y + 42],
+  ]),
+  quads: bilateral([
+    [legEdge(0, "outer"), LEG[0].y], [legEdge(0, "inner") - ADDUCTOR_INSET, LEG[0].y],
+    [legEdge(1, "inner") - ADDUCTOR_INSET, LEG[1].y], [legEdge(2, "inner") - ADDUCTOR_INSET, LEG[2].y],
+    [legEdge(2, "outer"), LEG[2].y], [legEdge(1, "outer"), LEG[1].y],
+  ]),
+  adductors: bilateral([
+    [legEdge(0, "inner") - ADDUCTOR_INSET, LEG[0].y], [legEdge(0, "inner"), LEG[0].y],
+    [legEdge(1, "inner"), LEG[1].y], [legEdge(2, "inner"), LEG[2].y],
+    [legEdge(2, "inner") - ADDUCTOR_INSET, LEG[2].y], [legEdge(1, "inner") - ADDUCTOR_INSET, LEG[1].y],
+  ]),
+  hamstrings: bilateral([
+    [legEdge(0, "outer") + 2, LEG[0].y + 42], [legEdge(0, "inner") - 4, LEG[0].y + 38],
+    [legEdge(1, "inner"), LEG[1].y], [legEdge(2, "inner"), LEG[2].y],
+    [legEdge(2, "outer"), LEG[2].y], [legEdge(1, "outer"), LEG[1].y],
+  ]),
+  calves: bilateral([
+    [legEdge(2, "outer"), LEG[2].y], [legEdge(2, "inner"), LEG[2].y],
+    [legEdge(3, "inner"), LEG[3].y], [legEdge(4, "inner"), LEG[4].y],
+    [legEdge(4, "outer"), LEG[4].y], [legEdge(3, "outer"), LEG[3].y],
+  ]),
 };
 
-function BodySkeleton() {
-  const s = BODY_SKELETON;
+/* Non-interactive body parts — head, neck, hands, feet. Drawn in a fixed neutral tone (never a
+   readiness color, since they aren't muscles you train) so the figure reads as a complete person
+   even though only the muscle regions above are selectable. */
+function BodyCaps() {
+  const handL = blob([[armX.wrist - ARM.wrist.hw, ARM.wrist.y], [armX.wrist + ARM.wrist.hw, ARM.wrist.y], [armX.wrist + 6, ARM.wrist.y + 34], [armX.wrist - 6, ARM.wrist.y + 34]]);
+  const footL = blob([[legEdge(4, "outer") + 2, LEG[4].y], [legEdge(4, "inner") - 2, LEG[4].y], [legEdge(4, "inner") + 6, LEG[4].y + 20], [legEdge(4, "outer") - 8, LEG[4].y + 20]]);
   return (
-    <g fill="var(--bg-elev2)" stroke="var(--readiness-outline)" strokeOpacity="0.4" strokeWidth="1.5">
-      <ellipse cx={s.head.cx} cy={s.head.cy} rx={s.head.rx} ry={s.head.ry} />
-      <path d={s.neck} />
-      <path d={s.torso} />
-      {s.armUpper.map((d, i) => <path key={`au${i}`} d={d} />)}
-      {s.armLower.map((d, i) => <path key={`al${i}`} d={d} />)}
-      {s.hand.map((d, i) => <path key={`h${i}`} d={d} rx="6" />)}
-      {s.thigh.map((d, i) => <path key={`t${i}`} d={d} />)}
-      {s.calf.map((d, i) => <path key={`c${i}`} d={d} />)}
-      {s.foot.map((d, i) => <path key={`f${i}`} d={d} />)}
+    <g fill="var(--bg-elev2)" stroke="var(--readiness-outline)" strokeOpacity="0.5" strokeWidth="1.5">
+      <ellipse cx={CX} cy={54} rx={28} ry={34} />
+      <path d={blob([[CX - 12, 82], [CX + 12, 82], [CX + 16, 104], [CX - 16, 104]])} />
+      <path d={handL} /><path d={mirrorX(handL)} />
+      <path d={footL} /><path d={mirrorX(footL)} />
     </g>
   );
 }
@@ -1067,7 +1164,8 @@ function BodySkeleton() {
 /* One selectable muscle region — a real ARIA button (role="button", tabIndex, aria-pressed), not
    a decorative shape, so it's reachable and operable with just a keyboard. Text state always
    accompanies color (aria-label + the visible detail panel below), per "don't rely on color
-   alone." */
+   alone." Selection is shown with the app's own green accent plus a soft glow (filter, defined
+   once on the parent <svg>) — never a bright white ring. */
 function MuscleRegion({ id, label, state, shape, selected, onSelect }) {
   const isSel = selected === id;
   const paths = Array.isArray(shape) ? shape : [shape];
@@ -1080,15 +1178,16 @@ function MuscleRegion({ id, label, state, shape, selected, onSelect }) {
       aria-pressed={onSelect ? isSel : undefined}
       aria-label={`${label}: ${READINESS_LABEL[state]}`}
       style={{ cursor: onSelect ? "pointer" : "default", outline: "none" }}
+      filter={isSel ? "url(#readinessSelectedGlow)" : undefined}
     >
       {paths.map((d, i) => (
         <path
           key={i} d={d}
           fill={READINESS_COLORS[state]}
-          fillOpacity={isSel ? 1 : 0.85}
-          stroke={isSel ? "var(--ink)" : "var(--readiness-outline)"}
-          strokeWidth={isSel ? 2.5 : 1.25}
-          strokeOpacity={isSel ? 1 : 0.55}
+          fillOpacity={isSel ? 1 : 0.88}
+          stroke={isSel ? "var(--brass)" : "var(--readiness-outline)"}
+          strokeWidth={isSel ? 2 : 1}
+          strokeOpacity={isSel ? 1 : 0.5}
           style={{ transition: "fill-opacity 0.15s ease" }}
         />
       ))}
@@ -1104,14 +1203,19 @@ function BodyFigure({ view, readiness, selected, onSelect, maxWidth }) {
   const ids = view === "front" ? FRONT_REGION_IDS : BACK_REGION_IDS;
   return (
     <svg
-      viewBox="0 0 240 620" style={{ width: "100%", maxWidth, display: "block", margin: "0 auto" }}
+      viewBox="0 0 200 620" style={{ width: "100%", maxWidth, display: "block", margin: "0 auto" }}
       role="group" aria-label={`${view === "front" ? "Front" : "Back"} muscle readiness map`}
     >
-      <BodySkeleton />
+      <defs>
+        <filter id="readinessSelectedGlow" x="-60%" y="-60%" width="220%" height="220%">
+          <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="#3ECF8E" floodOpacity="0.75" />
+        </filter>
+      </defs>
+      <BodyCaps />
       {ids.map((id) => (
         <MuscleRegion
           key={id} id={id} label={REGION_BY_ID[id].label}
-          state={readiness[id]?.level || "unknown"}
+          state={readiness[READINESS_DISPLAY_SOURCE[id] || id]?.level || "unknown"}
           shape={REGION_SHAPES[id]}
           selected={selected} onSelect={onSelect}
         />
@@ -1145,7 +1249,7 @@ export function MuscleReadinessLegend() {
 export function MuscleReadinessTextList({ readiness, view }) {
   const ids = view === "front" ? FRONT_REGION_IDS : view === "back" ? BACK_REGION_IDS : MUSCLE_REGIONS.map((r) => r.id);
   const byLevel = { ready: [], partial: [], fatigued: [], unknown: [] };
-  ids.forEach((id) => byLevel[readiness[id]?.level || "unknown"].push(REGION_BY_ID[id].label));
+  ids.forEach((id) => byLevel[readiness[READINESS_DISPLAY_SOURCE[id] || id]?.level || "unknown"].push(REGION_BY_ID[id].label));
   return (
     <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
       {["ready", "partial", "fatigued", "unknown"].map((lvl) => byLevel[lvl].length > 0 && (
@@ -1188,7 +1292,8 @@ function readinessRationale(label, s) {
    used to choose that region's color — nothing here can disagree with what's on screen. */
 export function MuscleRecoveryDetails({ regionId, readiness, onViewExercises }) {
   const region = REGION_BY_ID[regionId];
-  const s = readiness[regionId];
+  const sourceId = READINESS_DISPLAY_SOURCE[regionId];
+  const s = readiness[sourceId || regionId];
   if (!region || !s) return null;
   const { why, action } = readinessRationale(region.label, s);
   return (
@@ -1216,6 +1321,12 @@ export function MuscleRecoveryDetails({ regionId, readiness, onViewExercises }) 
       <div style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 10, fontStyle: "italic", color: "var(--ink-dim)" }}>&ldquo;{why}&rdquo;</div>
       <div style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 6 }}>{action}</div>
 
+      {sourceId && (
+        <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>
+          No exercise in Asc3end specifically targets {region.label.toLowerCase()} — this shows your {REGION_BY_ID[sourceId].label.toLowerCase()} reading, the closest muscle group Asc3end actually tracks.
+        </div>
+      )}
+
       {onViewExercises && (
         <button onClick={() => onViewExercises(region.group)} className="atlas-btn-ghost" style={{ width: "100%", marginTop: 10, fontSize: 11.5, padding: "8px 10px" }}>
           View {region.label} Exercises
@@ -1234,11 +1345,12 @@ export function MuscleRecoveryDetails({ regionId, readiness, onViewExercises }) 
    below — nothing here is a second, differently-drawn figure. */
 export function MuscleReadinessMap({ readiness, onViewFullBody, onViewExercises }) {
   const [selected, setSelected] = useState(null);
-  const readyCount = FRONT_REGION_IDS.filter((id) => readiness[id]?.level === "ready").length;
-  const knownCount = FRONT_REGION_IDS.filter((id) => readiness[id]?.level !== "unknown").length;
+  const levelOf = (id) => readiness[READINESS_DISPLAY_SOURCE[id] || id]?.level;
+  const readyCount = FRONT_REGION_IDS.filter((id) => levelOf(id) === "ready").length;
+  const knownCount = FRONT_REGION_IDS.filter((id) => levelOf(id) !== "unknown").length;
   return (
     <div>
-      <FrontBodyFigure readiness={readiness} selected={selected} onSelect={(id) => setSelected(selected === id ? null : id)} maxWidth={125} />
+      <FrontBodyFigure readiness={readiness} selected={selected} onSelect={(id) => setSelected(selected === id ? null : id)} maxWidth={170} />
       <div style={{ textAlign: "center", marginTop: 8 }}>
         <MuscleReadinessLegend />
         <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8 }}>
