@@ -1094,9 +1094,18 @@ const REGION_SHAPES = {
     [armX.shoulder - ARM.shoulder.hw, ARM.shoulder.y], [armX.bicepMid - ARM.bicepMid.hw, ARM.bicepMid.y], [armX.elbow - ARM.elbow.hw, ARM.elbow.y],
     [armX.elbow + ARM.elbow.hw, ARM.elbow.y], [armX.bicepMid + ARM.bicepMid.hw, ARM.bicepMid.y], [armX.shoulder + ARM.shoulder.hw, ARM.shoulder.y],
   ]),
+  // Triceps was previously an exact copy of biceps' hexagon capsule — same points, just a
+  // different fill color — which is why it read as "missing" on the rear figure: nothing about
+  // its shape said "triceps" rather than "generic upper arm." This is a genuinely different
+  // silhouette: it starts as a near-point directly beneath rearDelts' own lower-tip vertices
+  // (15,120) and (14,120) — a shared boundary, not a guess — flares into the classic horseshoe
+  // belly (pushed further outward on the lateral edge than biceps' own bulge, and pulled in
+  // narrower on the medial edge), then tapers back down to the exact elbow vertices forearms and
+  // biceps already share (6,224) and (32,224), so it still meets the forearm with zero gap while
+  // ending, anatomically, right at — not past — the elbow.
   triceps: bilateral([
-    [armX.shoulder - ARM.shoulder.hw, ARM.shoulder.y], [armX.bicepMid - ARM.bicepMid.hw, ARM.bicepMid.y], [armX.elbow - ARM.elbow.hw, ARM.elbow.y],
-    [armX.elbow + ARM.elbow.hw, ARM.elbow.y], [armX.bicepMid + ARM.bicepMid.hw, ARM.bicepMid.y], [armX.shoulder + ARM.shoulder.hw, ARM.shoulder.y],
+    [15, TORSO.shoulderY + 12], [-3, ARM.bicepMid.y + 14], [armX.elbow - ARM.elbow.hw, ARM.elbow.y],
+    [armX.elbow + ARM.elbow.hw, ARM.elbow.y], [33, ARM.bicepMid.y + 6], [14, TORSO.shoulderY + 12],
   ]),
   forearms: bilateral([
     [armX.elbow - ARM.elbow.hw, ARM.elbow.y], [armX.forearmMid - ARM.forearmMid.hw, ARM.forearmMid.y], [armX.wrist - ARM.wrist.hw, ARM.wrist.y],
@@ -1161,6 +1170,15 @@ function BodyCaps() {
   );
 }
 
+// Every bilateral region shares one recovery number across its left and right paths — Asc3end's
+// data has never tracked sides independently, so there is nothing truer to report per side. Most
+// bilateral regions (chest, biceps, quads, ...) are still presented as one fused button with one
+// label, matching how a person actually thinks of "my chest" as a single thing. Triceps is the
+// exception: it's the region this map most needs to prove is tappable on *either* arm, so it gets
+// its own per-side labels ("Left Triceps: Ready" / "Right Triceps: Ready") while still resolving
+// to the exact same id, state and single detail panel as every other region.
+const PER_SIDE_LABELS = { triceps: ["Left Triceps", "Right Triceps"] };
+
 /* One selectable muscle region — a real ARIA button (role="button", tabIndex, aria-pressed), not
    a decorative shape, so it's reachable and operable with just a keyboard. Text state always
    accompanies color (aria-label + the visible detail panel below), per "don't rely on color
@@ -1169,6 +1187,43 @@ function BodyCaps() {
 function MuscleRegion({ id, label, state, shape, selected, onSelect }) {
   const isSel = selected === id;
   const paths = Array.isArray(shape) ? shape : [shape];
+  const sideLabels = PER_SIDE_LABELS[id];
+
+  const pathStyle = {
+    fill: READINESS_COLORS[state],
+    fillOpacity: isSel ? 1 : 0.88,
+    stroke: isSel ? "var(--brass)" : "var(--readiness-outline)",
+    strokeWidth: isSel ? 2 : 1,
+    strokeOpacity: isSel ? 1 : 0.5,
+    transition: "fill-opacity 0.15s ease",
+  };
+
+  // Two independently-focusable, independently-labeled buttons (one per side) that both resolve
+  // to the same region id — tapping/tabbing to either one selects "triceps" as a whole, so there
+  // is still exactly one detail panel, one state, one selection outcome; only the accessible name
+  // and the hit target differ per side.
+  if (sideLabels && paths.length === 2) {
+    return (
+      <>
+        {paths.map((d, i) => (
+          <g
+            key={i}
+            onClick={() => onSelect?.(id)}
+            onKeyDown={(e) => { if (onSelect && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onSelect(id); } }}
+            role={onSelect ? "button" : undefined}
+            tabIndex={onSelect ? 0 : undefined}
+            aria-pressed={onSelect ? isSel : undefined}
+            aria-label={`${sideLabels[i]}: ${READINESS_LABEL[state]}`}
+            style={{ cursor: onSelect ? "pointer" : "default", outline: "none" }}
+            filter={isSel ? "url(#readinessSelectedGlow)" : undefined}
+          >
+            <path d={d} style={pathStyle} />
+          </g>
+        ))}
+      </>
+    );
+  }
+
   return (
     <g
       onClick={() => onSelect?.(id)}
@@ -1181,15 +1236,7 @@ function MuscleRegion({ id, label, state, shape, selected, onSelect }) {
       filter={isSel ? "url(#readinessSelectedGlow)" : undefined}
     >
       {paths.map((d, i) => (
-        <path
-          key={i} d={d}
-          fill={READINESS_COLORS[state]}
-          fillOpacity={isSel ? 1 : 0.88}
-          stroke={isSel ? "var(--brass)" : "var(--readiness-outline)"}
-          strokeWidth={isSel ? 2 : 1}
-          strokeOpacity={isSel ? 1 : 0.5}
-          style={{ transition: "fill-opacity 0.15s ease" }}
-        />
+        <path key={i} d={d} style={pathStyle} />
       ))}
     </g>
   );

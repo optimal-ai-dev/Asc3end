@@ -7,6 +7,17 @@ import {
   FrontBodyFigure, BackBodyFigure, MuscleRecoveryDetails, EXERCISES,
 } from "./App.jsx";
 
+// roundedBlob() (App.jsx) emits every path as one flat "X Y X Y ..." sequence of decimal numbers
+// with no other numeric tokens — same fact mirrorX() relies on — so a path's bounding box can be
+// read straight off its `d` string without needing SVGGraphicsElement.getBBox(), which jsdom
+// doesn't implement.
+function bboxFromPathD(d) {
+  const nums = d.match(/-?\d+\.\d+/g).map(Number);
+  const xs = nums.filter((_, i) => i % 2 === 0);
+  const ys = nums.filter((_, i) => i % 2 === 1);
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
 function uid() { return Math.random().toString(36).slice(2); }
 function isoDaysAgo(n) {
   const d = new Date();
@@ -73,6 +84,32 @@ describe("regionForExercise — muscle-to-SVG-region mapping", () => {
   it("returns null for a missing exercise instead of throwing", () => {
     expect(regionForExercise(null)).toBeNull();
     expect(regionForExercise(undefined)).toBeNull();
+  });
+
+  it("maps every real triceps exercise — pushdowns, skull crushers, overhead extensions, close-grip pressing and dips — to the triceps region", () => {
+    const tricepsExerciseNames = [
+      "Rope Pushdown", "Straight Bar Pushdown", "V-Bar Pushdown", "Reverse Grip Pushdown",
+      "Single Arm Pushdown", "Skull Crusher", "Close Grip Bench Press", "Tate Press", "JM Press",
+      "Dumbbell Overhead Extension", "Single Arm Overhead Extension", "Overhead Rope Extension",
+      "Cross Body Cable Extension", "Triceps Extension Machine",
+      "Bench Dips", "Parallel Bar Dips", "Weighted Dips", "Assisted Dip Machine", "Plate Loaded Dip Machine",
+    ];
+    tricepsExerciseNames.forEach((name) => {
+      const ex = EXERCISES.find((e) => e.name === name);
+      expect(ex, `fixture exercise not found: ${name}`).toBeTruthy();
+      expect(regionForExercise(ex), `${name} (pose: ${ex.pose}) did not map to triceps`).toBe("triceps");
+    });
+  });
+});
+
+describe("muscleReadiness — logging a triceps exercise updates the triceps region specifically", () => {
+  it.each([
+    ["Rope Pushdown"], ["Skull Crusher"], ["Close Grip Bench Press"],
+    ["Dumbbell Overhead Extension"], ["Bench Dips"],
+  ])("a set of %s logged today makes triceps 'fatigued' without touching biceps", (name) => {
+    const readiness = muscleReadiness([workout(0, name)], []);
+    expect(readiness.triceps.level).toBe("fatigued");
+    expect(readiness.biceps.level).toBe("unknown");
   });
 });
 
@@ -211,5 +248,73 @@ describe("FrontBodyFigure / BackBodyFigure — rendering and interaction", () =>
     expect(labels).toContain("Lats");
     expect(labels).toContain("Glutes");
     expect(labels).not.toContain("Chest");
+  });
+
+  it("renders exactly two visible, independently-labeled triceps buttons with non-zero, distinct bounding boxes, and both select the shared triceps region", () => {
+    const readiness = muscleReadiness([workout(0, "Skull Crusher")], []);
+    let selectedId = null;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    act(() => {
+      createRoot(container).render(
+        <BackBodyFigure readiness={readiness} selected={null} onSelect={(id) => { selectedId = id; }} />
+      );
+    });
+
+    const tricepButtons = [...container.querySelectorAll('[role="button"]')].filter((b) =>
+      /triceps/i.test(b.getAttribute("aria-label"))
+    );
+    expect(tricepButtons).toHaveLength(2);
+    expect(tricepButtons[0].getAttribute("aria-label")).toBe("Left Triceps: Fatigued");
+    expect(tricepButtons[1].getAttribute("aria-label")).toBe("Right Triceps: Fatigued");
+
+    // Neither triceps path is a copy of the other or of the arm capsule around it — each has its
+    // own non-zero area, and the two are mirror images sitting on opposite sides of the figure's
+    // centerline (x=100), not stacked on top of one another (the bug this test guards against).
+    const boxes = tricepButtons.map((g) => bboxFromPathD(g.querySelector("path").getAttribute("d")));
+    boxes.forEach((b) => {
+      expect(b.maxX - b.minX).toBeGreaterThan(0);
+      expect(b.maxY - b.minY).toBeGreaterThan(0);
+    });
+    expect(boxes[0].maxX).toBeLessThanOrEqual(100);
+    expect(boxes[1].minX).toBeGreaterThanOrEqual(100);
+    expect(boxes[0]).not.toEqual(boxes[1]);
+
+    // Tapping either arm selects the one shared "triceps" region.
+    act(() => { tricepButtons[0].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(selectedId).toBe("triceps");
+    selectedId = null;
+    act(() => { tricepButtons[1].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(selectedId).toBe("triceps");
+  });
+
+  it("selecting triceps highlights only the two triceps buttons, not rear delts or forearms (no whole-arm coloring)", () => {
+    const readiness = muscleReadiness([], []);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    act(() => {
+      createRoot(container).render(<BackBodyFigure readiness={readiness} selected="triceps" onSelect={() => {}} />);
+    });
+    const buttons = [...container.querySelectorAll('[role="button"]')];
+    const pressed = buttons.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.getAttribute("aria-label"));
+    expect(pressed.sort()).toEqual(["Left Triceps: Insufficient data", "Right Triceps: Insufficient data"].sort());
+    const rearDelts = buttons.find((b) => b.getAttribute("aria-label").startsWith("Rear Delts:"));
+    const forearms = buttons.find((b) => b.getAttribute("aria-label").startsWith("Forearms:"));
+    expect(rearDelts.getAttribute("aria-pressed")).toBe("false");
+    expect(forearms.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("no-data state shows both triceps regions in the grey 'insufficient data' color, not hidden", () => {
+    const readiness = muscleReadiness([], []);
+    expect(readiness.triceps.level).toBe("unknown");
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    act(() => { createRoot(container).render(<BackBodyFigure readiness={readiness} selected={null} onSelect={() => {}} />); });
+    const tricepButtons = [...container.querySelectorAll('[role="button"]')].filter((b) => /triceps/i.test(b.getAttribute("aria-label")));
+    expect(tricepButtons).toHaveLength(2);
+    tricepButtons.forEach((b) => {
+      expect(b.getAttribute("aria-label")).toMatch(/: Insufficient data$/);
+      expect(b.querySelector("path").getAttribute("style")).toContain(READINESS_COLORS.unknown);
+    });
   });
 });
