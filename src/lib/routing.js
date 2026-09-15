@@ -20,3 +20,34 @@ export function buildAppPath({ tab, showProfile, hasActiveSession }) {
   const segment = TAB_TO_PATH[tab] || "home";
   return `/app/${segment}${tab === "train" && hasActiveSession ? "/session" : ""}`;
 }
+
+// Public legal/support pages — genuinely stable, crawlable, bookmarkable URLs, independent of
+// auth state and independent of the /app/* authenticated-shell routes above. Previously these
+// pages only existed as in-memory React state (set by clicking a Landing-page footer link), so a
+// direct navigation or refresh to e.g. /privacy fell through to whatever the top-level render
+// logic did by default (the marketing landing page, or the authenticated app shell if signed in)
+// with the URL's own path completely ignored. PUBLIC_PATH_TO_LEGAL_DOC is the fix: a real,
+// bidirectional mapping between a stable path and a LEGAL_COPY key (see src/lib/legal.js).
+export const PUBLIC_PATH_TO_LEGAL_DOC = {
+  "/privacy": "privacy",
+  "/terms": "terms",
+  "/health-disclaimer": "disclaimer",
+  "/ai-limitations": "aiLimitations",
+  "/subscription-terms": "subscriptionTerms",
+  "/refund-policy": "refundPolicy",
+  "/support": "support",
+  "/contact": "contact",
+};
+export const LEGAL_DOC_TO_PUBLIC_PATH = Object.fromEntries(
+  Object.entries(PUBLIC_PATH_TO_LEGAL_DOC).map(([path, docKey]) => [docKey, path])
+);
+
+/** @returns {string|null} the LEGAL_COPY key for a public legal path, or null if the path isn't one. */
+export function parsePublicLegalPath(pathname) {
+  return PUBLIC_PATH_TO_LEGAL_DOC[pathname] || null;
+}
+
+/** @returns {string} the stable public URL for a given LEGAL_COPY key, "/" if the key is unknown. */
+export function buildPublicLegalPath(docKey) {
+  return LEGAL_DOC_TO_PUBLIC_PATH[docKey] || "/";
+}
