@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   EXERCISES, MUSCLE_GROUPS, READINESS_MUSCLE_IDS, EQUIPMENT_TYPES, TRACKING_TYPES,
   regionForExercise, matchesExerciseSearch, getExerciseAlternatives, getExerciseGuidance,
+  rankExerciseSearch, scoreExerciseSearch, matchedOnlyViaSecondaryMuscle,
 } from "./exerciseData.js";
 import { formatSet } from "./App.jsx";
 
@@ -344,5 +345,112 @@ describe("named regression tests", () => {
     const ex = EXERCISES.find((e) => e.name === "Treadmill Run");
     expect(ex.trackingType).toBe("distance_duration");
     expect(ex.muscle).toBe("conditioning");
+  });
+});
+
+describe("Rope Pushdown — corrected classification (previously displayed \"Primary: arms\")", () => {
+  it("resolves to a primary muscle of triceps, not the coarse 'arms' category", () => {
+    const ex = EXERCISES.find((e) => e.name === "Rope Pushdown");
+    expect(regionForExercise(ex)).toBe("triceps");
+    // "arms" is still the browsing category — a real, separate concept — but must never be
+    // presented as if it were the primary muscle.
+    expect(ex.muscle).toBe("arms");
+  });
+
+  it("has isolation mechanics, cable equipment, and an elbow-extension movement pattern", () => {
+    const ex = EXERCISES.find((e) => e.name === "Rope Pushdown");
+    expect(ex.mechanics).toBe("isolation");
+    expect(ex.equipment).toBe("Cable");
+    expect(ex.pose).toBe("triceps_ext");
+  });
+});
+
+describe("search ranking — direct primary-muscle matches outrank secondary-only matches", () => {
+  it("'triceps' ranks direct triceps exercises above Barbell Bench Press (chest primary, triceps secondary)", () => {
+    const results = rankExerciseSearch(EXERCISES, "triceps");
+    expect(results.length).toBeGreaterThan(10);
+    const benchIdx = results.findIndex((e) => e.name === "Barbell Bench Press");
+    const ropePushdownIdx = results.findIndex((e) => e.name === "Rope Pushdown");
+    const skullCrusherIdx = results.findIndex((e) => e.name === "Skull Crusher");
+    expect(benchIdx).toBeGreaterThan(-1);
+    expect(ropePushdownIdx).toBeGreaterThan(-1);
+    expect(skullCrusherIdx).toBeGreaterThan(-1);
+    expect(ropePushdownIdx).toBeLessThan(benchIdx);
+    expect(skullCrusherIdx).toBeLessThan(benchIdx);
+  });
+
+  it("'triceps' first-page (top 10) results are dominated by direct triceps work, not secondary mentions", () => {
+    const results = rankExerciseSearch(EXERCISES, "triceps");
+    const top10 = results.slice(0, 10);
+    const directCount = top10.filter((ex) => regionForExercise(ex) === "triceps").length;
+    expect(directCount).toBeGreaterThanOrEqual(8);
+  });
+
+  it("Barbell Bench Press only matches 'triceps' via its secondary muscle, and is labeled accordingly", () => {
+    const bench = EXERCISES.find((e) => e.name === "Barbell Bench Press");
+    expect(matchedOnlyViaSecondaryMuscle(bench, "triceps")).toBe(true);
+    const ropePushdown = EXERCISES.find((e) => e.name === "Rope Pushdown");
+    expect(matchedOnlyViaSecondaryMuscle(ropePushdown, "triceps")).toBe(false);
+  });
+
+  it("exact canonical-name and exact-alias matches always score above a mere substring match", () => {
+    const skullCrusherScore = scoreExerciseSearch(EXERCISES.find((e) => e.name === "Skull Crusher"), "skull crusher");
+    const otherSubstringMatch = scoreExerciseSearch(EXERCISES.find((e) => e.name === "EZ-Bar Skull Crusher"), "skull crusher");
+    expect(skullCrusherScore).toBeGreaterThan(otherSubstringMatch);
+  });
+
+  it.each([
+    ["RDL", "Romanian Deadlift"],
+    ["OHP", "Overhead Press (Barbell)"],
+    ["skullcrusher", "Skull Crusher"],
+    ["pec deck", "Pec Deck Machine"],
+    ["rear delt machine", "Reverse Pec Deck"],
+  ])("'%s' ranks %s in the top result", (query, expectedTopName) => {
+    const results = rankExerciseSearch(EXERCISES, query);
+    expect(results[0]?.name).toBe(expectedTopName);
+  });
+
+  it.each([
+    ["pressdown"], ["pushdown"], ["ham curl"], ["lat raise"],
+  ])("'%s' returns at least one real result", (query) => {
+    const results = rankExerciseSearch(EXERCISES, query);
+    expect(results.length).toBeGreaterThan(0);
+  });
+});
+
+describe("duplicate consolidation — RDL and Chest Supported Row", () => {
+  it("only one canonical 'Romanian Deadlift, single leg, dumbbell' record exists; the other name is an alias", () => {
+    const canonical = EXERCISES.filter((e) => e.name === "Single Leg Romanian Deadlift" || e.name === "Dumbbell Romanian Deadlift (Single Leg)");
+    expect(canonical).toHaveLength(1);
+    expect(canonical[0].name).toBe("Single Leg Romanian Deadlift");
+    expect(canonical[0].aliases).toContain("Dumbbell Romanian Deadlift (Single Leg)");
+  });
+
+  it("searching the retired name still finds the canonical record via alias", () => {
+    const results = rankExerciseSearch(EXERCISES, "Dumbbell Romanian Deadlift (Single Leg)");
+    expect(results[0]?.name).toBe("Single Leg Romanian Deadlift");
+  });
+
+  it("only one canonical 'Chest Supported Row Machine' record exists; the reordered name is an alias", () => {
+    const canonical = EXERCISES.filter((e) => e.name === "Chest Supported Row Machine" || e.name === "Chest Supported Machine Row");
+    expect(canonical).toHaveLength(1);
+    expect(canonical[0].name).toBe("Chest Supported Row Machine");
+    expect(canonical[0].aliases).toContain("Chest Supported Machine Row");
+  });
+
+  it("no two exercises normalize to the same word-order-independent, equipment-preserving name", () => {
+    // Deliberately does NOT strip equipment words — Barbell Bench Press and Smith Machine Bench
+    // Press are legitimately distinct exercises, not duplicates. Deliberately does NOT sort words
+    // within a name either — "High-to-Low" and "Low-to-High" are opposite, non-duplicate movements
+    // that a naive word-order-independent check would wrongly merge.
+    const normalize = (name) => name.toLowerCase().replace(/\bone[- ]arm\b/g, "single arm").replace(/[-_]/g, " ").replace(/[()]/g, "").replace(/\s+/g, " ").trim();
+    const seen = new Map();
+    const dups = [];
+    EXERCISES.forEach((e) => {
+      const key = normalize(e.name);
+      if (seen.has(key)) dups.push([seen.get(key), e.name]);
+      seen.set(key, e.name);
+    });
+    expect(dups).toEqual([]);
   });
 });

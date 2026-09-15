@@ -76,9 +76,26 @@ export const REGION_LABEL = Object.fromEntries(
 // which discloses any substitution in the UI rather than hiding it.
 export const READINESS_DISPLAY_SOURCE = {};
 
-export const EQUIPMENT_TYPES = ["Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight", "Kettlebell", "Strongman"];
+// The original 7 values stay first (existing filter pills / built-in exercise data keep working
+// unchanged) — everything after is additive, mainly so custom-exercise creation can be as precise
+// as a commercial gym actually is ("Smith Machine" vs generic "Machine", "Sled" vs "Strongman",
+// etc.) without inventing a second, parallel equipment taxonomy just for custom exercises.
+export const EQUIPMENT_TYPES = [
+  "Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight", "Kettlebell", "Strongman",
+  "Smith Machine", "Selectorized Machine", "Plate-Loaded Machine", "Assisted Bodyweight",
+  "Resistance Band", "Trap Bar", "Landmine", "Suspension Trainer", "Medicine Ball",
+  "Stability Ball", "Sled", "Battle Rope", "Cardio Machine", "Other",
+];
 export const MUSCLE_POSITIONS = { shoulders: [50, 22], chest: [50, 40], arms: [78, 42], back: [22, 42], core: [50, 58], legs: [50, 82], conditioning: [50, 70] };
-export const EQUIPMENT_COLORS = { Barbell: "var(--brass)", Dumbbell: "var(--steel)", Machine: "var(--warn)", Cable: "var(--good)", Bodyweight: "var(--ink-dim)", Kettlebell: "#B98CE0", Strongman: "var(--rest)" };
+export const EQUIPMENT_COLORS = {
+  Barbell: "var(--brass)", Dumbbell: "var(--steel)", Machine: "var(--warn)", Cable: "var(--good)",
+  Bodyweight: "var(--ink-dim)", Kettlebell: "#B98CE0", Strongman: "var(--rest)",
+  "Smith Machine": "var(--warn)", "Selectorized Machine": "var(--warn)", "Plate-Loaded Machine": "var(--warn)",
+  "Assisted Bodyweight": "var(--ink-dim)", "Resistance Band": "var(--good)", "Trap Bar": "var(--brass)",
+  "Landmine": "var(--brass)", "Suspension Trainer": "var(--ink-dim)", "Medicine Ball": "var(--rest)",
+  "Stability Ball": "var(--rest)", "Sled": "var(--rest)", "Battle Rope": "var(--rest)",
+  "Cardio Machine": "var(--warn)", "Other": "var(--ink-dim)",
+};
 export const MUSCLE_DEFAULT_POSE = { chest: "press_lying", back: "row", shoulders: "press_overhead", arms: "curl", legs: "squat", core: "plank", conditioning: "carry" };
 
 /* ------------------------------------------------------------------ */
@@ -380,6 +397,33 @@ function deriveTrackingType(ex) {
 }
 
 /** Fills in every derivable field an exercise object doesn't already explicitly set. */
+// Reclassifies a small, name-confirmed subset of exercises from a coarse legacy equipment value
+// (Machine/Strongman/Barbell/Bodyweight) to the precise value their own name already states —
+// e.g. "Smith Machine Bench Press" was tagged the generic "Machine", now "Smith Machine". Only
+// fires on an UNAMBIGUOUS name match, never guesses; never touches `name`, `pose`, or identity,
+// so workout history is unaffected — this is the same "safe metadata reclassification" pattern
+// already used for the Strongman->conditioning muscle-group fix. Deliberately conservative: most
+// of the catalogue keeps its original equipment value, since most values were already accurate.
+const EQUIPMENT_REFINEMENTS = [
+  [/smith machine/i, "Smith Machine"],
+  [/\btrap bar\b/i, "Trap Bar"],
+  [/landmine/i, "Landmine"],
+  [/\btrx\b|suspension/i, "Suspension Trainer"],
+  [/medicine ball|wall ball/i, "Medicine Ball"],
+  [/stability ball/i, "Stability Ball"],
+  [/\bsled\b|prowler/i, "Sled"],
+  [/battle rope/i, "Battle Rope"],
+  [/treadmill|stationary bike|air bike|elliptical|stair climber|rowing machine|ski erg/i, "Cardio Machine"],
+  [/assisted/i, "Assisted Bodyweight"],
+  [/\bband\b|banded/i, "Resistance Band"],
+];
+function refineEquipment(ex) {
+  for (const [pattern, refined] of EQUIPMENT_REFINEMENTS) {
+    if (pattern.test(ex.name)) return refined;
+  }
+  return ex.equipment;
+}
+
 function withDefaults(ex) {
   // The same pose can be the PRIMARY region for one muscle group (arms/press_lying -> triceps)
   // and drive a SECONDARY region for another (chest/press_lying -> triceps as an assisting
@@ -389,7 +433,7 @@ function withDefaults(ex) {
   // meaningless self-reference, not real data.
   const primaryRegion = regionForExercise(ex);
   const derivedSecondary = (SECONDARY_REGIONS_BY_POSE[ex.pose] || []).filter((id) => id !== primaryRegion);
-  return {
+  const result = {
     mechanics: deriveMechanics(ex),
     force: deriveForce(ex),
     laterality: deriveLaterality(ex),
@@ -399,6 +443,8 @@ function withDefaults(ex) {
     secondaryMuscles: derivedSecondary,
     ...ex,
   };
+  result.equipment = refineEquipment(result);
+  return result;
 }
 
 /** kebab-case slug used as the canonical-model `id` field. NOT used as a join key anywhere in the
@@ -540,7 +586,6 @@ const RAW_EXERCISES = [
   { name: "Hammer Strength High Row", muscle: "back", equipment: "Machine", pose: "row", aliases: ["High Row"] },
   { name: "Hammer Strength Low Row", muscle: "back", equipment: "Machine", pose: "row" },
   { name: "Plate Loaded Row", muscle: "back", equipment: "Machine", pose: "row" },
-  { name: "Chest Supported Machine Row", muscle: "back", equipment: "Machine", pose: "row" },
   { name: "Lever Row Machine", muscle: "back", equipment: "Machine", pose: "row" },
   { name: "Iso-Lateral Row", muscle: "back", equipment: "Machine", pose: "row" },
   { name: "Rack Pull", muscle: "back", equipment: "Barbell", pose: "hinge" },
@@ -557,14 +602,14 @@ const RAW_EXERCISES = [
   { name: "Seal Row", muscle: "back", equipment: "Barbell", pose: "row" },
   { name: "Meadows Row", muscle: "back", equipment: "Barbell", pose: "row" },
   { name: "Yates Row", muscle: "back", equipment: "Barbell", pose: "row" },
-  { name: "Chest Supported Row Machine", muscle: "back", equipment: "Machine", pose: "row" },
+  { name: "Chest Supported Row Machine", muscle: "back", equipment: "Machine", pose: "row", aliases: ["Chest Supported Machine Row"] },
   { name: "Smith Machine Row", muscle: "back", equipment: "Machine", pose: "row" },
   { name: "Inverted Row", muscle: "back", equipment: "Bodyweight", pose: "row" },
   { name: "Kroc Row", muscle: "back", equipment: "Dumbbell", pose: "row" },
   { name: "Trap Bar Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge" },
   { name: "Deficit Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge" },
   { name: "Dumbbell Romanian Deadlift", muscle: "back", equipment: "Dumbbell", pose: "hinge" },
-  { name: "Single Leg Romanian Deadlift", muscle: "back", equipment: "Dumbbell", pose: "hinge" },
+  { name: "Single Leg Romanian Deadlift", muscle: "back", equipment: "Dumbbell", pose: "hinge", aliases: ["Dumbbell Romanian Deadlift (Single Leg)", "Single-Leg RDL"] },
   { name: "Back Extension", muscle: "back", equipment: "Bodyweight", pose: "hinge", aliases: ["Hyperextension"] },
   { name: "Weighted Back Extension", muscle: "back", equipment: "Dumbbell", pose: "hinge" },
   { name: "Reverse Hyper", muscle: "back", equipment: "Machine", pose: "hinge", aliases: ["Reverse Hyperextension"] },
@@ -760,7 +805,6 @@ const RAW_EXERCISES = [
   { name: "Barbell Glute Bridge", muscle: "legs", equipment: "Barbell", pose: "hip_thrust" },
   { name: "Cable Hip Thrust", muscle: "legs", equipment: "Cable", pose: "hip_thrust" },
   { name: "Banded Hip Thrust", muscle: "legs", equipment: "Bodyweight", pose: "hip_thrust" },
-  { name: "Dumbbell Romanian Deadlift (Single Leg)", muscle: "legs", equipment: "Dumbbell", pose: "hinge" },
   { name: "Kettlebell Swing", muscle: "legs", equipment: "Kettlebell", pose: "hinge" },
   { name: "Single Arm Kettlebell Swing", muscle: "legs", equipment: "Kettlebell", pose: "hinge" },
   { name: "Kettlebell Deadlift", muscle: "legs", equipment: "Kettlebell", pose: "hinge" },
@@ -981,6 +1025,17 @@ const POSES_WITH_APPROVED_MEDIA = new Set([
   "calf_raise", "hip_swing", "core_crunch", "leg_raise_hang", "plank", "twist", "carry",
 ]);
 
+// Four states, not two: "approved" (real, reviewed geometry) and "pending" (no asset built yet,
+// honest placeholder) are the two this catalogue actually uses today. "unavailable" and
+// "rejected" exist as real, valid values for when a specific asset review finds something that
+// SHOULD exist but currently can't be shown accurately (unavailable — e.g. licensing/production
+// blocked) or an asset that was built, reviewed, and found actively misleading (rejected — e.g.
+// disconnected anatomy, wrong equipment, wrong range of motion) and pulled rather than left up.
+// No exercise is flagged either of those today; the validator (scripts/validate-exercise-
+// library.mjs) enforces that only these 4 values are ever used, and the media audit report
+// (reports/media-audit.md) records the real approved/pending counts.
+export const MEDIA_STATUS_VALUES = ["approved", "pending", "unavailable", "rejected"];
+
 function deriveMediaStatus(ex) {
   return POSES_WITH_APPROVED_MEDIA.has(ex.pose) ? "approved" : "pending";
 }
@@ -1066,6 +1121,95 @@ export function matchesExerciseSearch(ex, query) {
     (ex.pose || "").replace(/_/g, " "),
   ].join(" ").toLowerCase();
   return terms.every((term) => haystack.includes(term));
+}
+
+// Deterministic search-result ranking. Without this, "triceps" matched both direct triceps work
+// (via primary region) and every chest/shoulder press (via secondary region) with no way to tell
+// them apart, so results fell back to raw catalogue array order — which put Chest, defined first
+// in the file, ahead of Arms. A direct match on a muscle must always outrank a match where that
+// muscle is merely a secondary/assisting one; get that wrong and "triceps" surfaces Bench Press
+// before Skull Crusher, which is exactly the reported bug this fixes.
+const SEARCH_TIER = {
+  EXACT_NAME: 100,
+  EXACT_ALIAS: 95,
+  NAME_STARTS: 85,
+  ALIAS_STARTS: 80,
+  NAME_CONTAINS: 70,
+  ALIAS_CONTAINS: 65,
+  PRIMARY_MUSCLE: 50,
+  EQUIPMENT_OR_PATTERN: 40,
+  SECONDARY_MUSCLE: 20,
+  FREE_TEXT_FALLBACK: 5,
+};
+
+/** Score one exercise against a query — 0 means "no match" (caller should exclude it). Higher is a
+ *  better match. See SEARCH_TIER for the priority order (exact name > exact alias > name starts-
+ *  with > alias starts-with > name contains > alias contains > primary muscle > equipment/pattern
+ *  > secondary muscle > general free-text fallback). */
+export function scoreExerciseSearch(ex, rawQuery) {
+  const q = normalize(rawQuery);
+  if (!q) return 1;
+  const qe = expandQuery(rawQuery);
+  const name = ex.name.toLowerCase();
+  const aliases = (ex.aliases || []).map((a) => a.toLowerCase());
+  const primaryRegion = regionForExercise(ex);
+  const primaryLabel = (REGION_LABEL[primaryRegion] || "").toLowerCase();
+  const secondaryLabels = (ex.secondaryMuscles || []).map((id) => (REGION_LABEL[id] || "").toLowerCase());
+  const equipmentLabel = (ex.equipment || "").toLowerCase();
+  const patternLabel = (ex.pose || "").replace(/_/g, " ").toLowerCase();
+  const candidates = [q, qe];
+
+  let best = 0;
+  const raise = (tier) => { if (tier > best) best = tier; };
+
+  for (const c of candidates) {
+    if (!c) continue;
+    if (name === c) raise(SEARCH_TIER.EXACT_NAME);
+    if (aliases.includes(c)) raise(SEARCH_TIER.EXACT_ALIAS);
+    if (name.startsWith(c)) raise(SEARCH_TIER.NAME_STARTS);
+    if (aliases.some((a) => a.startsWith(c))) raise(SEARCH_TIER.ALIAS_STARTS);
+    if (name.includes(c)) raise(SEARCH_TIER.NAME_CONTAINS);
+    if (aliases.some((a) => a.includes(c))) raise(SEARCH_TIER.ALIAS_CONTAINS);
+    if (primaryLabel && (primaryLabel === c || primaryLabel.includes(c) || c.includes(primaryLabel))) raise(SEARCH_TIER.PRIMARY_MUSCLE);
+    if (equipmentLabel.includes(c) || (patternLabel && patternLabel.includes(c))) raise(SEARCH_TIER.EQUIPMENT_OR_PATTERN);
+    if (secondaryLabels.some((s) => s && (s === c || s.includes(c)))) raise(SEARCH_TIER.SECONDARY_MUSCLE);
+  }
+
+  // Multi-word free-text queries ("incline dumbbell press") that don't cleanly fit one tier above
+  // still deserve to surface — just below anything that hit a named tier.
+  if (best === 0 && matchesExerciseSearch(ex, rawQuery)) best = SEARCH_TIER.FREE_TEXT_FALLBACK;
+
+  return best;
+}
+
+/** True if `ex` matched `query` only via a secondary muscle (not its name/alias/primary muscle/
+ *  equipment/pattern) — used to label a result "Also trains X" instead of implying it's a direct
+ *  exercise for that muscle. */
+export function matchedOnlyViaSecondaryMuscle(ex, rawQuery) {
+  const q = normalize(rawQuery);
+  if (!q) return false;
+  const qe = expandQuery(rawQuery);
+  const name = ex.name.toLowerCase();
+  const aliases = (ex.aliases || []).map((a) => a.toLowerCase());
+  const primaryLabel = (REGION_LABEL[regionForExercise(ex)] || "").toLowerCase();
+  for (const c of [q, qe]) {
+    if (!c) continue;
+    if (name.includes(c) || aliases.some((a) => a.includes(c))) return false;
+    if (primaryLabel && (primaryLabel === c || primaryLabel.includes(c) || c.includes(primaryLabel))) return false;
+  }
+  const secondaryLabels = (ex.secondaryMuscles || []).map((id) => (REGION_LABEL[id] || "").toLowerCase());
+  return secondaryLabels.some((s) => s && (s === qe || s === q || s.includes(qe) || s.includes(q)));
+}
+
+/** Filters and ranks a pool of exercises against a query, highest-scoring first. This is what the
+ *  Train exercise picker and any other search surface should use instead of a plain unordered
+ *  filter, so a primary-muscle match always outranks a secondary-muscle-only one. */
+export function rankExerciseSearch(pool, query) {
+  return pool
+    .map((ex) => ({ ex, score: scoreExerciseSearch(ex, query) }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((r) => r.ex);
 }
 
 /** Ranked substitution candidates for one exercise, from a pool of other exercises (built-in and/

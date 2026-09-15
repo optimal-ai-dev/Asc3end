@@ -5,7 +5,7 @@
 // validate:exercises`; wired into CI-equivalent verification alongside lint/typecheck/tests/build.
 import {
   EXERCISES, MUSCLE_GROUPS, READINESS_MUSCLE_IDS, EQUIPMENT_TYPES, TRACKING_TYPES,
-  regionForExercise, REGION_LABEL, getExerciseGuidance,
+  regionForExercise, REGION_LABEL, getExerciseGuidance, MEDIA_STATUS_VALUES,
 } from "../src/exerciseData.js";
 
 const errors = [];
@@ -127,9 +127,19 @@ for (const ex of EXERCISES) {
 }
 
 // Unsupported / missing mediaStatus
+const knownMediaStatus = new Set(MEDIA_STATUS_VALUES);
 for (const ex of EXERCISES) {
-  if (ex.mediaStatus !== "approved" && ex.mediaStatus !== "pending" && ex.mediaStatus !== "unavailable") {
+  if (!knownMediaStatus.has(ex.mediaStatus)) {
     fail(`"${ex.name}" has invalid mediaStatus "${ex.mediaStatus}"`);
+  }
+}
+
+// "rejected" media must never be presented as instructional — this only matters once an exercise
+// is actually flagged rejected (none are today), but guards against a future flag being added
+// without also being excluded from the detail view / picker's approved-media rendering path.
+for (const ex of EXERCISES) {
+  if (ex.mediaStatus === "rejected" && !ex.rejectionReason) {
+    fail(`"${ex.name}" is marked mediaStatus "rejected" but has no rejectionReason recorded`);
   }
 }
 
