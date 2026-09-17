@@ -19,6 +19,7 @@ export function isValidCustomExercise(e) {
   if (e.instructions !== undefined && !(Array.isArray(e.instructions) && e.instructions.every((i) => typeof i === "string"))) return false;
   if (e.trackingType !== undefined && typeof e.trackingType !== "string") return false;
   if (e.imageUrl !== undefined && e.imageUrl !== null && typeof e.imageUrl !== "string") return false;
+  if (e.region !== undefined && typeof e.region !== "string") return false;
   return true;
 }
 

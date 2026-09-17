@@ -27,7 +27,7 @@ import { FEATURES, FREE_MONTHLY_LIMIT, remainingMonthlyUses } from "./lib/entitl
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
 import { isStaleSession, isValidSession } from "./lib/session";
 import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite, isValidChatMessage, isValidChallenge, sanitizeList } from "./lib/validation";
-import { parseAppPath, buildAppPath } from "./lib/routing";
+import { parseAppPath, buildAppPath, parsePublicLegalPath, buildPublicLegalPath } from "./lib/routing";
 import { FEEDBACK_TYPES, MAX_MESSAGE_LENGTH, submitFeedback } from "./lib/feedback";
 import {
   MUSCLE_GROUPS, MUSCLE_REGIONS, UNMAPPED_READINESS_REGIONS, READINESS_MUSCLE_IDS, REGION_LABEL,
@@ -35,6 +35,7 @@ import {
   TRACKING_TYPES, TRACKING_TYPE_LABEL, WEIGHT_REPS_TRACKING_TYPES,
   POSE_TIPS, SECONDARY_REGIONS_BY_POSE, POSE_TO_REGION, GROUP_DEFAULT_REGION, regionForExercise,
   EXERCISES, getExerciseGuidance, matchesExerciseSearch, getExerciseAlternatives,
+  rankExerciseSearch, matchedOnlyViaSecondaryMuscle,
 } from "./exerciseData";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
@@ -62,7 +63,7 @@ const KEYS = {
 // catalogue can be read, validated and tested independently of this component file. Re-exported
 // below so every existing `import { EXERCISES, ... } from "./App"` elsewhere in the codebase keeps
 // working unchanged.
-export { EXERCISES, MUSCLE_GROUPS, MUSCLE_REGIONS, regionForExercise, POSE_TIPS };
+export { EXERCISES, MUSCLE_GROUPS, MUSCLE_REGIONS, regionForExercise, POSE_TIPS, rankExerciseSearch, matchedOnlyViaSecondaryMuscle };
 
 // Every readiness region (the 18 drawn on the body map plus the 3 filter/search-only ones),
 // grouped by coarse muscle group — used to scope the Train picker's region filter to whichever
@@ -73,6 +74,10 @@ const REGIONS_BY_GROUP = MUSCLE_GROUPS.reduce((acc, g) => {
   acc[g] = ALL_READINESS_REGIONS.filter((r) => r.group === g).map((r) => r.id);
   return acc;
 }, {});
+// Reverse of the above — every region's own coarse group, used to auto-derive a custom
+// exercise's browsing category from whichever precise primary muscle its creator picked, instead
+// of asking for the category as a second, redundant input.
+const REGION_TO_GROUP = Object.fromEntries(ALL_READINESS_REGIONS.map((r) => [r.id, r.group]));
 
 // A representative, bounded sample of exercise names for the AI plan-generation prompt — not the
 // full catalogue. Embedding every exercise name in the prompt used to cost roughly one token per
@@ -1350,6 +1355,28 @@ function equipmentShapes(cfg, equipment) {
       { el: "path", d: `M ${handL[0] - 3} ${handL[1] - 1} a 3 3 0 0 1 6 0`, stroke: "var(--brass)", width: 1.5 },
     ];
   }
+  // Previously Cable fell through to `return props` — the pose's own generic props only, with no
+  // visual distinguishing "held a cable handle" from "held nothing at all." A cable exercise is
+  // defined by a fixed pulley the resistance runs through, which a plain figure can never show —
+  // this draws a single cable line from a fixed pulley point at the top of the frame down to a
+  // split point, then two diverging lines out to each hand (the rope's two ends "separating
+  // naturally"), with a small rounded cap at each hand for the rope's grip ends. Anchored to the
+  // pose's own hand coordinates, so it tracks correctly across every triceps_ext/row/pulldown-
+  // family exercise that uses Cable equipment, not just one.
+  if (equipment === "Cable" && handL && handR) {
+    const midX = (handL[0] + handR[0]) / 2;
+    const splitY = Math.min(handL[1], handR[1]) - 12;
+    const pulleyX = midX, pulleyY = 2;
+    return [
+      ...props,
+      { el: "line", x1: pulleyX, y1: pulleyY, x2: midX, y2: Math.max(pulleyY + 4, splitY), stroke: "var(--ink-dim)", width: 2 },
+      { el: "circle", cx: pulleyX, cy: pulleyY, r: 3, fill: "var(--bg-elev2)", stroke: "var(--ink-dim)" },
+      { el: "line", x1: midX, y1: splitY, x2: handL[0], y2: handL[1], stroke: "var(--ink-dim)", width: 1.5 },
+      { el: "line", x1: midX, y1: splitY, x2: handR[0], y2: handR[1], stroke: "var(--ink-dim)", width: 1.5 },
+      { el: "circle", cx: handL[0], cy: handL[1], r: 3, fill: "var(--bg-elev2)", stroke: "var(--brass)" },
+      { el: "circle", cx: handR[0], cy: handR[1], r: 3, fill: "var(--bg-elev2)", stroke: "var(--brass)" },
+    ];
+  }
   return props;
 }
 
@@ -1514,7 +1541,14 @@ function ExerciseThumb({ ex, size = 40 }) {
 function ExerciseDetailCard({ ex, onAdd, onBack, onArchive }) {
   const [figureState, setFigureState] = useState("start");
   const hasFinish = POSES_WITH_FINISH.has(ex.pose);
-  const secondary = SECONDARY_MUSCLES[ex.pose] || [];
+  // Browsing category (e.g. "Arms") and primary muscle (e.g. "Triceps") are two different things —
+  // conflating them was a real, reported bug: Rope Pushdown showed "Primary: arms" instead of
+  // "Primary: triceps" because this used to read ex.muscle (the coarse category) directly instead
+  // of resolving the actual computed region. secondaryRegions uses the same region-level data the
+  // readiness map/search/filters already use, not the older 6-group SECONDARY_MUSCLES map.
+  const primaryRegionId = regionForExercise(ex);
+  const primaryRegionLabel = REGION_LABEL[primaryRegionId] || ex.muscle;
+  const secondaryRegions = (ex.secondaryMuscles || []).map((id) => REGION_LABEL[id]).filter(Boolean);
   const guidance = getExerciseGuidance(ex);
   const mistakes = guidance.commonMistakes;
   const safety = guidance.safetyNote;
@@ -1568,12 +1602,15 @@ function ExerciseDetailCard({ ex, onAdd, onBack, onArchive }) {
             <span className="pill" style={{ background: "rgba(255,255,255,0.06)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>
               {ex.equipment}
             </span>
-            <span className="pill" style={{ background: "var(--brass-soft)", color: "var(--brass)", textTransform: "capitalize" }}>
-              Primary: {ex.muscle}
+            <span className="pill" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)", textTransform: "capitalize" }}>
+              Category: {ex.muscle}
             </span>
-            {secondary.map((m) => (
-              <span key={m} className="pill" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)", textTransform: "capitalize" }}>
-                Secondary: {m}
+            <span className="pill" style={{ background: "var(--brass-soft)", color: "var(--brass)" }}>
+              Primary: {primaryRegionLabel}
+            </span>
+            {secondaryRegions.map((label) => (
+              <span key={label} className="pill" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)" }}>
+                Also trains: {label}
               </span>
             ))}
           </div>
@@ -2490,7 +2527,13 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   const [linkingEx, setLinkingEx] = useState(null);
   const [creatingCustom, setCreatingCustom] = useState(false);
   const [customName, setCustomName] = useState("");
-  const [customMuscle, setCustomMuscle] = useState(MUSCLE_GROUPS[0]);
+  // Primary muscle is the real anatomical taxonomy (Triceps, Rear Delts, ...) — the same one
+  // built-in exercises use — not the old broad "Muscle Group" picker (Arms, Legs, ...), which was
+  // a genuine reported gap: a custom exercise had no way to say it was specifically a triceps
+  // movement versus a generic arm one. Browsing category is derived automatically from whichever
+  // primary muscle is picked (every region already declares its own .group), never asked for.
+  const [customPrimaryMuscle, setCustomPrimaryMuscle] = useState(READINESS_MUSCLE_IDS[0]);
+  const [customSecondaryMuscles, setCustomSecondaryMuscles] = useState([]);
   const [customEquip, setCustomEquip] = useState(EQUIPMENT_TYPES[0]);
   const [customAliases, setCustomAliases] = useState("");
   const [customTrackingType, setCustomTrackingType] = useState("weight_reps");
@@ -2599,13 +2642,16 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
   // Archived custom exercises stay in `allExercises` (so historical workouts, PRs and volume still
   // resolve their name correctly) but are hidden from the picker itself — that's what "archived"
   // means here: not selectable for new workouts, without breaking anything already logged.
-  const filtered = allExercises.filter((e) =>
+  const filteredByCategory = allExercises.filter((e) =>
     !e.archived &&
-    matchesExerciseSearch(e, search) &&
     (muscleFilter === "all" || e.muscle === muscleFilter) &&
     (equipFilter === "all" || e.equipment === equipFilter) &&
     (regionFilter === "all" || regionForExercise(e) === regionFilter)
   );
+  // Ranked, not just filtered, once there's search text — a direct-muscle match must always
+  // outrank a secondary-muscle-only one (see rankExerciseSearch), otherwise "triceps" surfaces
+  // Bench Press ahead of Skull Crusher purely because of raw catalogue array order.
+  const filtered = search.trim() ? rankExerciseSearch(filteredByCategory, search) : filteredByCategory;
 
   const addExercise = (ex) => {
     setSession((s) => ({ ...s, exercises: [...s.exercises, { name: ex.name, sets: [], supersetWith: null }] }));
@@ -2627,9 +2673,14 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
       return;
     }
     const aliases = customAliases.split(",").map((a) => a.trim()).filter(Boolean);
+    // Browsing category is derived, never asked for — REGION_TO_GROUP resolves it from whichever
+    // precise primary muscle was actually picked, so "category" and "primary muscle" can never
+    // silently disagree the way a separately-chosen pair could.
+    const category = REGION_TO_GROUP[customPrimaryMuscle] || MUSCLE_GROUPS[0];
     const ex = {
-      name: trimmed, muscle: customMuscle, equipment: customEquip, pose: MUSCLE_DEFAULT_POSE[customMuscle], isCustom: true,
-      aliases, trackingType: customTrackingType, secondaryMuscles: [],
+      name: trimmed, muscle: category, region: customPrimaryMuscle, equipment: customEquip,
+      pose: MUSCLE_DEFAULT_POSE[category], isCustom: true,
+      aliases, trackingType: customTrackingType, secondaryMuscles: customSecondaryMuscles,
       instructions: customNotes.trim() ? [customNotes.trim()] : [],
       imageUrl: customImageUrl.trim() || null,
     };
@@ -2637,7 +2688,8 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
     addExercise(ex);
     setCreatingCustom(false);
     setCustomName("");
-    setCustomMuscle(MUSCLE_GROUPS[0]);
+    setCustomPrimaryMuscle(READINESS_MUSCLE_IDS[0]);
+    setCustomSecondaryMuscles([]);
     setCustomEquip(EQUIPMENT_TYPES[0]);
     setCustomAliases("");
     setCustomTrackingType("weight_reps");
@@ -2956,20 +3008,38 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
               <input autoFocus className="atlas-input" placeholder="e.g. Cable Y-Raise" value={customName} onChange={(e) => { setCustomName(e.target.value); setCustomError(null); }} />
             </div>
             <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>MUSCLE GROUP</div>
-              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                {MUSCLE_GROUPS.map((m) => (
-                  <button key={m} onClick={() => setCustomMuscle(m)} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", textTransform: "capitalize", background: customMuscle === m ? "var(--brass-soft)" : "transparent", color: customMuscle === m ? "var(--brass)" : "var(--ink-dim)" }}>{m}</button>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>PRIMARY MUSCLE</div>
+              <select className="atlas-input" value={customPrimaryMuscle} onChange={(e) => setCustomPrimaryMuscle(e.target.value)}>
+                {MUSCLE_GROUPS.map((group) => (
+                  <optgroup key={group} label={group.charAt(0).toUpperCase() + group.slice(1)}>
+                    {(REGIONS_BY_GROUP[group] || []).map((r) => (
+                      <option key={r} value={r}>{REGION_LABEL[r]}</option>
+                    ))}
+                  </optgroup>
                 ))}
+              </select>
+              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>
+                Category: {REGION_TO_GROUP[customPrimaryMuscle]} (set automatically from the muscle above)
               </div>
             </div>
             <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>EQUIPMENT</div>
-              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                {EQUIPMENT_TYPES.map((eq) => (
-                  <button key={eq} onClick={() => setCustomEquip(eq)} className="pill" style={{ cursor: "pointer", border: `1px solid ${customEquip === eq ? EQUIPMENT_COLORS[eq] : "var(--line)"}`, background: "transparent", color: customEquip === eq ? EQUIPMENT_COLORS[eq] : "var(--ink-dim)" }}>{eq}</button>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>SECONDARY MUSCLES (optional)</div>
+              <select
+                className="atlas-input" multiple size={5}
+                value={customSecondaryMuscles}
+                onChange={(e) => setCustomSecondaryMuscles([...e.target.selectedOptions].map((o) => o.value))}
+              >
+                {READINESS_MUSCLE_IDS.filter((r) => r !== customPrimaryMuscle).map((r) => (
+                  <option key={r} value={r}>{REGION_LABEL[r]}</option>
                 ))}
-              </div>
+              </select>
+              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>Ctrl/Cmd-click to select more than one.</div>
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>EQUIPMENT</div>
+              <select className="atlas-input" value={customEquip} onChange={(e) => setCustomEquip(e.target.value)}>
+                {EQUIPMENT_TYPES.map((eq) => <option key={eq} value={eq}>{eq}</option>)}
+              </select>
             </div>
             <div>
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>HOW IS IT LOGGED?</div>
@@ -3034,19 +3104,30 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
                 No exercises match those filters. Use "Create Custom Exercise" above to add your own.
               </div>
             )}
-            {filtered.slice(0, visibleExerciseCount).map((ex) => (
-              <button key={ex.name} onClick={() => setDetailEx(ex)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "var(--ink)" }}>
-                <ExerciseThumb ex={ex} size={30} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13 }}>
-                    {ex.name}
-                    {ex.isCustom && <span className="pill" style={{ marginLeft: 6, fontSize: 8, border: "1px solid var(--steel)", color: "var(--steel)" }}>Custom</span>}
+            {filtered.slice(0, visibleExerciseCount).map((ex) => {
+              // A result that only matched because the searched term is a SECONDARY muscle for
+              // this exercise (e.g. "triceps" matching Bench Press) gets labeled "Also trains
+              // triceps" — it must never read as if this were a direct triceps exercise.
+              const secondaryOnly = search.trim() && matchedOnlyViaSecondaryMuscle(ex, search);
+              return (
+                <button key={ex.name} onClick={() => setDetailEx(ex)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "var(--ink)" }}>
+                  <ExerciseThumb ex={ex} size={30} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13 }}>
+                      {ex.name}
+                      {ex.isCustom && <span className="pill" style={{ marginLeft: 6, fontSize: 8, border: "1px solid var(--steel)", color: "var(--steel)" }}>Custom</span>}
+                    </div>
+                    <span className="mono" style={{ fontSize: 10, color: EQUIPMENT_COLORS[ex.equipment] }}>{ex.equipment}</span>
+                    {secondaryOnly && (
+                      <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginLeft: 8, fontStyle: "italic" }}>
+                        Also trains {search.trim().toLowerCase()}
+                      </span>
+                    )}
                   </div>
-                  <span className="mono" style={{ fontSize: 10, color: EQUIPMENT_COLORS[ex.equipment] }}>{ex.equipment}</span>
-                </div>
-                <ChevronRight size={15} color="var(--ink-dim)" />
-              </button>
-            ))}
+                  <ChevronRight size={15} color="var(--ink-dim)" />
+                </button>
+              );
+            })}
             {filtered.length > visibleExerciseCount && (
               <button
                 onClick={() => setVisibleExerciseCount((n) => n + EXERCISE_PAGE_SIZE)}
@@ -5321,6 +5402,13 @@ export default function App() {
   // second synchronous click is processed). A ref updates immediately and outside any render
   // cycle, so the second call's read of it is guaranteed to see the first call's write.
   const finishingRef = useRef(false);
+  // Same guard, same reason, for Stripe checkout: a genuine double-click (or double-tap) dispatches
+  // two click events in the same tick, both closing over the same pre-update `billingLoading`
+  // value — `disabled={billingLoading === "checkout"}` alone doesn't prevent a second
+  // startCheckout() call from firing before React commits the first one's state update. Without
+  // this, two rapid clicks could create two separate Stripe Checkout Sessions for the same
+  // customer; completing both would mean two real subscriptions instead of one.
+  const checkoutInFlightRef = useRef(false);
   // undefined = not checked yet, null = no row (never subscribed), object = { status, current_period_end }.
   // Never set directly from checkout success — only the Stripe webhook (server-side) is trusted
   // to write this, so a user can't just flip themselves to "active" from the browser.
@@ -5358,7 +5446,13 @@ export default function App() {
   const [trainMuscleFilter, setTrainMuscleFilter] = useState(null);
   const onViewExercises = (group) => { setTrainMuscleFilter(group); setTab("train"); };
   const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "signup"
-  const [publicLegalDoc, setPublicLegalDoc] = useState(null);
+  // Reads the URL once at mount so a direct navigation or refresh to a stable public path like
+  // /privacy renders that page immediately — previously this always started at `null` regardless
+  // of the URL, so the route itself did nothing (see the sync effect below for the write-back half).
+  const [publicLegalDoc, setPublicLegalDoc] = useState(() => {
+    if (typeof window === "undefined") return null;
+    return parsePublicLegalPath(window.location.pathname);
+  });
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState(null);
   // True while the user has followed a password-reset email link — Supabase signs them into a
@@ -5500,6 +5594,7 @@ export default function App() {
   // `!== path` check is already false and it does nothing further.
   useEffect(() => {
     function onPopState() {
+      setPublicLegalDoc(parsePublicLegalPath(window.location.pathname));
       const parsed = parseAppPath(window.location.pathname);
       if (!parsed) return;
       setShowProfile(!!parsed.settings);
@@ -5508,6 +5603,30 @@ export default function App() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  // Keeps the URL (and the document title, for SEO/accessibility — each legal page needs a real,
+  // unique title rather than every tab reading "Asc3end") in sync with publicLegalDoc, the same
+  // push-only-when-different pattern as the tab-sync effect above. This is genuinely
+  // auth-independent: a signed-in user opening /terms sees the same stable page a signed-out
+  // visitor does, not the authenticated app shell.
+  useEffect(() => {
+    if (publicLegalDoc) {
+      const path = buildPublicLegalPath(publicLegalDoc);
+      if (window.location.pathname !== path) window.history.pushState({ publicLegalDoc }, "", path);
+    } else if (parsePublicLegalPath(window.location.pathname)) {
+      // Closing a legal page (X button) while the address bar still shows its path — return to
+      // "/" rather than leaving a stale /privacy in the bar with the landing page now rendered.
+      window.history.pushState(null, "", "/");
+    }
+    const doc = publicLegalDoc ? LEGAL_COPY[publicLegalDoc] : null;
+    document.title = doc ? `${doc.title} — Asc3end` : "Asc3end — Training, Nutrition & AI Coaching";
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) {
+      metaDesc.setAttribute("content", doc
+        ? `${doc.title} for Asc3end, the AI training and nutrition coach.`
+        : "Track workouts, hit your macros, and get AI coaching to keep climbing toward your goal.");
+    }
+  }, [publicLegalDoc]);
 
   // After returning from a successful Checkout, the webhook that actually activates the
   // subscription may take a moment to land — poll briefly instead of showing stale "not premium"
@@ -5537,6 +5656,14 @@ export default function App() {
   const isDemoEntitlement = subscriptionState.type === "demo";
 
   const startCheckout = async (planArg = "monthly", trial = false) => {
+    // Same double-click guard as finishWorkout's finishingRef, and the same reason: two click
+    // events dispatched in the same tick both close over the same pre-update `billingLoading`
+    // value, so `disabled={billingLoading === "checkout"}` alone can't stop a second call from
+    // firing before React commits the first one's state update. Without this, two rapid clicks
+    // could create two separate Stripe Checkout Sessions for the same customer — completing both
+    // would mean two real subscriptions, not one.
+    if (checkoutInFlightRef.current) return;
+    checkoutInFlightRef.current = true;
     // Defensive normalization, not just a default — several call sites do `onClick={onUpgrade}`,
     // which makes React pass the click SyntheticEvent as `planArg`. JSON.stringify-ing that event
     // (or its DOM target, via the click-handler bug this once shipped with) throws "Converting
@@ -5551,7 +5678,6 @@ export default function App() {
       const { data: { session: authSession } } = await supabase.auth.getSession();
       if (!authSession) {
         setBillingError("Your session has expired — please sign out and back in, then try again.");
-        setBillingLoading(null);
         return;
       }
       const res = await fetch("/api/create-checkout-session", {
@@ -5566,8 +5692,10 @@ export default function App() {
     } catch (e) {
       logEvent("checkout_failed", { reason: "network_error" });
       setBillingError("Couldn't reach the server — check your connection and try again.");
+    } finally {
+      setBillingLoading(null);
+      checkoutInFlightRef.current = false;
     }
-    setBillingLoading(null);
   };
 
   const openBillingPortal = async () => {
@@ -5823,6 +5951,17 @@ export default function App() {
     setDeleteAccountLoading(false);
   };
 
+  // Checked before anything else — auth state, loading, password recovery, all of it. These are
+  // genuinely public, stable pages: /privacy, /terms, /support etc. must render identically
+  // whether the visitor is signed in, signed out, or auth hasn't resolved yet, and must never
+  // show a loading spinner or the authenticated app shell first. This is also what makes them
+  // reachable at all on a direct navigation or refresh — previously this check only ran once
+  // deep inside the signed-out branch below, so a logged-in user (or anyone still mid-auth-check)
+  // got the app shell or a loading screen instead of the page the URL actually named.
+  if (publicLegalDoc) {
+    return <LegalPage docKey={publicLegalDoc} onClose={() => setPublicLegalDoc(null)} />;
+  }
+
   if (passwordRecovery) {
     return (
       <>
@@ -5837,9 +5976,6 @@ export default function App() {
   }
 
   if (!authUser) {
-    if (publicLegalDoc) {
-      return <LegalPage docKey={publicLegalDoc} onClose={() => setPublicLegalDoc(null)} />;
-    }
     if (authView === "landing") {
       return (
         <Landing

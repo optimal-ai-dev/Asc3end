@@ -164,6 +164,28 @@ d("Row Level Security — cross-user authorization", () => {
     expect(writeErr).not.toBeNull();
   });
 
+  // Custom exercises are stored in the same generic user_data table (key "atlas:customExercises")
+  // as everything else — no dedicated table, no separate RLS policy to audit — but this is worth
+  // its own explicit test naming that key directly rather than relying on readers to infer it
+  // from the generic atlas:profile coverage above, since "custom exercises stay private" is a
+  // specific, named requirement.
+  it("a user's custom exercises (atlas:customExercises) are invisible and unwritable to another user", async () => {
+    const customExercise = { name: "User A's Secret Lift", muscle: "arms", equipment: "Dumbbell", region: "biceps", isCustom: true };
+    await userA.client.from("user_data").upsert({ user_id: userA.id, key: "atlas:customExercises", value: [customExercise] });
+
+    const { data: readAsB } = await userB.client.from("user_data").select("value").eq("user_id", userA.id).eq("key", "atlas:customExercises").maybeSingle();
+    expect(readAsB).toBeNull();
+
+    const { error: overwriteErr } = await userB.client.from("user_data").upsert({ user_id: userA.id, key: "atlas:customExercises", value: [{ name: "Hacked", muscle: "arms", equipment: "Bodyweight" }] });
+    const { data: stillA } = await admin.from("user_data").select("value").eq("user_id", userA.id).eq("key", "atlas:customExercises").maybeSingle();
+    expect(stillA.value[0].name).toBe("User A's Secret Lift");
+    void overwriteErr;
+
+    await userB.client.from("user_data").delete().eq("user_id", userA.id).eq("key", "atlas:customExercises");
+    const { data: stillThereAfterDelete } = await admin.from("user_data").select("value").eq("user_id", userA.id).eq("key", "atlas:customExercises").maybeSingle();
+    expect(stillThereAfterDelete).not.toBeNull();
+  });
+
   it("a user CAN read/write their own data (the policies aren't accidentally blocking legitimate use)", async () => {
     const { error: writeErr } = await userB.client.from("user_data").upsert({ user_id: userB.id, key: "atlas:profile", value: { name: "User B" } });
     expect(writeErr).toBeNull();
