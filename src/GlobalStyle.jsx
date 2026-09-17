@@ -146,6 +146,19 @@ export default function GlobalStyle() {
         outline: 2px solid var(--brass);
         outline-offset: 2px;
       }
+      /* The muscle-readiness map's regions are SVG <g> elements, not real <button>s — a real,
+         confirmed bug: they used to set outline:none inline (to avoid a default mouse-click ring)
+         which also silently killed the ':focus-visible' outline above for keyboard users, since an
+         inline style always wins over a stylesheet rule. outline on an SVG group also renders
+         inconsistently across engines, so this uses stroke width instead — the same visual
+         language already used for the "selected" state (see MuscleRegion in App.jsx), just a
+         thinner, distinctly-keyboard-only version so it never looks the same as an actual
+         selection. */
+      .muscle-region-hitbox:focus { outline: none; }
+      .muscle-region-hitbox:focus-visible path {
+        stroke: var(--brass) !important;
+        stroke-width: 3px !important;
+      }
       .atlas-nav {
         position: fixed;
         bottom: 0; left: 50%; transform: translateX(-50%);

@@ -957,7 +957,8 @@ function MuscleRegion({ id, label, state, shape, selected, onSelect }) {
             tabIndex={onSelect ? 0 : undefined}
             aria-pressed={onSelect ? isSel : undefined}
             aria-label={`${sideLabels[i]}: ${READINESS_LABEL[state]}`}
-            style={{ cursor: onSelect ? "pointer" : "default", outline: "none" }}
+            className="muscle-region-hitbox"
+            style={{ cursor: onSelect ? "pointer" : "default" }}
             filter={isSel ? "url(#readinessSelectedGlow)" : undefined}
           >
             <path d={d} style={pathStyle} />
@@ -975,7 +976,8 @@ function MuscleRegion({ id, label, state, shape, selected, onSelect }) {
       tabIndex={onSelect ? 0 : undefined}
       aria-pressed={onSelect ? isSel : undefined}
       aria-label={`${label}: ${READINESS_LABEL[state]}`}
-      style={{ cursor: onSelect ? "pointer" : "default", outline: "none" }}
+      className="muscle-region-hitbox"
+      style={{ cursor: onSelect ? "pointer" : "default" }}
       filter={isSel ? "url(#readinessSelectedGlow)" : undefined}
     >
       {paths.map((d, i) => (

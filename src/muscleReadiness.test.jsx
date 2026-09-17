@@ -249,6 +249,27 @@ describe("FrontBodyFigure / BackBodyFigure — rendering and interaction", () =>
     });
   });
 
+  // Regression test for a real, confirmed bug: every region <g> set an inline `outline: "none"`
+  // (originally meant only to suppress the default mouse-click ring), which — because an inline
+  // style always beats a stylesheet rule — also silently killed the global
+  // `[tabindex]:focus-visible` outline for keyboard users. Verified live in a real browser via
+  // real Tab-key navigation that a keyboard-focused region rendered NO visible focus indicator at
+  // all before the fix. jsdom doesn't apply external stylesheet `:focus-visible` rules, so this
+  // checks the markup-level cause directly: no inline outline suppression, and the class the fix's
+  // CSS rule (`.muscle-region-hitbox:focus-visible path`) actually targets.
+  it("no region suppresses focus visibility with an inline outline, and carries the class the keyboard-focus style targets", () => {
+    const readiness = muscleReadiness([], []);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    act(() => { createRoot(container).render(<FrontBodyFigure readiness={readiness} selected={null} onSelect={() => {}} />); });
+    const buttons = container.querySelectorAll('[role="button"]');
+    expect(buttons.length).toBeGreaterThan(0);
+    buttons.forEach((b) => {
+      expect(b.style.outline, `${b.getAttribute("aria-label")} inline-suppresses outline`).not.toBe("none");
+      expect(b.getAttribute("class")).toContain("muscle-region-hitbox");
+    });
+  });
+
   it("clicking a region calls onSelect with that region's id", () => {
     const readiness = muscleReadiness([], []);
     let selectedId = null;
