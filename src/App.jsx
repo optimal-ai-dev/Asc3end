@@ -3011,7 +3011,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             </div>
             <div>
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>PRIMARY MUSCLE</div>
-              <select className="atlas-input" value={customPrimaryMuscle} onChange={(e) => setCustomPrimaryMuscle(e.target.value)}>
+              <select aria-label="Primary muscle" className="atlas-input" value={customPrimaryMuscle} onChange={(e) => setCustomPrimaryMuscle(e.target.value)}>
                 {MUSCLE_GROUPS.map((group) => (
                   <optgroup key={group} label={group.charAt(0).toUpperCase() + group.slice(1)}>
                     {(REGIONS_BY_GROUP[group] || []).map((r) => (
@@ -3027,6 +3027,7 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             <div>
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>SECONDARY MUSCLES (optional)</div>
               <select
+                aria-label="Secondary muscles (optional, multiple)"
                 className="atlas-input" multiple size={5}
                 value={customSecondaryMuscles}
                 onChange={(e) => setCustomSecondaryMuscles([...e.target.selectedOptions].map((o) => o.value))}
@@ -3039,13 +3040,13 @@ function Train({ profile, workouts, session, setSession, onFinish, onDiscard, on
             </div>
             <div>
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>EQUIPMENT</div>
-              <select className="atlas-input" value={customEquip} onChange={(e) => setCustomEquip(e.target.value)}>
+              <select aria-label="Equipment" className="atlas-input" value={customEquip} onChange={(e) => setCustomEquip(e.target.value)}>
                 {EQUIPMENT_TYPES.map((eq) => <option key={eq} value={eq}>{eq}</option>)}
               </select>
             </div>
             <div>
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>HOW IS IT LOGGED?</div>
-              <select className="atlas-input" value={customTrackingType} onChange={(e) => setCustomTrackingType(e.target.value)}>
+              <select aria-label="How is it logged" className="atlas-input" value={customTrackingType} onChange={(e) => setCustomTrackingType(e.target.value)}>
                 {TRACKING_TYPES.map((t) => <option key={t} value={t}>{TRACKING_TYPE_LABEL[t]}</option>)}
               </select>
             </div>
