@@ -8,6 +8,14 @@ import {
   EXERCISES, MUSCLE_GROUPS, classifyDayAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL, workoutVolume,
 } from "./App.jsx";
 import { getNutritionTargets } from "./lib/nutritionMath";
+import { formatDateOnly, today as localToday, addDays } from "./lib/dates";
+import { workingSets } from "./lib/workoutMath";
+import {
+  exerciseNamesWithData, exerciseRecords, strengthSeries, sparklineValues, prTimeline as buildPrTimeline,
+  historicalPrEvents, bestWeightFor, liftChange, muscleVolumeInRange as muscleVolumeInRangeData,
+  weeklyMuscleVolume as weeklyMuscleVolumeData, consistencyGrid as consistencyGridData,
+  monthRange, shiftMonthKey, sessionsPerWeek,
+} from "./lib/progressData";
 
 /* muscleReadiness/the body figures are imported from App.jsx rather than reimplemented here so
    the full map on this page can never drift out of sync with the compact one on Home — both read
@@ -36,7 +44,7 @@ function useIsDesktop() {
    being part of every page load. */
 
 function fmtDate(iso) {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatDateOnly(iso, { month: "short", day: "numeric" });
 }
 
 /* Approximate bodyweight-ratio strength standards (illustrative, not a certified table) */
@@ -76,107 +84,40 @@ function strengthRank(bestWeight, bodyweightKg, gender, lift) {
   };
 }
 
-/* Epley formula — a standard, widely-used estimate of 1-rep max from a lower-rep set.
-   Like any such formula it gets less accurate above ~12 reps; treat it as a trend indicator, not a literal max. */
-function estimate1RM(weight, reps) {
-  return weight * (1 + reps / 30);
-}
-
-/* Distinct PR types per exercise, computed independently so a rep PR set at a lighter weight
-   doesn't get masked by a heavier weight PR from a different session (or vice versa). */
-function exercisePRs(workouts, name) {
-  const sessions = workouts
-    .filter((w) => w.exercises.some((e) => e.name === name))
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-  let weightPR = null, repPR = null, oneRMPR = null, volumePR = null;
-  sessions.forEach((w) => {
-    const ex = w.exercises.find((e) => e.name === name);
-    const sessionVolume = ex.sets.reduce((s, st) => s + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0);
-    if (sessionVolume > 0 && (!volumePR || sessionVolume > volumePR.volume)) volumePR = { volume: sessionVolume, date: w.date };
-    ex.sets.forEach((s) => {
-      if (!weightPR || s.weight > weightPR.weight) weightPR = { weight: s.weight, reps: s.reps, date: w.date };
-      if (!repPR || s.reps > repPR.reps) repPR = { weight: s.weight, reps: s.reps, date: w.date };
-      const oneRM = estimate1RM(s.weight, s.reps);
-      if (!oneRMPR || oneRM > oneRMPR.oneRM) oneRMPR = { oneRM, weight: s.weight, reps: s.reps, date: w.date };
-    });
-  });
-  return { weightPR, repPR, oneRMPR, volumePR };
-}
-
 /* Body transformation: earliest vs latest weight + earliest vs best per lift.
    Returns a typed result so the UI can tell "not enough data yet" apart from "a real trend
    over too short a span to call it weekly" apart from "here's your real multi-week trend" —
    collapsing all three into one generic "Over 1 week..." sentence is what previously produced
    a nonsensical "increased by 0kg" message from two same-day entries. */
-function transformationSummary(weightlog, workouts) {
+function transformationSummary(weightlog, workouts, customExercises) {
   if (weightlog.length === 0) return null; // nothing to say yet — the Bodyweight card below already prompts to log a first entry
   if (weightlog.length === 1) return { kind: "baseline" };
-  const sorted = [...weightlog].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const sorted = [...weightlog].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const first = sorted[0], last = sorted[sorted.length - 1];
-  const days = Math.round((new Date(last.date) - new Date(first.date)) / 86400000);
+  const days = Math.round((Date.parse(last.date) - Date.parse(first.date)) / 86400000);
   const weightChange = +(last.weight - first.weight).toFixed(1);
   if (days < 3) return { kind: "tooSoon", days, weightChange };
   const weeks = Math.max(1, Math.round(days / 7));
-  // Only sessions with at least one set carrying a real weight count — an exercise added to a
-  // session but never actually logged (sets: []) must not feed Math.max(...[]), which would
-  // silently produce -Infinity.
-  const validWeights = (e) => e.sets.map((s) => s.weight).filter((w) => Number.isFinite(w) && w > 0);
+  // liftChange only looks at real working sets with a real weight, so an exercise added to a
+  // session but never logged (or a warm-up) can't produce a bogus change.
   const lifts = ["bench", "squat", "deadlift"].map((k) => {
     const name = STRENGTH_STANDARDS[k].exercise;
-    const history = workouts
-      .filter((w) => w.exercises.some((e) => e.name === name && validWeights(e).length > 0))
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
-    if (history.length < 2) return null;
-    const earliest = Math.max(...validWeights(history[0].exercises.find((e) => e.name === name)));
-    const latest = Math.max(...validWeights(history[history.length - 1].exercises.find((e) => e.name === name)));
-    return { name: name.split(" (")[0], change: +(latest - earliest).toFixed(1) };
+    const change = liftChange(workouts, name, customExercises);
+    return change == null ? null : { name: name.split(" (")[0], change };
   }).filter(Boolean);
   return { kind: "trend", weightChange, weeks, lifts };
 }
 
 const MUSCLE_LABEL = { chest: "Chest", back: "Back", shoulders: "Shoulders", arms: "Arms", legs: "Legs", core: "Core" };
 
-/* Total weight-moved volume per muscle group over the last 7 days — the same "muscle" field
-   already used by muscleRecovery(), just summed by kg*reps instead of counted by session. */
-function weeklyMuscleVolume(workouts, customExercises) {
-  const allEx = [...EXERCISES, ...customExercises];
-  const cutoff = Date.now() - 7 * 86400000;
-  const totals = Object.fromEntries(MUSCLE_GROUPS.map((m) => [m, 0]));
-  workouts.forEach((w) => {
-    if (new Date(w.date).getTime() < cutoff) return;
-    w.exercises.forEach((e) => {
-      const ex = allEx.find((x) => x.name === e.name);
-      if (!ex) return;
-      const volume = e.sets.reduce((s, st) => s + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0);
-      totals[ex.muscle] = (totals[ex.muscle] || 0) + volume;
-    });
-  });
-  return MUSCLE_GROUPS.map((m) => ({ muscle: m, label: MUSCLE_LABEL[m], volume: Math.round(totals[m]) }));
+/* Per-muscle volume / consistency / PR maths live in ./lib/progressData (pure + unit-tested) so a
+   duration-only exercise can never produce kg, reps or an estimated 1RM here. */
+function withLabels(rows) {
+  return rows.filter((r) => MUSCLE_LABEL[r.muscle]).map((r) => ({ ...r, label: MUSCLE_LABEL[r.muscle] }));
 }
-
-/* Training-day grid for the last `weeks` weeks, oldest first, padded to full weeks (Sun-Sat) so
-   it renders as a clean 7-column grid like a calendar-contribution graph. `count` is sets logged
-   that day — used only to pick a shade, never displayed as a precise number. */
-function consistencyGrid(workouts, weeks = 12) {
-  const setsByDate = new Map();
-  workouts.forEach((w) => {
-    const d = w.date;
-    const sets = w.exercises.reduce((n, e) => n + e.sets.length, 0);
-    setsByDate.set(d, (setsByDate.get(d) || 0) + sets);
-  });
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const end = new Date(today);
-  end.setDate(end.getDate() + (6 - end.getDay())); // pad forward to the end of this week (Saturday)
-  const start = new Date(end);
-  start.setDate(start.getDate() - (weeks * 7 - 1));
-  const days = [];
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const iso = new Date(d).toISOString().slice(0, 10);
-    days.push({ date: iso, count: setsByDate.get(iso) || 0, future: new Date(d) > today });
-  }
-  return days;
-}
+const weeklyMuscleVolume = (workouts, customExercises) => withLabels(weeklyMuscleVolumeData(workouts, customExercises));
+const muscleVolumeInRange = (workouts, customExercises, startIso, endIso) => withLabels(muscleVolumeInRangeData(workouts, customExercises, startIso, endIso));
+const consistencyGrid = (workouts, weeks) => consistencyGridData(workouts, weeks);
 
 /* Ordinary least squares on {x,y} points — used only for a short, clearly-labeled illustrative
    extrapolation of the user's own recent trend, never presented as a guarantee. */
@@ -193,28 +134,10 @@ function linearRegression(points) {
   return { slope, intercept };
 }
 
-/* Every PR event across every exercise, flattened into one chronological feed instead of the
-   per-exercise breakdown above it — "what did I set a new record on, and when". */
-function prTimeline(workouts) {
-  const exerciseNames = [...new Set(workouts.flatMap((w) => w.exercises.map((e) => e.name)))];
-  const events = [];
-  exerciseNames.forEach((name) => {
-    const { weightPR, oneRMPR } = exercisePRs(workouts, name);
-    if (weightPR) events.push({ name, date: weightPR.date, kind: "weight", detail: `${weightPR.weight}kg × ${weightPR.reps}` });
-    if (oneRMPR) events.push({ name, date: oneRMPR.date, kind: "1rm", detail: `est. ${Math.round(oneRMPR.oneRM)}kg 1RM` });
-  });
-  return events.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 12);
-}
-
-/* Small inline trend line for one exercise's top-set weight over its last few sessions — a
+/* Small inline trend line for one exercise's primary metric over its last few sessions — a
    sparkline, not a full chart: no axes/labels, just shape. */
-function sparklinePoints(workouts, name, width = 64, height = 20) {
-  const hasLoggedSets = (e) => e.sets.some((s) => Number.isFinite(s.weight) && s.weight > 0);
-  const sessions = workouts
-    .filter((w) => w.exercises.some((e) => e.name === name && hasLoggedSets(e)))
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-    .slice(-10);
-  const values = sessions.map((w) => Math.max(...w.exercises.find((e) => e.name === name).sets.filter((s) => Number.isFinite(s.weight)).map((s) => s.weight)));
+function sparklinePoints(workouts, name, customExercises, width = 64, height = 20) {
+  const values = sparklineValues(workouts, name, customExercises);
   if (values.length < 2) return null;
   const min = Math.min(...values), max = Math.max(...values);
   const range = max - min || 1;
@@ -225,82 +148,14 @@ function sparklinePoints(workouts, name, width = 64, height = 20) {
 /* Monthly Report                                                      */
 /* ------------------------------------------------------------------ */
 
-function monthRange(monthKey) {
-  const [year, month] = monthKey.split("-").map(Number);
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0); // day 0 of next month = last day of this month
-  const toIso = (d) => d.toISOString().slice(0, 10);
-  return {
-    startIso: toIso(start), endIso: toIso(end),
-    daysInMonth: end.getDate(),
-    label: start.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
-    isCurrentMonth: monthKey === new Date().toISOString().slice(0, 7),
-  };
-}
-
-function shiftMonthKey(monthKey, delta) {
-  const [year, month] = monthKey.split("-").map(Number);
-  const d = new Date(year, month - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-/* Same shape as weeklyMuscleVolume, generalized to an arbitrary [startIso, endIso] window
-   instead of a hardcoded trailing 7 days — the report needs a full calendar month, not a
-   rolling window. */
-function muscleVolumeInRange(workouts, customExercises, startIso, endIso) {
-  const allEx = [...EXERCISES, ...customExercises];
-  const totals = Object.fromEntries(MUSCLE_GROUPS.map((m) => [m, 0]));
-  workouts.forEach((w) => {
-    if (w.date < startIso || w.date > endIso) return;
-    w.exercises.forEach((e) => {
-      const ex = allEx.find((x) => x.name === e.name);
-      if (!ex) return;
-      const volume = e.sets.reduce((s, st) => s + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0);
-      totals[ex.muscle] = (totals[ex.muscle] || 0) + volume;
-    });
-  });
-  return MUSCLE_GROUPS.map((m) => ({ muscle: m, label: MUSCLE_LABEL[m], volume: Math.round(totals[m]) }));
-}
-
-/* Every time a genuinely new all-time best was set (weight or est. 1RM), for every exercise,
-   across the athlete's whole history — not just the current record like exercisePRs()/prTimeline()
-   above (those intentionally only surface "your current best", which isn't the same question as
-   "what records did I break in this specific month" if a record has since been broken again). */
-function historicalPrEvents(workouts) {
-  const exerciseNames = [...new Set(workouts.flatMap((w) => w.exercises.map((e) => e.name)))];
-  const events = [];
-  const hasLoggedSets = (e) => e.sets.some((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
-  exerciseNames.forEach((name) => {
-    const sessions = workouts
-      .filter((w) => w.exercises.some((e) => e.name === name && hasLoggedSets(e)))
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
-    let maxWeight = 0, max1RM = 0;
-    sessions.forEach((w) => {
-      const validSets = w.exercises.find((e) => e.name === name).sets.filter((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
-      const bestSet = validSets.reduce((a, b) => (b.weight > a.weight ? b : a));
-      const best1RM = Math.max(...validSets.map((s) => estimate1RM(s.weight, s.reps)));
-      if (bestSet.weight > maxWeight) {
-        maxWeight = bestSet.weight;
-        events.push({ name, date: w.date, kind: "weight", detail: `${bestSet.weight}kg × ${bestSet.reps}` });
-      }
-      if (best1RM > max1RM) {
-        max1RM = best1RM;
-        events.push({ name, date: w.date, kind: "1rm", detail: `est. ${Math.round(best1RM)}kg 1RM` });
-      }
-    });
-  });
-  return events.sort((a, b) => new Date(a.date) - new Date(b.date));
-}
-
 /* Count of days in [startIso, endIso] at each adherence level — same per-day rule as Home's
    weeklyAdherence(), just totaled over a month instead of shown as 7 individual chips. */
 function monthlyAdherenceSummary(nutrition, targets, startIso, endIso, daysInMonth) {
   const counts = { good: 0, partial: 0, off: 0, none: 0 };
+  const todayIso = localToday();
   for (let i = 0; i < daysInMonth; i++) {
-    const d = new Date(startIso);
-    d.setDate(d.getDate() + i);
-    if (d > new Date()) break; // don't count future days of the current month as "nothing logged"
-    const iso = d.toISOString().slice(0, 10);
+    const iso = addDays(startIso, i);
+    if (iso > todayIso) break; // don't count future days of the current month as "nothing logged"
     const dayFoods = nutrition.filter((n) => n.date === iso);
     counts[classifyDayAdherence(dayFoods, targets)]++;
   }
@@ -308,14 +163,14 @@ function monthlyAdherenceSummary(nutrition, targets, startIso, endIso, daysInMon
 }
 
 function MonthlyReport({ workouts, nutrition, weightlog, customExercises, profile, onClose }) {
-  const [monthKey, setMonthKey] = useState(() => new Date().toISOString().slice(0, 7));
+  const [monthKey, setMonthKey] = useState(() => localToday().slice(0, 7));
   const range = useMemo(() => monthRange(monthKey), [monthKey]);
   const prevRange = useMemo(() => monthRange(shiftMonthKey(monthKey, -1)), [monthKey]);
 
   const monthWorkouts = useMemo(() => workouts.filter((w) => w.date >= range.startIso && w.date <= range.endIso), [workouts, range]);
   const prevMonthWorkouts = useMemo(() => workouts.filter((w) => w.date >= prevRange.startIso && w.date <= prevRange.endIso), [workouts, prevRange]);
 
-  const totalSets = monthWorkouts.reduce((n, w) => n + w.exercises.reduce((n2, e) => n2 + e.sets.length, 0), 0);
+  const totalSets = monthWorkouts.reduce((n, w) => n + w.exercises.reduce((n2, e) => n2 + workingSets(e).length, 0), 0);
   const totalVolume = Math.round(monthWorkouts.reduce((s, w) => s + workoutVolume(w), 0));
   const daysTrained = new Set(monthWorkouts.map((w) => w.date)).size;
   const prevVolume = Math.round(prevMonthWorkouts.reduce((s, w) => s + workoutVolume(w), 0));
@@ -324,8 +179,8 @@ function MonthlyReport({ workouts, nutrition, weightlog, customExercises, profil
   const volumeByMuscle = useMemo(() => muscleVolumeInRange(workouts, customExercises, range.startIso, range.endIso), [workouts, customExercises, range]);
 
   const monthPrs = useMemo(
-    () => historicalPrEvents(workouts).filter((ev) => ev.date >= range.startIso && ev.date <= range.endIso),
-    [workouts, range]
+    () => historicalPrEvents(workouts, customExercises).filter((ev) => ev.date >= range.startIso && ev.date <= range.endIso),
+    [workouts, customExercises, range]
   );
 
   const targets = getNutritionTargets(profile);
@@ -450,9 +305,12 @@ function MonthlyReport({ workouts, nutrition, weightlog, customExercises, profil
 }
 
 export default function Progress({ profile, workouts, weightlog, customExercises = [], nutrition = [] }) {
-  const exerciseNames = [...new Set(workouts.flatMap((w) => w.exercises.map((e) => e.name)))];
-  const [selected, setSelected] = useState(exerciseNames[0] || "");
-  const [metric, setMetric] = useState("weight"); // weight | 1rm | volume
+  const exerciseNames = useMemo(() => exerciseNamesWithData(workouts, customExercises), [workouts, customExercises]);
+  const [selectedRaw, setSelected] = useState("");
+  // Keeps the dropdown on a real exercise even if the one chosen has since lost all its data
+  // (e.g. its only set was deleted), instead of rendering an empty/NaN chart.
+  const selected = exerciseNames.includes(selectedRaw) ? selectedRaw : (exerciseNames[0] || "");
+  const [metricRaw, setMetric] = useState("weight");
   const [prExpanded, setPrExpanded] = useState(null);
   const [prView, setPrView] = useState("byExercise"); // byExercise | timeline
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
@@ -468,39 +326,26 @@ export default function Progress({ profile, workouts, weightlog, customExercises
   [...weightlog].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((w) => weightByDate.set(w.date, w.weight));
   const weightData = [...weightByDate.entries()].map(([date, weight]) => ({ date: fmtDate(date), weight })).slice(-20);
 
-  // A session's exercise entry can carry an empty sets array (added to the workout but never
-  // logged) — excluded here so it can't feed Math.max(...[]) and chart a -Infinity point.
-  const hasLoggedSets = (e) => e.sets.some((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
-  const sessionsForSelected = workouts
-    .filter((w) => w.exercises.some((e) => e.name === selected && hasLoggedSets(e)))
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-  const strengthData = sessionsForSelected.map((w) => {
-    const ex = w.exercises.find((e) => e.name === selected && hasLoggedSets(e));
-    const validSets = ex.sets.filter((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
-    const top = Math.max(...validSets.map((s) => s.weight));
-    const best1RM = Math.max(...validSets.map((s) => estimate1RM(s.weight, s.reps)));
-    const volume = validSets.reduce((s, st) => s + st.weight * st.reps, 0);
-    return { date: fmtDate(w.date), weight: Math.round(top), "1rm": Math.round(best1RM), volume: Math.round(volume) };
-  });
-  const METRIC_META = {
-    weight: { key: "weight", label: "Top Weight", unit: "kg", color: "var(--steel)" },
-    "1rm": { key: "1rm", label: "Est. 1RM", unit: "kg", color: "var(--brass)" },
-    volume: { key: "volume", label: "Session Volume", unit: "kg", color: "var(--warn)" },
-  };
+  // Everything below is read through the shared measurement model (./lib/progressData): a
+  // duration-only exercise gets duration records and a duration chart — never kg, reps or 1RM.
+  const series = useMemo(() => strengthSeries(workouts, selected, customExercises), [workouts, selected, customExercises]);
+  const METRIC_META = Object.fromEntries(series.metrics.map((m) => [m.key, m]));
+  const metric = METRIC_META[metricRaw] ? metricRaw : (series.metrics[0]?.key || "weight");
+  const strengthData = series.points.map((pt) => ({ ...pt, date: fmtDate(pt.date) }));
+  const selectedStats = useMemo(() => (selected ? exerciseRecords(workouts, selected, customExercises) : null), [workouts, selected, customExercises]);
+  const prs = useMemo(
+    () => exerciseNames.map((name) => ({ name, ...exerciseRecords(workouts, name, customExercises) })).filter((r) => r.hasData),
+    [exerciseNames, workouts, customExercises]
+  );
 
-  const selectedStats = selected ? exercisePRs(workouts, selected) : null;
-
-  const prs = exerciseNames.map((name) => ({ name, ...exercisePRs(workouts, name) })).filter((p) => p.weightPR);
-
-  const prByName = Object.fromEntries(prs.map((p) => [p.name, p.weightPR.weight]));
   const ranks = Object.entries(STRENGTH_STANDARDS)
-    .map(([key, s]) => ({ key, ...strengthRank(prByName[s.exercise], profile.weightKg, profile.gender, key) }))
+    .map(([key, s]) => ({ key, ...strengthRank(bestWeightFor(workouts, s.exercise, customExercises), profile.weightKg, profile.gender, key) }))
     .filter((r) => r.percentile != null);
 
-  const transformation = useMemo(() => transformationSummary(weightlog, workouts), [weightlog, workouts]);
+  const transformation = useMemo(() => transformationSummary(weightlog, workouts, customExercises), [weightlog, workouts, customExercises]);
   const muscleVolume = useMemo(() => weeklyMuscleVolume(workouts, customExercises), [workouts, customExercises]);
   const grid = useMemo(() => consistencyGrid(workouts, 12), [workouts]);
-  const timeline = useMemo(() => prTimeline(workouts), [workouts]);
+  const timeline = useMemo(() => buildPrTimeline(workouts, customExercises), [workouts, customExercises]);
 
   // Goal trajectory: pick the metric that actually matches the athlete's stated goal, and only
   // project a trend when there's enough real data to make extrapolation more than a guess.
@@ -508,17 +353,10 @@ export default function Progress({ profile, workouts, weightlog, customExercises
     if (profile.goal === "strength") {
       for (const key of ["bench", "squat", "deadlift"]) {
         const name = STRENGTH_STANDARDS[key].exercise;
-        const hasLoggedSets = (e) => e.sets.some((s) => Number.isFinite(s.weight) && s.weight > 0 && Number.isFinite(s.reps) && s.reps > 0);
-        const sessions = workouts
-          .filter((w) => w.exercises.some((e) => e.name === name && hasLoggedSets(e)))
-          .sort((a, b) => new Date(a.date) - new Date(b.date));
-        if (sessions.length < 3) continue;
-        const t0 = new Date(sessions[0].date).getTime();
-        const points = sessions.map((w) => {
-          const ex = w.exercises.find((e) => e.name === name);
-          const best1RM = Math.max(...ex.sets.filter((s) => Number.isFinite(s.weight) && s.weight > 0).map((s) => estimate1RM(s.weight, s.reps)));
-          return { x: (new Date(w.date).getTime() - t0) / 86400000, y: best1RM, date: w.date };
-        });
+        const pts = strengthSeries(workouts, name, customExercises).points.filter((pt) => Number.isFinite(pt["1rm"]));
+        if (pts.length < 3) continue;
+        const t0 = Date.parse(pts[0].date);
+        const points = pts.map((pt) => ({ x: (Date.parse(pt.date) - t0) / 86400000, y: pt["1rm"], date: pt.date }));
         const { slope } = linearRegression(points);
         return {
           kind: "lift", label: name.split(" (")[0], unit: "kg est. 1RM",
@@ -541,22 +379,14 @@ export default function Progress({ profile, workouts, weightlog, customExercises
       };
     }
     // general fitness: trajectory is about showing up, not a number on a lift or scale.
-    const byWeek = new Map();
-    workouts.forEach((w) => {
-      const d = new Date(w.date);
-      const weekStart = new Date(d);
-      weekStart.setDate(d.getDate() - d.getDay());
-      const key = weekStart.toISOString().slice(0, 10);
-      byWeek.set(key, (byWeek.get(key) || 0) + 1);
-    });
-    const weeks = [...byWeek.entries()].sort(([a], [b]) => new Date(a) - new Date(b)).slice(-8);
+    const weeks = sessionsPerWeek(workouts, 8);
     if (weeks.length < 3) return null;
     return {
       kind: "sessions", label: "Sessions per week", unit: "sessions",
       data: weeks.map(([date, count]) => ({ date: fmtDate(date), value: count })),
       weeklyRate: null,
     };
-  }, [profile.goal, workouts, weightlog]);
+  }, [profile.goal, workouts, weightlog, customExercises]);
 
   return (
     <div style={{ padding: "24px 18px" }}>
@@ -800,26 +630,20 @@ export default function Progress({ profile, workouts, weightlog, customExercises
           </select>
         </div>
 
-        {selectedStats?.weightPR && (
+        {selectedStats?.hasData && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-            <div style={{ flex: "1 1 30%", background: "var(--bg-elev2)", borderRadius: 8, padding: "8px 10px" }}>
-              <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>HEAVIEST</div>
-              <div className="mono" style={{ fontSize: 14 }}>{selectedStats.weightPR.weight}kg</div>
-            </div>
-            <div style={{ flex: "1 1 30%", background: "var(--bg-elev2)", borderRadius: 8, padding: "8px 10px" }}>
-              <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>BEST SET (REPS)</div>
-              <div className="mono" style={{ fontSize: 14 }}>{selectedStats.repPR.weight}kg × {selectedStats.repPR.reps}</div>
-            </div>
-            <div style={{ flex: "1 1 30%", background: "var(--bg-elev2)", borderRadius: 8, padding: "8px 10px" }}>
-              <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>EST. 1RM</div>
-              <div className="mono" style={{ fontSize: 14 }}>{Math.round(selectedStats.oneRMPR.oneRM)}kg</div>
-            </div>
+            {selectedStats.records.slice(0, 3).map((r) => (
+              <div key={r.key} style={{ flex: "1 1 30%", background: "var(--bg-elev2)", borderRadius: 8, padding: "8px 10px" }}>
+                <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>{r.label.toUpperCase()}</div>
+                <div className="mono" style={{ fontSize: 14 }}>{r.text}</div>
+              </div>
+            ))}
           </div>
         )}
 
         <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
-          {Object.values(METRIC_META).map((m) => (
-            <button key={m.key} onClick={() => setMetric(m.key)} className="pill" style={{ cursor: "pointer", border: `1px solid ${metric === m.key ? m.color : "var(--line)"}`, background: metric === m.key ? m.color + "22" : "transparent", color: metric === m.key ? m.color : "var(--ink-dim)" }}>
+          {series.metrics.length > 1 && Object.values(METRIC_META).map((m) => (
+            <button key={m.key} onClick={() => setMetric(m.key)} aria-pressed={metric === m.key} className="pill" style={{ cursor: "pointer", border: `1px solid ${metric === m.key ? m.color : "var(--line)"}`, background: metric === m.key ? m.color + "22" : "transparent", color: metric === m.key ? m.color : "var(--ink-dim)" }}>
               {m.label}
             </button>
           ))}
@@ -831,8 +655,8 @@ export default function Progress({ profile, workouts, weightlog, customExercises
               <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
               <XAxis dataKey="date" stroke="var(--ink-dim)" fontSize={10} />
               <YAxis stroke="var(--ink-dim)" fontSize={10} domain={["auto", "auto"]} />
-              <Tooltip contentStyle={{ background: "var(--bg-elev)", border: "1px solid var(--line)", fontSize: 12 }} formatter={(v) => [`${v}${METRIC_META[metric].unit}`, METRIC_META[metric].label]} />
-              <Line type="monotone" dataKey={METRIC_META[metric].key} stroke={METRIC_META[metric].color} strokeWidth={2} dot={{ r: 3 }} />
+              <Tooltip contentStyle={{ background: "var(--bg-elev)", border: "1px solid var(--line)", fontSize: 12 }} formatter={(v) => [`${v}${METRIC_META[metric]?.unit === "reps" || METRIC_META[metric]?.unit === "s" || METRIC_META[metric]?.unit === "m" ? " " : ""}${METRIC_META[metric]?.unit || ""}`, METRIC_META[metric]?.label || ""]} />
+              <Line type="monotone" dataKey={METRIC_META[metric]?.key} stroke={METRIC_META[metric]?.color} strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         ) : <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>Log this exercise a couple more times to see a trend.</div>}
@@ -862,7 +686,7 @@ export default function Progress({ profile, workouts, weightlog, customExercises
         {prView === "byExercise" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {prs.map((p) => {
-              const spark = sparklinePoints(workouts, p.name);
+              const spark = sparklinePoints(workouts, p.name, customExercises);
               return (
                 <div key={p.name} style={{ borderTop: "1px solid var(--line)", paddingTop: 6 }}>
                   <button
@@ -876,15 +700,14 @@ export default function Progress({ profile, workouts, weightlog, customExercises
                           <polyline points={spark} fill="none" stroke="var(--steel)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       )}
-                      <span className="mono">{p.weightPR.weight}kg × {p.weightPR.reps}</span>
+                      <span className="mono">{p.headline}</span>
                     </span>
                   </button>
                   {prExpanded === p.name && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                      <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--steel)" }}>Weight PR: {p.weightPR.weight}kg × {p.weightPR.reps} · {fmtDate(p.weightPR.date)}</span>
-                      <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--good)" }}>Rep PR: {p.repPR.weight}kg × {p.repPR.reps} · {fmtDate(p.repPR.date)}</span>
-                      <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--brass)" }}>Est. 1RM PR: {Math.round(p.oneRMPR.oneRM)}kg · {fmtDate(p.oneRMPR.date)}</span>
-                      {p.volumePR && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--warn)" }}>Volume PR: {Math.round(p.volumePR.volume)}kg · {fmtDate(p.volumePR.date)}</span>}
+                      {p.records.map((r, ri) => (
+                        <span key={r.key} className="pill mono" style={{ background: "var(--bg-elev2)", color: ["var(--steel)", "var(--good)", "var(--brass)", "var(--warn)"][ri % 4] }}>{r.label}: {r.text} · {fmtDate(r.date)}</span>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -901,9 +724,9 @@ export default function Progress({ profile, workouts, weightlog, customExercises
                   <div style={{ width: 60, flexShrink: 0 }} className="mono">
                     <span style={{ fontSize: 10, color: "var(--ink-dim)" }}>{fmtDate(ev.date)}</span>
                   </div>
-                  <Trophy size={13} color={ev.kind === "1rm" ? "var(--brass)" : "var(--steel)"} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <Trophy size={13} color="var(--steel)" style={{ flexShrink: 0, marginTop: 1 }} />
                   <div style={{ fontSize: 12.5 }}>
-                    <span>{ev.name}</span> — <span className="mono" style={{ color: ev.kind === "1rm" ? "var(--brass)" : "var(--steel)" }}>{ev.kind === "1rm" ? "New est. 1RM" : "New weight PR"}: {ev.detail}</span>
+                    <span>{ev.name}</span> — <span className="mono" style={{ color: "var(--steel)" }}>{ev.label}: {ev.detail}</span>
                   </div>
                 </div>
               ))}
