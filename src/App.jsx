@@ -26,6 +26,7 @@ import { formatSet as formatSetMeasured } from "./lib/measurement";
 import { today as localToday, yesterday as localYesterday, addDays, formatDateOnly, daysAgo, getTimeZone } from "./lib/dates";
 import { createSession, normalizeSession, finalizeSession } from "./lib/workoutSession";
 import { computeReadiness, READINESS_EXPLAINER } from "./lib/readiness";
+import { createDraft, updateDraftDays, activePlanFromDraft, isValidDraft, normalizePlanDays, daysEqual } from "./lib/planDraft";
 import { saveCompletedWorkouts, editWorkoutSynced, deleteWorkoutSynced, mergeWorkouts, flushPendingWorkouts, withTimeout, describeSaveFailure } from "./lib/workoutSync";
 import { enqueuePending, dequeuePending, listPending, saveSessionBackup, loadSessionBackup, pickNewerSession } from "./lib/pendingQueue";
 import { getNutritionTargets, classifyDayAdherence } from "./lib/nutritionMath";
@@ -2450,13 +2451,19 @@ function ChallengesScreen({ workouts, nutrition, profile, streak, challenges, on
   );
 }
 
-function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage, onUsageChange }) {
+function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage, onUsageChange, userId }) {
   const coachRemaining = remainingMonthlyUses(FEATURES.COACH, usage || {});
   // Bug: this used to read `profile.plan`, a field nothing ever wrote — the real field is
   // `profile.activePlan` (set by activatePlan below), so a fresh mount of Coach always started
   // with no plan showing here even when Home was actively running one. Reconstruct the same
   // `{ days }` shape generatePlan produces so the Weekly Plan card reflects reality on load.
-  const [plan, setPlan] = useState(profile.activePlan ? { days: profile.activePlan.days } : null);
+  // A generated plan is a DRAFT: saved the moment it exists, restored after navigation/refresh
+  // without regenerating (and without a second charge), and only trained from once explicitly
+  // activated. The active plan (profile.activePlan) is separate and untouched until then.
+  const [draft, setDraft] = useState(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftSaveError, setDraftSaveError] = useState(false);
+  const [confirmReplaceDraft, setConfirmReplaceDraft] = useState(false);
   const [genLoading, setGenLoading] = useState(false);
   const greeting = () => ([{ role: "assistant", content: `Hey ${profile.name || "there"}, I'm your coach. Ask me anything about training, recovery, or your plan.` }]);
   const [messages, setMessages] = useState(greeting);
@@ -2511,11 +2518,51 @@ function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage
 
   const [planError, setPlanError] = useState(null);
   const [exDetail, setExDetail] = useState(null);
-  const [planActivated, setPlanActivated] = useState(!!profile.activePlan);
   const [editingPlan, setEditingPlan] = useState(false);
+  const [editBaseDays, setEditBaseDays] = useState(null);
+  const [recoveredEdit, setRecoveredEdit] = useState(null);
   const [editDays, setEditDays] = useState(null);
   const [addingToDay, setAddingToDay] = useState(null);
   const [exSearch, setExSearch] = useState("");
+  // What the screen shows: the saved draft if there is one, else the active plan.
+  const isDraft = !!draft;
+  const planDays = draft?.days || profile.activePlan?.days || null;
+  const plan = planDays ? { days: planDays } : null;
+  const planActivated = !isDraft && !!profile.activePlan;
+  const planKey = draft ? draft.id : profile.activePlan ? "active" : null;
+  const editDirty = editingPlan && !!editDays && !daysEqual(editDays, editBaseDays);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const saved = await loadKey(KEYS.planDraft);
+      if (!cancelled && isValidDraft(saved)) setDraft(saved);
+      if (!cancelled) setDraftLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  // An unsaved edit buffer survives a refresh/navigation (kept on this device, per account).
+  const editBufferKey = userId ? `asc3end:plan-edit:${userId}` : null;
+  useEffect(() => {
+    if (!editBufferKey || !draftLoaded) return;
+    try {
+      const raw = localStorage.getItem(editBufferKey);
+      const buf = raw ? JSON.parse(raw) : null;
+      if (buf && Array.isArray(buf.days) && buf.baseKey === (draft ? draft.id : profile.activePlan ? "active" : null)) setRecoveredEdit(buf);
+    } catch (e) { /* storage unavailable */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftLoaded]);
+  useEffect(() => {
+    if (!editBufferKey || !editingPlan || !editDays) return;
+    try { localStorage.setItem(editBufferKey, JSON.stringify({ baseKey: planKey, days: editDays, savedAt: Date.now() })); } catch (e) { /* storage unavailable */ }
+  }, [editDays, editingPlan]);
+  const clearEditBuffer = () => { try { if (editBufferKey) localStorage.removeItem(editBufferKey); } catch (e) { /* storage unavailable */ } setRecoveredEdit(null); };
+  useEffect(() => {
+    if (!editDirty) return undefined;
+    const handler = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [editDirty]);
+
   const GEN_PHASES = ["Analysing your goal…", "Selecting your split…", "Balancing weekly volume…", "Choosing exercises…", "Finalising your plan…"];
   const [genPhase, setGenPhase] = useState(0);
 
@@ -2527,9 +2574,10 @@ function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade, usage
 
   const generatePlan = async () => {
     if (genLoading) return; // prevent duplicate simultaneous requests
+    if (draft && !confirmReplaceDraft) { setConfirmReplaceDraft(true); return; }
+    setConfirmReplaceDraft(false);
     setGenLoading(true);
     setPlanError(null);
-    setPlanActivated(false);
     try {
       const prompt = `Build a ${profile.trainingDays}-day weekly workout split for this athlete:
 Goal: ${GOAL_LABELS[profile.goal]}
@@ -2537,62 +2585,95 @@ Experience: ${profile.experience}
 Age: ${profile.age}, Weight: ${profile.weightKg}kg, Height: ${profile.heightCm}cm
 Return ONLY valid JSON (no markdown fences, no preamble) matching exactly this schema:
 {"days":[{"day":"Day 1: Push","muscleGroups":[{"muscle":"chest","exercises":[{"name":"Barbell Bench Press","sets":4,"reps":"6-10"}]}]}]}
-Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${profile.trainingDays} day entries. Use exercise names matching this style, drawing from real gym equipment and movement patterns (barbell/dumbbell/cable/machine/bodyweight): ${PLAN_PROMPT_VOCABULARY}`;
+Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${profile.trainingDays} day entries. For timed exercises (planks and other holds, carries, cardio) give "reps" as a time such as "30-45s" instead of a rep range. Use exercise names matching this style, drawing from real gym equipment and movement patterns (barbell/dumbbell/cable/machine/bodyweight): ${PLAN_PROMPT_VOCABULARY}`;
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
       const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}`, "coach", { withHistory: false });
       const parsed = extractJSON(text);
-      setPlan(parsed);
+      const next = createDraft({ days: parsed.days, goal: profile.goal, coachingStyle: profile.coachingStyle || "balanced" });
+      if (!isValidDraft(next)) throw new Error("The plan that came back was empty — try again.");
+      // Saved BEFORE it is shown as done: a refresh or navigation right now restores this exact
+      // plan instead of losing it (the generation has already been counted against the allowance).
+      setDraft(next);
+      const saved = await saveKey(KEYS.planDraft, next);
+      setDraftSaveError(!saved);
       logEvent("plan_generated", { trainingDays: profile.trainingDays, coachingStyle: profile.coachingStyle || "balanced" });
     } catch (e) {
-      setPlan(null);
       setPlanError(e.message || "Couldn't build a plan just now — try again.");
     }
     onUsageChange?.();
     setGenLoading(false);
   };
 
-  const activatePlan = () => {
-    if (!plan?.days?.length) return;
-    onUpdateProfile({ activePlan: { days: plan.days, currentDayIndex: 0, activatedAt: new Date().toISOString() } });
-    setPlanActivated(true);
-    logEvent("plan_activated", { days: plan.days.length });
+  const retryDraftSave = async () => { if (draft) setDraftSaveError(!(await saveKey(KEYS.planDraft, draft))); };
+
+  // Explicit activation: the draft becomes the plan Home trains from, and only then is the draft cleared.
+  const activatePlan = async () => {
+    if (!draft) return;
+    const ok = await onUpdateProfile({ activePlan: activePlanFromDraft(draft) });
+    if (ok === false) { setPlanError("Couldn't activate the plan — check your connection and try again. Your draft is still saved."); return; }
+    await saveKey(KEYS.planDraft, null);
+    setDraft(null);
+    setPlanError(null);
+    logEvent("plan_activated", { days: draft.days.length });
   };
 
-  // Deactivating clears the schedule Home reads from (activePlan) but keeps `plan` visible here
-  // so the athlete can see what they had and re-activate it without regenerating from scratch.
-  const deactivatePlan = () => {
-    onUpdateProfile({ activePlan: null });
-    setPlanActivated(false);
+  // Deactivating keeps what the athlete had as a draft they can re-activate without regenerating.
+  const deactivatePlan = async () => {
+    const days = profile.activePlan?.days;
+    await onUpdateProfile({ activePlan: null });
+    if (days?.length && !draft) {
+      const kept = createDraft({ days, goal: profile.goal, coachingStyle: profile.coachingStyle || "balanced" });
+      setDraft(kept);
+      setDraftSaveError(!(await saveKey(KEYS.planDraft, kept)));
+    }
   };
 
-  const startEditPlan = () => {
-    setEditDays(plan.days.map((d) => ({ day: d.day, muscleGroups: d.muscleGroups.map((mg) => ({ muscle: mg.muscle, exercises: mg.exercises.map((e) => ({ ...e })) })) })));
+  const discardDraft = async () => {
+    await saveKey(KEYS.planDraft, null);
+    setDraft(null);
+    setDraftSaveError(false);
+    clearEditBuffer();
+  };
+
+  const beginEdit = (days) => {
+    const copy = days.map((d) => ({ day: d.day, muscleGroups: d.muscleGroups.map((mg) => ({ muscle: mg.muscle, exercises: mg.exercises.map((e) => ({ ...e })) })) }));
+    setEditDays(copy);
+    setEditBaseDays(JSON.parse(JSON.stringify(copy)));
     setEditingPlan(true);
   };
+  const startEditPlan = () => beginEdit(plan.days);
+  const resumeRecoveredEdit = () => { beginEdit(recoveredEdit.days); setEditBaseDays(JSON.parse(JSON.stringify(plan.days))); setRecoveredEdit(null); };
 
   const cancelEditPlan = () => {
+    if (editDirty && typeof window !== "undefined" && !window.confirm("Discard your unsaved changes to this plan?")) return;
     setEditingPlan(false);
     setEditDays(null);
+    setEditBaseDays(null);
     setAddingToDay(null);
     setExSearch("");
+    clearEditBuffer();
   };
 
   // Empty muscle groups / days (every exercise removed) are dropped on save rather than left as
-  // dead weight the athlete would have to notice and clean up themselves.
-  const saveEditPlan = () => {
-    const cleanedDays = editDays
-      .map((d) => ({ ...d, muscleGroups: d.muscleGroups.filter((mg) => mg.exercises.length > 0) }))
-      .filter((d) => d.muscleGroups.length > 0);
-    setPlan({ days: cleanedDays });
-    if (planActivated && profile.activePlan) {
+  // dead weight; targets are re-checked against each exercise's measurement type.
+  const saveEditPlan = async () => {
+    const { days: cleanedDays } = normalizePlanDays(editDays, { goal: profile.goal });
+    if (cleanedDays.length === 0) return;
+    if (isDraft) {
+      const next = updateDraftDays(draft, cleanedDays, { goal: profile.goal });
+      setDraft(next);
+      setDraftSaveError(!(await saveKey(KEYS.planDraft, next)));
+    } else if (profile.activePlan) {
       const nextIndex = Math.min(profile.activePlan.currentDayIndex, Math.max(0, cleanedDays.length - 1));
       onUpdateProfile({ activePlan: { ...profile.activePlan, days: cleanedDays, currentDayIndex: nextIndex } });
     }
     logEvent("plan_edited", { days: cleanedDays.length });
     setEditingPlan(false);
     setEditDays(null);
+    setEditBaseDays(null);
     setAddingToDay(null);
     setExSearch("");
+    clearEditBuffer();
   };
 
   const updateDayName = (dayIdx, name) => {
@@ -2697,7 +2778,10 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     setInput("");
   };
 
-  if (!isPremium && coachRemaining <= 0) {
+  // Out of free uses: a plan the athlete already generated (draft or active) stays viewable and
+  // activatable — they paid for it — so only block the whole screen when there is nothing to show.
+  const outOfAllowance = !isPremium && coachRemaining <= 0;
+  if (outOfAllowance && !plan) {
     return (
       <div style={{ padding: "24px 18px" }}>
         <h1 className="disp" style={{ fontSize: 26, marginBottom: 16 }}>Coach</h1>
@@ -2747,7 +2831,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
                   <Pencil size={12} style={{ verticalAlign: -2, marginRight: 4 }} />Edit
                 </button>
               )}
-              <button className="atlas-btn-ghost" style={{ padding: "6px 12px", fontSize: 11 }} onClick={generatePlan} disabled={genLoading}>
+              <button className="atlas-btn-ghost" style={{ padding: "6px 12px", fontSize: 11, minHeight: 44 }} onClick={generatePlan} disabled={genLoading || outOfAllowance}>
                 {genLoading ? <Loader2 size={13} className="mono" style={{ animation: "spin 1s linear infinite" }} /> : <Sparkles size={13} style={{ verticalAlign: -2, marginRight: 4 }} />}
                 {genLoading ? "Building..." : plan ? "Regenerate" : "Generate"}
               </button>
@@ -2755,6 +2839,42 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
           )}
         </div>
         {genLoading && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8 }}>{GEN_PHASES[genPhase]}</div>}
+        <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 6, lineHeight: 1.5 }}>
+          {isPremium
+            ? "Unlimited Coach chat and plan generation with Asc3end+."
+            : `Chat messages and plan generation share your ${FREE_MONTHLY_LIMIT} free Coach uses each month — generating a plan uses 1 (${coachRemaining} left). Reopening a saved draft is free.`}
+        </div>
+        {confirmReplaceDraft && (
+          <div className="atlas-card" style={{ marginTop: 10, borderColor: "var(--warn)", background: "rgba(255,165,61,0.08)" }}>
+            <div style={{ fontSize: 12.5, lineHeight: 1.5, marginBottom: 10 }}>You have a saved draft plan. Generating a new one replaces it and uses 1 Coach use. Keep your draft instead?</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="atlas-btn-ghost" style={{ flex: 1, minHeight: 44 }} onClick={() => setConfirmReplaceDraft(false)}>Keep draft</button>
+              <button className="atlas-btn" style={{ flex: 1, minHeight: 44 }} onClick={generatePlan}>Replace it</button>
+            </div>
+          </div>
+        )}
+        {isDraft && !editingPlan && (
+          <div className="atlas-card" role="status" style={{ marginTop: 10, borderColor: "var(--steel)", background: "rgba(79,157,255,0.08)" }}>
+            <div className="disp" style={{ fontSize: 13, color: "var(--steel)", marginBottom: 4 }}>DRAFT — not your active plan yet</div>
+            <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.5 }}>
+              Saved {new Date(draft.updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. {profile.activePlan ? "Your current active plan keeps running until you activate this one." : "Nothing changes on Home until you activate it."}
+            </div>
+            {draftSaveError && (
+              <div role="alert" style={{ fontSize: 12, color: "var(--rest)", marginTop: 6 }}>
+                Couldn't save this draft to your account — it's only on this screen right now. <button className="mono" style={{ background: "none", border: "none", color: "var(--brass)", cursor: "pointer", padding: 0, minHeight: 32 }} onClick={retryDraftSave}>Retry save</button>
+              </div>
+            )}
+          </div>
+        )}
+        {recoveredEdit && !editingPlan && (
+          <div className="atlas-card" role="status" style={{ marginTop: 10, borderColor: "var(--warn)" }}>
+            <div style={{ fontSize: 12.5, lineHeight: 1.5, marginBottom: 10 }}>You have unsaved edits to this plan from earlier.</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="atlas-btn-ghost" style={{ flex: 1, minHeight: 44 }} onClick={clearEditBuffer}>Discard</button>
+              <button className="atlas-btn" style={{ flex: 1, minHeight: 44 }} onClick={resumeRecoveredEdit}>Resume editing</button>
+            </div>
+          </div>
+        )}
 
         {!editingPlan && !genLoading && planActivated && profile.activePlan && (
           <div style={{ marginTop: 10 }}>
@@ -2779,7 +2899,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
                       <div key={exIdx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
                         <span style={{ flex: 1, fontSize: 12.5 }}>{ex.name}</span>
                         <input className="atlas-input" type="number" style={{ width: 50, fontSize: 12, padding: "6px 8px" }} value={ex.sets} onChange={(e) => updateExerciseField(dayIdx, mgIdx, exIdx, "sets", +e.target.value || 0)} aria-label={`Sets for ${ex.name}`} />
-                        <input className="atlas-input" style={{ width: 60, fontSize: 12, padding: "6px 8px" }} value={ex.reps} onChange={(e) => updateExerciseField(dayIdx, mgIdx, exIdx, "reps", e.target.value)} aria-label={`Reps for ${ex.name}`} />
+                        <input className="atlas-input" style={{ width: 72, fontSize: 12, padding: "6px 8px" }} value={ex.reps} placeholder="8-12 / 30s" onChange={(e) => updateExerciseField(dayIdx, mgIdx, exIdx, "reps", e.target.value)} aria-label={`Target for ${ex.name} (reps like 8-12, or time like 30-45s)`} />
                         <button onClick={() => removeExercise(dayIdx, mgIdx, exIdx)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Remove ${ex.name} from ${d.day}`}>
                           <X size={13} color="var(--ink-dim)" />
                         </button>
@@ -2810,8 +2930,8 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
               <Plus size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Add Day
             </button>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={cancelEditPlan} className="atlas-btn-ghost" style={{ flex: 1 }}>Cancel</button>
-              <button onClick={saveEditPlan} className="atlas-btn" style={{ flex: 1 }} disabled={editDays.every((d) => d.muscleGroups.every((mg) => mg.exercises.length === 0))}>Save Changes</button>
+              <button onClick={cancelEditPlan} className="atlas-btn-ghost" style={{ flex: 1, minHeight: 48 }}>Cancel</button>
+              <button onClick={saveEditPlan} className="atlas-btn" style={{ flex: 1, minHeight: 48 }} disabled={editDays.every((d) => d.muscleGroups.every((mg) => mg.exercises.length === 0))}>Save Changes</button>
             </div>
           </div>
         )}
@@ -2831,7 +2951,10 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
                 <button onClick={deactivatePlan} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center" }}>Deactivate</button>
               </div>
             ) : (
-              <button className="atlas-btn" style={{ width: "100%", marginTop: 4 }} onClick={activatePlan}>Activate Plan</button>
+              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                <button className="atlas-btn" style={{ flex: 2, minHeight: 48 }} onClick={activatePlan}>Activate Plan</button>
+                {isDraft && <button className="atlas-btn-ghost" style={{ flex: 1, minHeight: 48 }} onClick={discardDraft}>Discard draft</button>}
+              </div>
             )}
           </div>
         )}
@@ -2872,11 +2995,15 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <input className="atlas-input" placeholder="Ask your coach…" value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()} />
-        <button className="atlas-btn" style={{ padding: "10px 14px" }} onClick={() => sendMessage()} disabled={sending} aria-label="Send message"><Send size={16} /></button>
-      </div>
+      {outOfAllowance ? (
+        <div style={{ marginTop: 10 }}><Paywall feature="coach" onUpgrade={onUpgrade} /></div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <input className="atlas-input" placeholder="Ask your coach…" aria-label="Message your coach" value={input} onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendMessage()} style={{ minHeight: 48 }} />
+          <button className="atlas-btn" style={{ padding: "10px 14px", minWidth: 52, minHeight: 48 }} onClick={() => sendMessage()} disabled={sending} aria-label="Send message"><Send size={16} /></button>
+        </div>
+      )}
 
       {exDetail && <CoachExercisePopup ex={exDetail} onClose={() => setExDetail(null)} />}
     </div>
@@ -4480,7 +4607,7 @@ export default function App() {
   const updateProfile = async (patch) => {
     const next = { ...profile, ...patch };
     setProfile(next);
-    await saveKey(KEYS.profile, next);
+    return saveKey(KEYS.profile, next);
   };
 
   const deleteAccount = async () => {
@@ -4660,7 +4787,7 @@ export default function App() {
           )}
           {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} onOpenChallenges={() => setShowChallenges(true)} onViewExercises={onViewExercises} />}
           {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onArchiveCustomExercise={archiveCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} initialMuscleFilter={trainMuscleFilter} saveStatus={saveStatus} onRetrySave={retrySessionSave} />}
-          {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
+          {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} userId={authUser?.id} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (
             <Suspense fallback={<div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}><Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} /></div>}>
