@@ -345,8 +345,8 @@ function extractClaudeText(data) {
 // network-level failures (timeout, offline) and non-2xx server responses; a graceful
 // "exceeded_limit" response is intentionally logged as ok:true since it's an expected product
 // state, not a system failure.
-async function callClaude(messages, maxTokens = 1000, tools = null, system = null, feature = "estimate") {
-  const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages, feature };
+async function callClaude(messages, maxTokens = 1000, tools = null, system = null, feature = "estimate", extra = {}) {
+  const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages, feature, ...extra };
   if (tools) body.tools = tools;
   if (system) body.system = system;
   const controller = new AbortController();
@@ -2539,7 +2539,7 @@ Return ONLY valid JSON (no markdown fences, no preamble) matching exactly this s
 {"days":[{"day":"Day 1: Push","muscleGroups":[{"muscle":"chest","exercises":[{"name":"Barbell Bench Press","sets":4,"reps":"6-10"}]}]}]}
 Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${profile.trainingDays} day entries. Use exercise names matching this style, drawing from real gym equipment and movement patterns (barbell/dumbbell/cable/machine/bodyweight): ${PLAN_PROMPT_VOCABULARY}`;
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
-      const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}`, "coach");
+      const text = await callClaude([{ role: "user", content: prompt }], 2000, null, `You are a strength coach building a training split.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}`, "coach", { withHistory: false });
       const parsed = extractJSON(text);
       setPlan(parsed);
       logEvent("plan_generated", { trainingDays: profile.trainingDays, coachingStyle: profile.coachingStyle || "balanced" });
@@ -2660,7 +2660,6 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     setSending(true);
     logEvent("coach_message_sent", { isRetry: !!safeOverride });
     try {
-      const recent = workouts.slice(-3).map((w) => `${w.date}: ${w.exercises.map((e) => e.name).join(", ")}`).join(" | ");
       const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
       // Same getNutritionTargets() every other screen uses — so if the Coach ever references "your
       // target," it's the identical number Home/Food/Settings show, not a separately-derived one.
@@ -2668,7 +2667,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
       // profile.name was previously missing from this prompt entirely — Claude had no actual
       // name to address the athlete by (only the client-side synthetic greeting bubble did, and
       // that's stripped before sending), so it would invent a literal "[Name]" placeholder.
-      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Daily nutrition target (${targets.source}): ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat. Recent workouts: ${recent || "none logged"}.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}\n\n${COACH_OUTPUT_RULES}`;
+      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Daily nutrition target (${targets.source}): ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}\n\n${COACH_OUTPUT_RULES}`;
       // Strip the synthetic greeting (index 0) — it was never a real API turn, and including it
       // alongside a fake priming pair broke the API's requirement that roles strictly alternate
       // starting with "user", which is why the coach silently failed on every message before.

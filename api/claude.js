@@ -21,6 +21,7 @@ import { checkRateLimit } from "../lib/rateLimit.js";
 import { getMonthlyUsage, incrementMonthlyUsage } from "../lib/monthlyUsage.js";
 import { computeSubscriptionState, isEntitled } from "../src/lib/subscription.js";
 import { canAccessFeature, isMeteredFeature, FEATURES, FREE_MONTHLY_LIMIT } from "../src/lib/entitlements.js";
+import { buildCoachContext, COACH_DATA_RULES } from "../src/lib/coachContext.js";
 
 // Vercel's Hobby plan defaults serverless functions to a 10-second execution limit — nowhere
 // near enough for web-search-augmented Claude calls (Meals Near You), which can legitimately
@@ -72,6 +73,37 @@ async function getSubscriptionState(userId) {
   return computeSubscriptionState(sub || null);
 }
 
+// Loads the athlete's own recorded training data and turns it into the structured, bounded context
+// the Coach reasons over. The user id comes ONLY from the verified access token (never from the
+// request body), the query is scoped to that id, and nothing is cached between requests, so one
+// athlete's records can never reach another's conversation. Anything the browser claims about the
+// athlete's history is ignored: the client sends the question, the server supplies the facts.
+async function loadCoachContext(userId, messages) {
+  const { data, error } = await supabaseAdmin
+    .from("user_data")
+    .select("key, value")
+    .eq("user_id", userId)
+    .in("key", ["atlas:profile", "atlas:workouts", "atlas:customExercises"]);
+  if (error) throw new Error("coach_data_unavailable");
+  const byKey = Object.fromEntries((data || []).map((r) => [r.key, r.value]));
+  const last = [...messages].reverse().find((m) => m?.role === "user");
+  const userMessage = typeof last?.content === "string" ? last.content : "";
+  return buildCoachContext({
+    profile: byKey["atlas:profile"] && typeof byKey["atlas:profile"] === "object" ? byKey["atlas:profile"] : {},
+    workouts: Array.isArray(byKey["atlas:workouts"]) ? byKey["atlas:workouts"] : [],
+    customExercises: Array.isArray(byKey["atlas:customExercises"]) ? byKey["atlas:customExercises"] : [],
+    userMessage,
+  });
+}
+
+// Plain-language messages for provider failures; no provider internals reach the athlete.
+function providerFailure(status, data) {
+  if (status === 429) return { code: "provider_rate_limited", message: "The coach is very busy right now — please try again in a moment." };
+  if (status === 529 || data?.error?.type === "overloaded_error") return { code: "provider_overloaded", message: "The AI service is overloaded right now — please try again shortly." };
+  if (status >= 500) return { code: "provider_unavailable", message: "The AI service is temporarily unavailable — please try again shortly." };
+  return { code: "provider_error", message: "The coach couldn't answer that — please try again." };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: { message: "Method not allowed" } });
@@ -94,7 +126,8 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: { message: "Too many requests — please wait a moment and try again." } });
   }
 
-  const { feature, ...body } = req.body || {};
+  // `withHistory: false` lets a caller (plan generation) opt out of the recorded-history context.
+  const { feature, withHistory, ...body } = req.body || {};
 
   // A pathologically large request body is either a bug or an abuse attempt — reject it before
   // it reaches Anthropic (and gets billed). The client already downscales scanner photos to
@@ -141,6 +174,28 @@ export default async function handler(req, res) {
     }
   }
 
+  // The Coach is given the athlete's real, server-loaded history. If it can't be loaded, the model is
+  // told so explicitly (rather than being left to guess) and the conversation still works.
+  // Only the known request fields are forwarded to the provider: any extra field a caller adds
+  // (including a made-up "history") is dropped here rather than passed through.
+  const forwarded = { model: body.model, max_tokens: body.max_tokens, messages: body.messages };
+  if (body.system !== undefined) forwarded.system = body.system;
+  if (body.tools !== undefined) forwarded.tools = body.tools;
+  let outgoing = forwarded;
+  if (feature === FEATURES.COACH && withHistory !== false) {
+    try {
+      const ctxBlock = await loadCoachContext(user.id, body.messages);
+      outgoing = { ...forwarded, system: [body.system, COACH_DATA_RULES, ctxBlock.text].filter(Boolean).join("\n\n") };
+    } catch (e) {
+      console.error("coach context unavailable", { userId: user.id });
+      outgoing = { ...forwarded, system: [body.system, "NOTE: This athlete's recorded training history could not be loaded for this request. If asked for specific past weights, reps, dates or notes, say you can't see them right now and ask them to try again — never invent numbers."].filter(Boolean).join("\n\n") };
+    }
+  }
+
+  // Deadline just inside the function's own 60 s limit so a slow provider produces a clear error
+  // (and no usage is charged) instead of a platform-level kill.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 52000);
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -149,9 +204,16 @@ export default async function handler(req, res) {
         "x-api-key": process.env.ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(outgoing),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     const data = await response.json();
+    if (!response.ok && data?.type !== "exceeded_limit") {
+      const failure = providerFailure(response.status, data);
+      console.error("anthropic request failed", { feature, userId: user.id, status: response.status });
+      return res.status(response.status === 429 ? 429 : 502).json({ error: { message: failure.message, code: failure.code } });
+    }
     // Only spend a monthly free use on an actual successful call — a network hiccup or
     // Anthropic error shouldn't cost the user one of their 5 free tries for the month. A failure
     // to RECORD the increment must not cost the user their already-generated (and already
@@ -167,6 +229,11 @@ export default async function handler(req, res) {
     }
     res.status(response.status).json(data);
   } catch (e) {
+    clearTimeout(timer);
+    if (e?.name === "AbortError") {
+      console.error("claude proxy timed out", { feature, userId: user.id });
+      return res.status(504).json({ error: { message: "The coach took too long to respond — try again.", code: "timeout" } });
+    }
     // Structured, PII-free failure log: which feature, which user id (not email), no request/
     // response body (which could contain the athlete's logged food/workout text or, for the
     // scanner, image data) — enough to debug an outage without logging anything sensitive.
