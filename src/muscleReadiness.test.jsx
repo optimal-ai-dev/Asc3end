@@ -7,6 +7,7 @@ import {
   FrontBodyFigure, BackBodyFigure, MuscleRecoveryDetails, EXERCISES,
 } from "./App.jsx";
 import { READINESS_MUSCLE_IDS, UNMAPPED_READINESS_REGIONS } from "./exerciseData.js";
+import { addDays, today as localToday } from "./lib/dates.js";
 
 // roundedBlob() (App.jsx) emits every path as one flat "X Y X Y ..." sequence of decimal numbers
 // with no other numeric tokens — same fact mirrorX() relies on — so a path's bounding box can be
@@ -21,9 +22,7 @@ function bboxFromPathD(d) {
 
 function uid() { return Math.random().toString(36).slice(2); }
 function isoDaysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return addDays(localToday(), -n);
 }
 function workout(daysAgo, exerciseName, sets = [{ weight: 50, reps: 8, type: "working" }]) {
   return { id: uid(), date: isoDaysAgo(daysAgo), exercises: [{ name: exerciseName, sets }] };
@@ -49,10 +48,11 @@ describe("MUSCLE_REGIONS — the 18 required regions exist, one entry each", () 
   });
 });
 
-describe("READINESS_COLORS / READINESS_LABEL — the 4 required states, shared tokens only", () => {
-  it("defines exactly ready, partial, fatigued, unknown", () => {
-    expect(Object.keys(READINESS_COLORS).sort()).toEqual(["fatigued", "partial", "ready", "unknown"]);
-    expect(Object.keys(READINESS_LABEL).sort()).toEqual(["fatigued", "partial", "ready", "unknown"]);
+describe("READINESS_COLORS / READINESS_LABEL — the required states, shared tokens only", () => {
+  it("defines ready, recent (neutral 'recently trained'), partial, fatigued, unknown", () => {
+    expect(Object.keys(READINESS_COLORS).sort()).toEqual(["fatigued", "partial", "ready", "recent", "unknown"]);
+    expect(Object.keys(READINESS_LABEL).sort()).toEqual(["fatigued", "partial", "ready", "recent", "unknown"]);
+    expect(READINESS_LABEL.recent).toBe("Recently trained");
   });
 
   it("every color is a CSS variable reference, never a literal hex", () => {
@@ -120,9 +120,9 @@ describe("muscleReadiness — logging a triceps exercise updates the triceps reg
   it.each([
     ["Rope Pushdown"], ["Skull Crusher"], ["Close Grip Bench Press"],
     ["Dumbbell Overhead Extension"], ["Bench Dips"],
-  ])("a set of %s logged today makes triceps 'fatigued' without touching biceps", (name) => {
+  ])("a set of %s logged today is recorded against triceps (recently trained) without touching biceps", (name) => {
     const readiness = muscleReadiness([workout(0, name)], []);
-    expect(readiness.triceps.level).toBe("fatigued");
+    expect(readiness.triceps.level).toBe("recent");
     expect(readiness.biceps.level).toBe("unknown");
   });
 });
@@ -134,38 +134,38 @@ describe("adductors, abductors, tibialis anterior and hip flexors — real indep
   // readiness, so none of them need to borrow another muscle's reading anymore.
   it("training Adductor Machine changes adductors without moving quads or glutes", () => {
     const readiness = muscleReadiness([workout(0, "Adductor Machine")], []);
-    expect(readiness.adductors.level).toBe("fatigued");
+    expect(readiness.adductors.level).toBe("recent");
     expect(readiness.quads.level).toBe("unknown");
     expect(readiness.glutes.level).toBe("unknown");
   });
 
   it("training Hip Abduction Machine changes abductors specifically", () => {
     const readiness = muscleReadiness([workout(0, "Hip Abduction Machine")], []);
-    expect(readiness.abductors.level).toBe("fatigued");
+    expect(readiness.abductors.level).toBe("recent");
     expect(readiness.glutes.level).toBe("unknown");
   });
 
   it("training Tibialis Raises changes tibialisAnterior, not calves", () => {
     const readiness = muscleReadiness([workout(0, "Tibialis Raises")], []);
-    expect(readiness.tibialisAnterior.level).toBe("fatigued");
+    expect(readiness.tibialisAnterior.level).toBe("recent");
     expect(readiness.calves.level).toBe("unknown");
   });
 
   it("training a dedicated hip-flexion exercise changes hipFlexors", () => {
     const readiness = muscleReadiness([workout(0, "Standing Knee Raise")], []);
-    expect(readiness.hipFlexors.level).toBe("fatigued");
+    expect(readiness.hipFlexors.level).toBe("recent");
   });
 
   it("the detail panel for adductors shows its own real reading, not quads', now that real data exists", () => {
     const readiness = muscleReadiness([workout(0, "Adductor Machine"), workout(3, "Back Squat")], []);
-    expect(readiness.adductors.level).toBe("fatigued");
+    expect(readiness.adductors.level).toBe("recent");
     expect(readiness.quads.level).toBe("ready");
     let container = document.createElement("div");
     document.body.appendChild(container);
     act(() => { createRoot(container).render(<MuscleRecoveryDetails regionId="adductors" readiness={readiness} />); });
     const text = container.textContent;
     expect(text).toContain("Adductors");
-    expect(text).toContain("Fatigued");
+    expect(text).toContain("Recently trained");
     expect(text.toLowerCase()).not.toContain("quads");
     container.remove();
   });
@@ -180,9 +180,15 @@ describe("muscleReadiness — no-history and per-region state", () => {
     });
   });
 
-  it("a set logged today makes that region 'fatigued', not 'ready'", () => {
+  it("a single working set logged today makes that region 'recently trained' — not fatigued, not ready", () => {
     const readiness = muscleReadiness([workout(0, "Barbell Bench Press")], []);
-    expect(readiness.chest.level).toBe("fatigued");
+    expect(readiness.chest.level).toBe("recent");
+  });
+
+  it("a substantial recent session (5 working sets, with a real timestamp) makes it 'fatigued'", () => {
+    const sets = Array.from({ length: 5 }, () => ({ weight: 80, reps: 8, type: "normal" }));
+    const w = { ...workout(0, "Barbell Bench Press", sets), completedAt: new Date(Date.now() - 2 * 3600000).toISOString() };
+    expect(muscleReadiness([w], []).chest.level).toBe("fatigued");
   });
 
   it("a set logged 3 days ago makes that region 'ready'", () => {
@@ -192,7 +198,7 @@ describe("muscleReadiness — no-history and per-region state", () => {
 
   it("regions are independent — training chest doesn't change quads", () => {
     const readiness = muscleReadiness([workout(0, "Barbell Bench Press")], []);
-    expect(readiness.chest.level).toBe("fatigued");
+    expect(readiness.chest.level).toBe("recent");
     expect(readiness.quads.level).toBe("unknown");
   });
 
@@ -203,16 +209,16 @@ describe("muscleReadiness — no-history and per-region state", () => {
 
   it("recomputes correctly after a workout is deleted from the array", () => {
     const workouts = [workout(0, "Barbell Bench Press")];
-    expect(muscleReadiness(workouts, []).chest.level).toBe("fatigued");
+    expect(muscleReadiness(workouts, []).chest.level).toBe("recent");
     expect(muscleReadiness([], []).chest.level).toBe("unknown");
   });
 
   it("recomputes correctly after a workout is edited to a different exercise", () => {
     const original = [workout(0, "Barbell Bench Press")];
     const edited = [workout(0, "Back Squat")];
-    expect(muscleReadiness(original, []).chest.level).toBe("fatigued");
+    expect(muscleReadiness(original, []).chest.level).toBe("recent");
     expect(muscleReadiness(edited, []).chest.level).toBe("unknown");
-    expect(muscleReadiness(edited, []).quads.level).toBe("fatigued");
+    expect(muscleReadiness(edited, []).quads.level).toBe("recent");
   });
 
   it("multiple workouts logged on the same day both contribute their sets", () => {
@@ -223,7 +229,7 @@ describe("muscleReadiness — no-history and per-region state", () => {
   it("a custom exercise with no pose still counts toward its group's default region", () => {
     const customExercises = [{ name: "My Custom Move", muscle: "back", equipment: "Cable" }];
     const readiness = muscleReadiness([workout(0, "My Custom Move")], customExercises);
-    expect(readiness.upperBack.level).toBe("fatigued");
+    expect(readiness.upperBack.level).toBe("recent");
   });
 
   it("an exercise with no matching entry in EXERCISES or customExercises is safely ignored", () => {
@@ -245,7 +251,7 @@ describe("FrontBodyFigure / BackBodyFigure — rendering and interaction", () =>
     expect(buttons).toHaveLength(frontCount);
     buttons.forEach((b) => {
       expect(b.getAttribute("tabindex")).toBe("0");
-      expect(b.getAttribute("aria-label")).toMatch(/: (Ready|Partially recovered|Fatigued|Insufficient data)$/);
+      expect(b.getAttribute("aria-label")).toMatch(/: (Ready|Partially recovered|Fatigued|Recently trained|Insufficient data)$/);
     });
   });
 
@@ -329,8 +335,8 @@ describe("FrontBodyFigure / BackBodyFigure — rendering and interaction", () =>
       /triceps/i.test(b.getAttribute("aria-label"))
     );
     expect(tricepButtons).toHaveLength(2);
-    expect(tricepButtons[0].getAttribute("aria-label")).toBe("Left Triceps: Fatigued");
-    expect(tricepButtons[1].getAttribute("aria-label")).toBe("Right Triceps: Fatigued");
+    expect(tricepButtons[0].getAttribute("aria-label")).toBe("Left Triceps: Recently trained");
+    expect(tricepButtons[1].getAttribute("aria-label")).toBe("Right Triceps: Recently trained");
 
     // Neither triceps path is a copy of the other or of the arm capsule around it — each has its
     // own non-zero area, and the two are mirror images sitting on opposite sides of the figure's

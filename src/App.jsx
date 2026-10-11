@@ -23,8 +23,9 @@ import { captureMessage } from "./lib/errorMonitoring";
 import { loadKey, saveKey, syncStore } from "./lib/storage";
 import { computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown, workoutVolumeKg, sessionPrEvents, CHALLENGE_TEMPLATES, computeChallengeProgress, computeWeeklyMissions } from "./lib/workoutMath";
 import { formatSet as formatSetMeasured } from "./lib/measurement";
-import { today as localToday, yesterday as localYesterday, formatDateOnly, daysAgo, getTimeZone } from "./lib/dates";
+import { today as localToday, yesterday as localYesterday, addDays, formatDateOnly, daysAgo, getTimeZone } from "./lib/dates";
 import { createSession, normalizeSession, finalizeSession } from "./lib/workoutSession";
+import { computeReadiness, READINESS_EXPLAINER } from "./lib/readiness";
 import { saveCompletedWorkouts, editWorkoutSynced, deleteWorkoutSynced, mergeWorkouts, flushPendingWorkouts, withTimeout, describeSaveFailure } from "./lib/workoutSync";
 import { enqueuePending, dequeuePending, listPending, saveSessionBackup, loadSessionBackup, pickNewerSession } from "./lib/pendingQueue";
 import { getNutritionTargets, classifyDayAdherence } from "./lib/nutritionMath";
@@ -64,6 +65,7 @@ const KEYS = {
   favorites: "atlas:favorites",
   coachMessages: "atlas:coachMessages",
   challenges: "atlas:challenges",
+  planDraft: "atlas:planDraft",
 };
 
 // EXERCISES, POSE_TIPS, MUSCLE_GROUPS, EQUIPMENT_TYPES, MUSCLE_POSITIONS, EQUIPMENT_COLORS and
@@ -219,33 +221,6 @@ function lookupExercise(name) {
   if (exact) return exact;
   const fuzzy = EXERCISES.find((e) => e.name.toLowerCase().includes(lower) || lower.includes(e.name.toLowerCase()));
   return fuzzy || null;
-}
-
-export function muscleRecovery(workouts, customExercises = []) {
-  const now = Date.now();
-  const status = {};
-  MUSCLE_GROUPS.forEach((m) => (status[m] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
-  const allEx = [...EXERCISES, ...customExercises];
-  workouts.forEach((w) => {
-    const t = new Date(w.date).getTime();
-    const hrs = (now - t) / 3600000;
-    const hitThisWorkout = new Set();
-    w.exercises.forEach((e) => {
-      const ex = allEx.find((x) => x.name === e.name);
-      if (!ex) return;
-      if (hrs < status[ex.muscle].hours) { status[ex.muscle].hours = hrs; status[ex.muscle].lastDate = w.date; }
-      // "Recent" = last 7 days, used to show actual training load rather than just a single last-session snapshot.
-      if (hrs <= 168) { status[ex.muscle].recentSets += e.sets.length; hitThisWorkout.add(ex.muscle); }
-    });
-    hitThisWorkout.forEach((m) => status[m].recentSessions++);
-  });
-  Object.keys(status).forEach((m) => {
-    const h = status[m].hours;
-    status[m].level = h < 24 ? "rest" : h < 48 ? "partial" : "ready";
-    // Rough estimate only — real recovery time varies by muscle, volume, intensity, sleep, and individual factors.
-    status[m].hoursUntilReady = Number.isFinite(h) ? Math.max(0, Math.round(48 - h)) : 0;
-  });
-  return status;
 }
 
 /* Evidence-based technique guidance (Androulakis Korakakis et al., 2023, J Funct Morphol Kinesiol —
@@ -632,10 +607,11 @@ export const READINESS_COLORS = {
   ready: "var(--readiness-ready)",
   partial: "var(--readiness-partial)",
   fatigued: "var(--readiness-fatigued)",
+  recent: "var(--readiness-recent)",
   unknown: "var(--readiness-unknown)",
 };
 export const READINESS_LABEL = {
-  ready: "Ready", partial: "Partially recovered", fatigued: "Fatigued", unknown: "Insufficient data",
+  ready: "Ready", partial: "Partially recovered", fatigued: "Fatigued", recent: "Recently trained", unknown: "Insufficient data",
 };
 
 // MUSCLE_REGIONS, READINESS_DISPLAY_SOURCE, POSE_TO_REGION, GROUP_DEFAULT_REGION and
@@ -660,40 +636,7 @@ export const READINESS_LABEL = {
    honestly for both primary and secondary stimulus, without double-counting training volume that
    was never actually triceps-focused sets. */
 export function muscleReadiness(workouts, customExercises = []) {
-  const now = Date.now();
-  const status = {};
-  READINESS_MUSCLE_IDS.forEach((id) => (status[id] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
-  const allEx = [...EXERCISES, ...customExercises];
-  (workouts || []).forEach((w) => {
-    const t = new Date(w.date).getTime();
-    const hrs = (now - t) / 3600000;
-    const hitThisWorkout = new Set();
-    (w.exercises || []).forEach((e) => {
-      const ex = allEx.find((x) => x.name === e.name);
-      const regionId = regionForExercise(ex);
-      if (!regionId) return;
-      const s = status[regionId];
-      if (hrs < s.hours) { s.hours = hrs; s.lastDate = w.date; }
-      // "Recent" = last 7 days, same window muscleRecovery always used.
-      if (hrs <= 168) { s.recentSets += (e.sets || []).length; hitThisWorkout.add(regionId); }
-      (SECONDARY_REGIONS_BY_POSE[ex?.pose] || []).forEach((secId) => {
-        const secStatus = status[secId];
-        if (secStatus && hrs < secStatus.hours) { secStatus.hours = hrs; secStatus.lastDate = w.date; }
-      });
-    });
-    hitThisWorkout.forEach((r) => status[r].recentSessions++);
-  });
-  Object.keys(status).forEach((r) => {
-    const s = status[r];
-    const h = s.hours;
-    s.level = !Number.isFinite(h) ? "unknown" : h < 24 ? "fatigued" : h < 48 ? "partial" : "ready";
-    // Rough estimate only — real recovery time varies by muscle, volume, intensity, sleep, and
-    // individual factors. Both figures below are two views of the exact same h-vs-48h ratio, so
-    // they can never disagree with each other or with `level`.
-    s.hoursUntilReady = Number.isFinite(h) ? Math.max(0, Math.round(48 - h)) : null;
-    s.recoveryPercent = Number.isFinite(h) ? Math.max(0, Math.min(100, Math.round((h / 48) * 100))) : null;
-  });
-  return status;
+  return computeReadiness(workouts, customExercises);
 }
 
 /* Turns one polygon (a plain [x,y] point list) into a smooth closed path by rounding every
@@ -992,7 +935,7 @@ export function BackBodyFigure({ readiness, selected, onSelect, maxWidth = 240 }
 export function MuscleReadinessLegend() {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
-      {["ready", "partial", "fatigued", "unknown"].map((lvl) => (
+      {["ready", "recent", "partial", "fatigued", "unknown"].map((lvl) => (
         <span key={lvl} className="mono" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: "var(--ink-dim)" }}>
           <span style={{ width: 9, height: 9, borderRadius: 5, background: READINESS_COLORS[lvl], display: "inline-block", flexShrink: 0 }} />
           {READINESS_LABEL[lvl]}
@@ -1006,11 +949,11 @@ export function MuscleReadinessLegend() {
    on the given view, grouped by current state, using the exact same readiness object. */
 export function MuscleReadinessTextList({ readiness, view }) {
   const ids = view === "front" ? FRONT_REGION_IDS : view === "back" ? BACK_REGION_IDS : MUSCLE_REGIONS.map((r) => r.id);
-  const byLevel = { ready: [], partial: [], fatigued: [], unknown: [] };
+  const byLevel = { ready: [], recent: [], partial: [], fatigued: [], unknown: [] };
   ids.forEach((id) => byLevel[readiness[READINESS_DISPLAY_SOURCE[id] || id]?.level || "unknown"].push(REGION_BY_ID[id].label));
   return (
     <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-      {["ready", "partial", "fatigued", "unknown"].map((lvl) => byLevel[lvl].length > 0 && (
+      {["ready", "recent", "partial", "fatigued", "unknown"].map((lvl) => byLevel[lvl].length > 0 && (
         <li key={lvl} style={{ fontSize: 11.5, color: "var(--ink-dim)", marginBottom: 3 }}>
           <span style={{ color: "var(--ink)" }}>{READINESS_LABEL[lvl]}:</span> {byLevel[lvl].join(", ")}
         </li>
@@ -1021,27 +964,33 @@ export function MuscleReadinessTextList({ readiness, view }) {
 
 function fmtRelativeDate(iso) {
   if (!iso) return null;
-  const days = Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
+  const days = daysAgo(iso);
   if (days <= 0) return "Today";
   if (days === 1) return "Yesterday";
   if (days < 7) return `${days} days ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatDateOnly(iso, { month: "short", day: "numeric" });
 }
 
 /* Rationale/action copy is generated from the same computed numbers shown above it, never a
    canned string per muscle — so it can never say something the numbers on screen contradict. */
 function readinessRationale(label, s) {
+  const lower = label.toLowerCase();
   if (s.level === "unknown") {
-    return { why: `No logged sets for ${label.toLowerCase()} yet, so there isn't enough history to estimate recovery.`, action: `Log a workout that trains ${label.toLowerCase()} to start tracking it.` };
+    return { why: `No logged working sets for ${lower} yet, so there isn't enough information to estimate anything.`, action: `Log a workout that trains ${lower} to start tracking it.` };
   }
   const when = fmtRelativeDate(s.lastDate)?.toLowerCase() || "recently";
+  const sets = s.lastSessionSets;
+  const work = s.via === "secondary" ? "as a supporting muscle" : `${sets} working set${sets === 1 ? "" : "s"}`;
+  if (s.level === "recent") {
+    return { why: `Trained ${when} (${work}) — a light or moderate amount, so we can't honestly call it fatigued. It has simply been trained recently.`, action: "Fine to train again if it feels good; go a little lighter if it's still sore." };
+  }
   if (s.level === "fatigued") {
-    return { why: `Trained ${when} — recently enough that it's still fatigued, based on ${s.recentSets} set${s.recentSets === 1 ? "" : "s"} logged in the last 7 days.`, action: "Consider resting this muscle today and training something else." };
+    return { why: `Trained ${when} with ${work} — a substantial session, so it's likely still recovering.`, action: "Consider training something else today." };
   }
   if (s.level === "partial") {
-    return { why: `Trained ${when} and still recovering, based on ${s.recentSets} set${s.recentSets === 1 ? "" : "s"} logged in the last 7 days.`, action: "You can train another muscle group today, or reduce volume if you still want to hit this one." };
+    return { why: `Trained ${when} with ${work} — a substantial session, and probably part-way recovered.`, action: "You can train another muscle group today, or reduce volume if you still want to hit this one." };
   }
-  return { why: `Last trained ${when} — enough time has passed that it's no longer estimated to be fatigued.`, action: "Good to train today." };
+  return { why: `Last trained ${when} — enough time has passed that it's no longer estimated to be recovering.`, action: "Good to train today." };
 }
 
 /* The rich per-muscle panel: name, status, percentage, last-trained date, recent workload,
@@ -1060,7 +1009,7 @@ export function MuscleRecoveryDetails({ regionId, readiness, onViewExercises }) 
         <div>
           <div className="disp" style={{ fontSize: 15 }}>{region.label}</div>
           <div className="mono" style={{ fontSize: 11.5, color: READINESS_COLORS[s.level] }}>
-            {READINESS_LABEL[s.level]}{s.recoveryPercent != null && ` — ${s.recoveryPercent}%`}
+            {READINESS_LABEL[s.level]}
           </div>
         </div>
         <span style={{ width: 12, height: 12, borderRadius: 6, background: READINESS_COLORS[s.level], flexShrink: 0, marginTop: 4 }} aria-hidden="true" />
@@ -1072,7 +1021,7 @@ export function MuscleRecoveryDetails({ regionId, readiness, onViewExercises }) 
         <div className="mono" style={{ fontSize: 11.5, color: "var(--ink-dim)", lineHeight: 1.9 }}>
           Last trained: {fmtRelativeDate(s.lastDate)}<br />
           Recent workload: {s.recentSets} working set{s.recentSets === 1 ? "" : "s"}<br />
-          {s.level === "ready" ? "Ready to train now." : `Estimated ready: ~${s.hoursUntilReady}h`}
+          {s.level === "ready" ? "Ready to train now." : s.level === "recent" ? "No recovery claim — it was a light or moderate session." : `Likely recovered in about ${Math.max(6, s.hoursUntilReady)}h`}
         </div>
       )}
 
@@ -1092,7 +1041,7 @@ export function MuscleRecoveryDetails({ regionId, readiness, onViewExercises }) 
       )}
 
       <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 10, fontStyle: "italic" }}>
-        Training estimate based on time since last trained — not a medical measurement.
+        {READINESS_EXPLAINER}
       </div>
     </div>
   );
@@ -1146,8 +1095,9 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
   const gamification = useMemo(() => computeGamification(workouts, streak), [workouts, streak]);
   const nudge = useMemo(() => {
     if (workouts.length === 0) return null;
-    const lastDate = workouts.map((w) => new Date(w.date)).sort((a, b) => b - a)[0];
-    const daysSince = Math.floor((Date.now() - lastDate) / 86400000);
+    // Calendar days since the latest workout's local date (never a UTC-midnight difference).
+    const lastDate = workouts.map((w) => w.date).filter(Boolean).sort().pop();
+    const daysSince = lastDate ? daysAgo(lastDate) : 0;
     if (daysSince >= 3) return `You haven't logged a session in ${daysSince} days. Ready to get back to it?`;
     if (streak === 6) return "One more session and you'll hit a 7-day streak.";
     if (streak === 29) return "One more session and you'll hit a 30-day streak.";
@@ -1465,8 +1415,17 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
     onDeleteAccount();
   };
 
-  const exportData = () => {
-    const payload = { exportedAt: new Date().toISOString(), profile, workouts, nutrition, weightlog, customExercises };
+  const exportData = async () => {
+    // Everything the account holds (not just the keys passed in as props): saved favourites,
+    // challenges, the coach conversation and any unactivated plan draft are read fresh from storage.
+    const [favorites, challenges, coachMessages, planDraft] = await Promise.all([
+      loadKey(KEYS.favorites), loadKey(KEYS.challenges), loadKey(KEYS.coachMessages), loadKey(KEYS.planDraft),
+    ]);
+    const payload = {
+      exportVersion: 2, exportedAt: new Date().toISOString(), timeZone: getTimeZone(),
+      profile, workouts, nutrition, weightlog, customExercises,
+      favorites: favorites || [], challenges: challenges || [], coachMessages: coachMessages || [], planDraft: planDraft || null,
+    };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -3253,13 +3212,12 @@ export { classifyDayAdherence };
 
 export function weeklyAdherence(nutrition, targets) {
   const days = [];
+  const todayIso = localToday();
   for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const iso = d.toISOString().slice(0, 10);
+    const iso = addDays(todayIso, -i);
     const dayFoods = nutrition.filter((n) => n.date === iso);
     const level = classifyDayAdherence(dayFoods, targets);
-    days.push({ date: iso, level, weekday: d.toLocaleDateString(undefined, { weekday: "narrow" }) });
+    days.push({ date: iso, level, weekday: formatDateOnly(iso, { weekday: "narrow" }) });
   }
   return days;
 }

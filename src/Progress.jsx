@@ -8,6 +8,7 @@ import {
   EXERCISES, MUSCLE_GROUPS, classifyDayAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL, workoutVolume,
 } from "./App.jsx";
 import { getNutritionTargets } from "./lib/nutritionMath";
+import { READINESS_EXPLAINER } from "./lib/readiness";
 import { formatDateOnly, today as localToday, addDays } from "./lib/dates";
 import { workingSets } from "./lib/workoutMath";
 import {
@@ -562,7 +563,7 @@ export default function Progress({ profile, workouts, weightlog, customExercises
         </details>
 
         <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 10, fontStyle: "italic", lineHeight: 1.6 }}>
-          Each region's readiness is estimated from hours since it was last trained and how many sets it's had in the last 7 days — a training estimate, not a medical measurement. Tap or select a muscle for detail.
+          {READINESS_EXPLAINER} Tap or select a muscle for detail.
         </div>
       </div>
 

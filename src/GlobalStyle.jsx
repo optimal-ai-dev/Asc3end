@@ -31,6 +31,7 @@ export default function GlobalStyle() {
         --readiness-ready: #3ECF8E;
         --readiness-partial: #F3B33D;
         --readiness-fatigued: #FF6B6B;
+        --readiness-recent: #4F9DFF;
         --readiness-unknown: #33423B;
         --readiness-outline: #71D6A5;
 
