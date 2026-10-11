@@ -14,12 +14,19 @@ import AuthScreen from "./AuthScreen";
 import Landing from "./Landing";
 import LegalPage from "./LegalPage";
 import SupportPage from "./SupportPage";
-import { ExerciseThumb, ExerciseDetailCard } from "./ExerciseFigures";
+import { playPRSound, playRestDoneSound } from "./lib/sounds";
+import ActiveWorkout from "./WorkoutLogger";
+import { HistoryList, WorkoutDetailModal } from "./WorkoutHistory";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
 import { captureMessage } from "./lib/errorMonitoring";
-import { loadKey, saveKey } from "./lib/storage";
-import { suggestNextTarget, evaluatePR, computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown, CHALLENGE_TEMPLATES, computeChallengeProgress, computeWeeklyMissions } from "./lib/workoutMath";
+import { loadKey, saveKey, syncStore } from "./lib/storage";
+import { computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown, workoutVolumeKg, sessionPrEvents, CHALLENGE_TEMPLATES, computeChallengeProgress, computeWeeklyMissions } from "./lib/workoutMath";
+import { formatSet as formatSetMeasured } from "./lib/measurement";
+import { today as localToday, yesterday as localYesterday, formatDateOnly, daysAgo, getTimeZone } from "./lib/dates";
+import { createSession, normalizeSession, finalizeSession } from "./lib/workoutSession";
+import { saveCompletedWorkouts, editWorkoutSynced, deleteWorkoutSynced, mergeWorkouts, flushPendingWorkouts, withTimeout, describeSaveFailure } from "./lib/workoutSync";
+import { enqueuePending, dequeuePending, listPending, saveSessionBackup, loadSessionBackup, pickNewerSession } from "./lib/pendingQueue";
 import { getNutritionTargets, classifyDayAdherence } from "./lib/nutritionMath";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION, SUPPORT_EMAIL } from "./lib/legal";
 import { MIN_PASSWORD_LENGTH, isValidPassword } from "./lib/passwordPolicy";
@@ -36,7 +43,7 @@ import {
   TRACKING_TYPES, TRACKING_TYPE_LABEL, WEIGHT_REPS_TRACKING_TYPES,
   POSE_TIPS, SECONDARY_REGIONS_BY_POSE, POSE_TO_REGION, GROUP_DEFAULT_REGION, regionForExercise,
   EXERCISES, getExerciseGuidance, matchesExerciseSearch, getExerciseAlternatives,
-  rankExerciseSearch, matchedOnlyViaSecondaryMuscle,
+  rankExerciseSearch, matchedOnlyViaSecondaryMuscle, REGIONS_BY_GROUP, REGION_TO_GROUP,
 } from "./exerciseData";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
@@ -65,20 +72,6 @@ const KEYS = {
 // below so every existing `import { EXERCISES, ... } from "./App"` elsewhere in the codebase keeps
 // working unchanged.
 export { EXERCISES, MUSCLE_GROUPS, MUSCLE_REGIONS, regionForExercise, POSE_TIPS, rankExerciseSearch, matchedOnlyViaSecondaryMuscle };
-
-// Every readiness region (the 18 drawn on the body map plus the 3 filter/search-only ones),
-// grouped by coarse muscle group — used to scope the Train picker's region filter to whichever
-// coarse group is currently selected (e.g. picking "Arms" reveals Biceps/Triceps/Forearms as
-// sub-filters) instead of showing all 21 regions in one flat, overwhelming row.
-const ALL_READINESS_REGIONS = [...MUSCLE_REGIONS, ...UNMAPPED_READINESS_REGIONS];
-const REGIONS_BY_GROUP = MUSCLE_GROUPS.reduce((acc, g) => {
-  acc[g] = ALL_READINESS_REGIONS.filter((r) => r.group === g).map((r) => r.id);
-  return acc;
-}, {});
-// Reverse of the above — every region's own coarse group, used to auto-derive a custom
-// exercise's browsing category from whichever precise primary muscle its creator picked, instead
-// of asking for the category as a second, redundant input.
-const REGION_TO_GROUP = Object.fromEntries(ALL_READINESS_REGIONS.map((r) => [r.id, r.group]));
 
 // A representative, bounded sample of exercise names for the AI plan-generation prompt — not the
 // full catalogue. Embedding every exercise name in the prompt used to cost roughly one token per
@@ -141,17 +134,12 @@ function dayOfYear(d) {
   const diff = d - start;
   return Math.floor(diff / 86400000);
 }
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-function yesterdayStr() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-function fmtDate(iso) {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
+// Local calendar dates (the viewer's timezone), never the UTC date: `toISOString().slice(0, 10)`
+// is a day behind for anyone east of UTC for part of every day — it is why a workout saved on the
+// 9th used to show as the 8th. See src/lib/dates.js for the full policy.
+const todayStr = () => localToday();
+const yesterdayStr = () => localYesterday();
+const fmtDate = (iso) => formatDateOnly(iso, { month: "short", day: "numeric" });
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -211,32 +199,9 @@ function scoreBestMeal(places, guidance) {
 // "Incline Dumbbell Press": the words are all there, just not in that exact contiguous order,
 // which is exactly the bug this was written to fix — a real user reported "incline dumbbell
 // press" finding nothing despite that exact exercise existing.
-/** Human-readable summary of one logged set, in whatever unit its tracking type actually uses —
- *  never assumes weight×reps. Used everywhere a set needs to render as a single line (active
- *  workout, workout history, workout detail modal). */
-export function formatSet(set, trackingType = "weight_reps") {
-  const fmtDur = (s) => { const m = Math.floor(s / 60), sec = s % 60; return m > 0 ? `${m}:${String(sec).padStart(2, "0")}` : `${s}s`; };
-  const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)}km` : `${m}m`);
-  switch (trackingType) {
-    case "bodyweight_reps":
-      return set.weight ? `BW+${set.weight}kg × ${set.reps}` : `${set.reps} reps (bodyweight)`;
-    case "assisted_bodyweight":
-      return `${set.reps} reps (${set.assistWeight || 0}kg assist)`;
-    case "reps_only":
-      return `${set.reps} reps`;
-    case "duration":
-    case "isometric_hold":
-      return fmtDur(set.durationSeconds || 0);
-    case "distance_duration":
-      return [set.distanceMeters ? fmtDist(set.distanceMeters) : null, set.durationSeconds ? fmtDur(set.durationSeconds) : null].filter(Boolean).join(" / ") || "—";
-    case "weight_distance":
-      return [`${set.weight}kg`, set.distanceMeters ? fmtDist(set.distanceMeters) : null, set.durationSeconds ? fmtDur(set.durationSeconds) : null].filter(Boolean).join(" · ");
-    case "weighted_duration":
-      return `${set.weight}kg × ${fmtDur(set.durationSeconds || 0)}`;
-    default:
-      return `${set.weight}kg × ${set.reps}`;
-  }
-}
+/** Human-readable summary of one logged set in the units its measurement type uses (see
+ *  src/lib/measurement.js) — kept as an App export for existing importers. */
+export const formatSet = formatSetMeasured;
 
 export function matchesSearch(name, query) {
   const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -1165,46 +1130,6 @@ export function MuscleReadinessMap({ readiness, onViewFullBody, onViewExercises 
 // MuscleIcon, the exercise figures/poses and ExerciseDetailCard now live in ./ExerciseFigures.
 export { POSES, POSES_FINISH, SECONDARY_MUSCLES } from "./ExerciseFigures";
 
-/* Sound + toast for personal record moments */
-function playPRSound() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    [523.25, 659.25, 783.99].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      const t = ctx.currentTime + i * 0.09;
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.35);
-    });
-  } catch (e) { /* audio unavailable, fail silently */ }
-}
-
-/* A shorter double-beep for when the rest timer hits zero — distinct from the PR chime */
-function playRestDoneSound() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    [440, 440].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      const t = ctx.currentTime + i * 0.22;
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.2);
-    });
-  } catch (e) { /* audio unavailable, fail silently */ }
-}
-
 function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, subscriptionState, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile, onOpenChallenges, onViewExercises }) {
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
   const readiness = useMemo(() => muscleReadiness(workouts, customExercises), [workouts, customExercises]);
@@ -1822,946 +1747,43 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
 /* Train                                                                */
 /* ------------------------------------------------------------------ */
 
-// Full detail view for one completed workout, reachable by tapping any history entry. Shows
-// everything logged for that session and lets you correct a mis-entered set or add/edit a note
-// after the fact — previously, once a workout was saved, there was no way to see or change
-// anything about it again short of deleting and redoing it. Deleting requires an explicit
-// confirmation step; editing/deleting both go through the same onEdit/onDelete callbacks
-// finishWorkout itself uses (App.jsx's editWorkout/deleteWorkout), so Progress, streaks, muscle
-// recovery, and PR suggestions all recompute automatically from the updated `workouts` array —
-// there's no separate cache of any of those that could go stale.
-function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }) {
-  const [notes, setNotes] = useState(workout.notes || "");
-  const [editingSets, setEditingSets] = useState(false);
-  const [setsDraft, setSetsDraft] = useState(() => workout.exercises.map((e) => ({ ...e, sets: e.sets.map((s) => ({ ...s })) })));
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(null);
+// Train: the start screen (history + Start Workout) and the active workout. The active-workout UI,
+// the multi-select exercise picker and the history/correction screens live in their own modules
+// (WorkoutLogger.jsx, ExercisePicker.jsx, WorkoutHistory.jsx); the rules they apply are pure,
+// unit-tested functions in src/lib (workoutSession, measurement, progression).
+function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise, onArchiveCustomExercise, onEditWorkout, onDeleteWorkout, initialMuscleFilter, saveStatus, onRetrySave }) {
+  const [detailId, setDetailId] = useState(null);
 
-  const totalVolume = workout.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + (st.weight || 0) * (st.reps || 0), 0), 0);
-  const durationMin = workout.startedAt && workout.completedAt
-    ? Math.round((new Date(workout.completedAt) - new Date(workout.startedAt)) / 60000)
-    : null;
-  const xp = workoutXpBreakdown(workout);
-  const prs = workout.prs || [];
-
-  const saveNotes = async () => {
-    setSaving(true);
-    setSaveError(null);
-    const ok = await onEditWorkout(workout.id, { notes });
-    if (!ok) setSaveError("Couldn't save your note — check your connection and try again.");
-    setSaving(false);
-  };
-
-  const saveSets = async () => {
-    setSaving(true);
-    setSaveError(null);
-    // Volume/PRs/XP for this workout were computed and stored at the time it was finished —
-    // correcting a set here deliberately does NOT retroactively recompute that workout's own
-    // xpBreakdown (no re-litigating XP already awarded), but Progress/streak/muscle-recovery/PR-
-    // suggestion calculations elsewhere all read `workouts` fresh, so they immediately reflect
-    // the corrected numbers.
-    const ok = await onEditWorkout(workout.id, { exercises: setsDraft });
-    if (ok) setEditingSets(false);
-    else setSaveError("Couldn't save your changes — check your connection and try again.");
-    setSaving(false);
-  };
-
-  const updateSet = (exIdx, setIdx, field, value) => {
-    setSetsDraft((draft) => draft.map((ex, i) => i !== exIdx ? ex : {
-      ...ex,
-      sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, [field]: value === "" ? "" : +value }),
-    }));
-  };
-
-  const handleDelete = async () => {
-    setSaving(true);
-    setSaveError(null);
-    const ok = await onDeleteWorkout(workout.id);
-    setSaving(false);
-    if (ok) onClose();
-    else setSaveError("Couldn't delete this workout — check your connection and try again.");
-  };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 55, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
-      <div style={{ maxWidth: 480, margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <div>
-            <div className="disp" style={{ fontSize: 20 }}>{fmtDate(workout.date)}</div>
-            {durationMin != null && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>⏱ {durationMin} min</div>}
-          </div>
-          <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close workout detail"><X size={16} /></button>
-        </div>
-
-        <div className="atlas-card" style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
-            <span className="mono" style={{ color: "var(--ink-dim)" }}>TOTAL VOLUME</span>
-            <span className="mono" style={{ color: "var(--brass)" }}>{Math.round(totalVolume)}kg</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-            <span className="mono" style={{ color: "var(--ink-dim)" }}>XP EARNED</span>
-            <span className="mono" style={{ color: "var(--brass)" }}>+{xp.total}</span>
-          </div>
-        </div>
-
-        {prs.length > 0 && (
-          <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--brass)" }}>
-            <div className="disp" style={{ fontSize: 13, color: "var(--brass)", marginBottom: 8 }}>
-              <Trophy size={13} style={{ verticalAlign: -2, marginRight: 5 }} />{prs.length} PR{prs.length === 1 ? "" : "s"}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {prs.map((pr, i) => (
-                <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                  {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="atlas-card" style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div className="disp" style={{ fontSize: 14 }}>Exercises</div>
-            <button
-              className="mono"
-              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: 0 }}
-              onClick={() => { setEditingSets((v) => !v); setSetsDraft(workout.exercises.map((e) => ({ ...e, sets: e.sets.map((s) => ({ ...s })) }))); }}
-            >
-              {editingSets ? "Cancel" : "Correct Sets"}
-            </button>
-          </div>
-          {(editingSets ? setsDraft : workout.exercises).map((ex, exIdx) => (
-            <div key={ex.name} style={{ marginBottom: 12 }}>
-              <div className="disp" style={{ fontSize: 13, marginBottom: 4 }}>{ex.name}</div>
-              {ex.sets.length === 0 && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>No sets logged.</div>}
-              {ex.sets.map((st, stIdx) => (
-                <div key={stIdx} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: "var(--ink-dim)", marginBottom: 4 }}>
-                  {editingSets ? (
-                    <>
-                      <input type="number" className="atlas-input" style={{ width: 64, padding: "5px 7px" }} value={st.weight} aria-label={`${ex.name} set ${stIdx + 1} weight in kg`} onChange={(e) => updateSet(exIdx, stIdx, "weight", e.target.value)} />
-                      <span>kg ×</span>
-                      <input type="number" className="atlas-input" style={{ width: 54, padding: "5px 7px" }} value={st.reps} aria-label={`${ex.name} set ${stIdx + 1} reps`} onChange={(e) => updateSet(exIdx, stIdx, "reps", e.target.value)} />
-                    </>
-                  ) : (
-                    <span>{st.weight}kg × {st.reps}{st.type && st.type !== "normal" ? ` (${st.type})` : ""}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-          {editingSets && (
-            <button className="atlas-btn" style={{ width: "100%", marginTop: 4 }} onClick={saveSets} disabled={saving}>
-              {saving ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
-              Save Set Changes
-            </button>
-          )}
-        </div>
-
-        <div className="atlas-card" style={{ marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 13, marginBottom: 8 }}>Notes</div>
-          <textarea
-            className="atlas-input"
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            style={{ width: "100%", resize: "vertical", marginBottom: 8 }}
-            placeholder="How did this session feel?"
-          />
-          <button className="atlas-btn-ghost" style={{ width: "100%" }} onClick={saveNotes} disabled={saving || notes === (workout.notes || "")}>
-            Save Notes
-          </button>
-        </div>
-
-        {saveError && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 12 }}>{saveError}</div>}
-
-        <div className="atlas-card" style={{ borderColor: "var(--rest)" }}>
-          {!confirmDelete ? (
-            <button onClick={() => setConfirmDelete(true)} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--rest)", fontSize: 12, padding: 0 }}>
-              Delete Workout
-            </button>
-          ) : (
-            <div>
-              <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 12 }}>
-                This permanently deletes this workout and can't be undone. Your streak, muscle recovery, and progress stats will recalculate without it.
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDelete(false)} disabled={saving}>Cancel</button>
-                <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} onClick={handleDelete} disabled={saving}>
-                  {saving ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : "Permanently Delete"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Train({ profile, workouts, session, setSession, onFinish, onDiscard, onStartWorkout, finishingWorkout, finishError, customExercises, onAddCustomExercise, onArchiveCustomExercise, onEditWorkout, onDeleteWorkout, initialMuscleFilter }) {
-  const [picker, setPicker] = useState(false);
-  const [search, setSearch] = useState("");
-  const [muscleFilter, setMuscleFilter] = useState(initialMuscleFilter || "all");
-  const [equipFilter, setEquipFilter] = useState("all");
-  const [regionFilter, setRegionFilter] = useState("all");
-  // Progressive rendering for the exercise picker (223 entries, each an SVG PoseFigure — cheap
-  // individually, not free 223-at-once on a low-powered phone): render a capped batch and reveal
-  // more on demand instead of mounting every filtered match at once. Search/filtering itself
-  // still runs over the full list either way; only what's actually rendered is capped.
-  const EXERCISE_PAGE_SIZE = 40;
-  const [visibleExerciseCount, setVisibleExerciseCount] = useState(EXERCISE_PAGE_SIZE);
-  useEffect(() => { setVisibleExerciseCount(EXERCISE_PAGE_SIZE); }, [search, muscleFilter, equipFilter, regionFilter]);
-  const [detailEx, setDetailEx] = useState(null);
-  const [openCues, setOpenCues] = useState({});
-  const [weightIn, setWeightIn] = useState({});
-  const [repsIn, setRepsIn] = useState({});
-  const [durationIn, setDurationIn] = useState({});
-  const [distanceIn, setDistanceIn] = useState({});
-  const [assistIn, setAssistIn] = useState({});
-  const [prToast, setPrToast] = useState(null);
-  const [now, setNow] = useState(Date.now());
-  const [restDuration, setRestDuration] = useState(90);
-  const [linkingEx, setLinkingEx] = useState(null);
-  const [creatingCustom, setCreatingCustom] = useState(false);
-  const [customName, setCustomName] = useState("");
-  // Primary muscle is the real anatomical taxonomy (Triceps, Rear Delts, ...) — the same one
-  // built-in exercises use — not the old broad "Muscle Group" picker (Arms, Legs, ...), which was
-  // a genuine reported gap: a custom exercise had no way to say it was specifically a triceps
-  // movement versus a generic arm one. Browsing category is derived automatically from whichever
-  // primary muscle is picked (every region already declares its own .group), never asked for.
-  const [customPrimaryMuscle, setCustomPrimaryMuscle] = useState(READINESS_MUSCLE_IDS[0]);
-  const [customSecondaryMuscles, setCustomSecondaryMuscles] = useState([]);
-  const [customEquip, setCustomEquip] = useState(EQUIPMENT_TYPES[0]);
-  const [customAliases, setCustomAliases] = useState("");
-  const [customTrackingType, setCustomTrackingType] = useState("weight_reps");
-  const [customNotes, setCustomNotes] = useState("");
-  const [customImageUrl, setCustomImageUrl] = useState("");
-  const [customError, setCustomError] = useState(null);
-  const [typeIn, setTypeIn] = useState({});
-  const [reviewing, setReviewing] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [sessionPRs, setSessionPRs] = useState([]);
-  const [detailWorkout, setDetailWorkout] = useState(null);
-  const restAlertedRef = useRef(false);
-
-  // A brand-new session (or returning to none) should never inherit the previous session's
-  // review/discard-confirmation UI state.
-  useEffect(() => {
-    setReviewing(false);
-    setConfirmDiscard(false);
-    setSessionPRs([]);
-  }, [session?.id]);
-
-  useEffect(() => {
-    if (!prToast) return;
-    const t = setTimeout(() => setPrToast(null), 3800);
-    return () => clearTimeout(t);
-  }, [prToast]);
-
-  // Ticks once a second while a session is active, driving both the elapsed-time readout and the rest countdown.
-  useEffect(() => {
-    if (!session) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [session]);
-
-  useEffect(() => {
-    if (!session?.restEndAt) { restAlertedRef.current = false; return; }
-    if (now >= session.restEndAt && !restAlertedRef.current) {
-      restAlertedRef.current = true;
-      playRestDoneSound();
-    }
-  }, [now, session?.restEndAt]);
-
-  const fmtClock = (secs) => {
-    const s = Math.max(0, Math.round(secs));
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${m}:${r.toString().padStart(2, "0")}`;
-  };
-
-  const history = [...workouts].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8);
-
-  if (!session) {
+  if (session) {
     return (
-      <div style={{ padding: "24px 18px" }}>
-        <h1 className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Train</h1>
-        <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18 }}>Log today's session and let the coach handle progression.</div>
-        <button className="atlas-btn" style={{ width: "100%", padding: 16, fontSize: 15 }} onClick={() => onStartWorkout()}>
-          <Plus size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Start Workout
-        </button>
-
-        <div style={{ marginTop: 26 }}>
-          <h2 className="disp" style={{ fontSize: 15, marginBottom: 10, color: "var(--ink-dim)" }}>History</h2>
-          {history.length === 0 && <div style={{ color: "var(--ink-dim)", fontSize: 13 }}>No workouts logged yet.</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {history.map((w) => {
-              const volume = w.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0), 0);
-              return (
-                <button
-                  key={w.id}
-                  onClick={() => setDetailWorkout(w)}
-                  className="atlas-card"
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid var(--line)", background: "var(--bg-elev)", color: "var(--ink)" }}
-                >
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtDate(w.date)}</div>
-                    <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>{w.exercises.length} exercise{w.exercises.length === 1 ? "" : "s"}</div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div className="mono" style={{ fontSize: 13, color: "var(--brass)" }}>{Math.round(volume)}kg vol</div>
-                    <ChevronRight size={16} color="var(--ink-dim)" />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {detailWorkout && (
-          <WorkoutDetailModal
-            workout={detailWorkout}
-            onClose={() => setDetailWorkout(null)}
-            onEditWorkout={async (id, patch) => {
-              const ok = await onEditWorkout(id, patch);
-              if (ok) setDetailWorkout((w) => (w && w.id === id ? { ...w, ...patch } : w));
-              return ok;
-            }}
-            onDeleteWorkout={onDeleteWorkout}
-          />
-        )}
-      </div>
+      <ActiveWorkout
+        profile={profile} workouts={workouts} customExercises={customExercises} session={session} setSession={setSession}
+        onFinish={onFinish} onDiscard={onDiscard} finishingWorkout={finishingWorkout} finishError={finishError}
+        saveStatus={saveStatus} onRetrySave={onRetrySave}
+        onAddCustomExercise={onAddCustomExercise} onArchiveCustomExercise={onArchiveCustomExercise} initialMuscleFilter={initialMuscleFilter}
+      />
     );
   }
 
-  const allExercises = [...EXERCISES, ...customExercises];
-
-  // Archived custom exercises stay in `allExercises` (so historical workouts, PRs and volume still
-  // resolve their name correctly) but are hidden from the picker itself — that's what "archived"
-  // means here: not selectable for new workouts, without breaking anything already logged.
-  const filteredByCategory = allExercises.filter((e) =>
-    !e.archived &&
-    (muscleFilter === "all" || e.muscle === muscleFilter) &&
-    (equipFilter === "all" || e.equipment === equipFilter) &&
-    (regionFilter === "all" || regionForExercise(e) === regionFilter)
-  );
-  // Ranked, not just filtered, once there's search text — a direct-muscle match must always
-  // outrank a secondary-muscle-only one (see rankExerciseSearch), otherwise "triceps" surfaces
-  // Bench Press ahead of Skull Crusher purely because of raw catalogue array order.
-  const filtered = search.trim() ? rankExerciseSearch(filteredByCategory, search) : filteredByCategory;
-
-  const addExercise = (ex) => {
-    setSession((s) => ({ ...s, exercises: [...s.exercises, { name: ex.name, sets: [], supersetWith: null }] }));
-    setPicker(false);
-    setSearch("");
-    setDetailEx(null);
-  };
-
-  const createCustomExercise = () => {
-    const trimmed = customName.trim();
-    if (!trimmed) { setCustomError("Give it a name."); return; }
-    const lower = trimmed.toLowerCase();
-    // Check both canonical names AND aliases — a custom exercise named "RDL" would otherwise sit
-    // right next to Romanian Deadlift in search as if it were a second, different exercise, which
-    // is exactly the ambiguity aliases exist to prevent.
-    const collision = allExercises.some((e) => e.name.toLowerCase() === lower || (e.aliases || []).some((a) => a.toLowerCase() === lower));
-    if (collision) {
-      setCustomError("An exercise with that name (or a close alias of one) already exists.");
-      return;
-    }
-    const aliases = customAliases.split(",").map((a) => a.trim()).filter(Boolean);
-    // Browsing category is derived, never asked for — REGION_TO_GROUP resolves it from whichever
-    // precise primary muscle was actually picked, so "category" and "primary muscle" can never
-    // silently disagree the way a separately-chosen pair could.
-    const category = REGION_TO_GROUP[customPrimaryMuscle] || MUSCLE_GROUPS[0];
-    const ex = {
-      name: trimmed, muscle: category, region: customPrimaryMuscle, equipment: customEquip,
-      pose: MUSCLE_DEFAULT_POSE[category], isCustom: true,
-      aliases, trackingType: customTrackingType, secondaryMuscles: customSecondaryMuscles,
-      instructions: customNotes.trim() ? [customNotes.trim()] : [],
-      imageUrl: customImageUrl.trim() || null,
-    };
-    onAddCustomExercise(ex);
-    addExercise(ex);
-    setCreatingCustom(false);
-    setCustomName("");
-    setCustomPrimaryMuscle(READINESS_MUSCLE_IDS[0]);
-    setCustomSecondaryMuscles([]);
-    setCustomEquip(EQUIPMENT_TYPES[0]);
-    setCustomAliases("");
-    setCustomTrackingType("weight_reps");
-    setCustomNotes("");
-    setCustomImageUrl("");
-    setCustomError(null);
-  };
-
-  const addSet = (exName) => {
-    const trackingType = (allExercises.find((e) => e.name === exName)?.trackingType) || "weight_reps";
-    const w = +weightIn[exName]; const r = +repsIn[exName];
-    const dur = +durationIn[exName]; const dist = +distanceIn[exName]; const assist = +assistIn[exName];
-
-    // Each tracking type has its own "what's required to log a set" rule — a plank has no weight
-    // to require, a treadmill run has no reps. This replaces the old blanket "weight AND reps or
-    // nothing logs" check, which silently blocked logging any exercise that wasn't weight+reps
-    // shaped (every bodyweight/duration/distance exercise in the catalogue, old and new).
-    let set;
-    if (trackingType === "bodyweight_reps") {
-      if (!r) return;
-      set = { reps: r, weight: w || 0 };
-    } else if (trackingType === "assisted_bodyweight") {
-      if (!r) return;
-      set = { reps: r, assistWeight: assist || 0 };
-    } else if (trackingType === "reps_only") {
-      if (!r) return;
-      set = { reps: r };
-    } else if (trackingType === "duration" || trackingType === "isometric_hold") {
-      if (!dur) return;
-      set = { durationSeconds: dur };
-    } else if (trackingType === "distance_duration") {
-      if (!dur && !dist) return;
-      set = { durationSeconds: dur || null, distanceMeters: dist || null };
-    } else if (trackingType === "weight_distance") {
-      if (!w || (!dur && !dist)) return;
-      set = { weight: w, durationSeconds: dur || null, distanceMeters: dist || null };
-    } else if (trackingType === "weighted_duration") {
-      if (!w || !dur) return;
-      set = { weight: w, durationSeconds: dur };
-    } else {
-      // weight_reps, bodyweight_plus_weight, per_side_weight — the original, still-most-common shape
-      if (!w || !r) return;
-      set = { weight: w, reps: r };
-    }
-
-    const isFirstSetEver = workouts.length === 0 && session.exercises.every((e) => e.sets.length === 0);
-    const setType = typeIn[exName] || "normal";
-    set.type = setType;
-    const historySets = [
-      ...workouts.flatMap((wk) => wk.exercises.filter((e) => e.name === exName).flatMap((e) => e.sets)),
-      ...(session.exercises.find((e) => e.name === exName)?.sets || []),
-    ];
-    const pr = setType === "normal" && WEIGHT_REPS_TRACKING_TYPES.has(trackingType) ? evaluatePR(historySets, w, r) : { isPR: false };
-    const linked = session.exercises.find((e) => e.name === exName)?.supersetWith;
-    setSession((s) => ({
-      ...s,
-      exercises: s.exercises.map((e) => e.name === exName ? { ...e, sets: [...e.sets, set] } : e),
-      // skip the auto rest timer when logging inside a superset — rest happens after both movements, not between them
-      restEndAt: linked ? s.restEndAt : Date.now() + restDuration * 1000,
-    }));
-    restAlertedRef.current = false;
-    setWeightIn((v) => ({ ...v, [exName]: "" }));
-    setRepsIn((v) => ({ ...v, [exName]: "" }));
-    setDurationIn((v) => ({ ...v, [exName]: "" }));
-    setDistanceIn((v) => ({ ...v, [exName]: "" }));
-    setAssistIn((v) => ({ ...v, [exName]: "" }));
-    if (pr.isPR) {
-      setPrToast({ exName, weight: w, reps: r, type: pr.type });
-      playPRSound();
-      setSessionPRs((prev) => [...prev, { exName, weight: w, reps: r, type: pr.type }]);
-    }
-    if (isFirstSetEver) logEvent("first_set_logged", { exercise: exName });
-  };
-
-  const toggleSuperset = (exNameA, exNameB) => {
-    setSession((s) => ({
-      ...s,
-      exercises: s.exercises.map((e) => {
-        if (e.name === exNameA) return { ...e, supersetWith: e.supersetWith === exNameB ? null : exNameB };
-        if (e.name === exNameB) return { ...e, supersetWith: e.supersetWith === exNameA ? null : exNameA };
-        if (e.supersetWith === exNameA || e.supersetWith === exNameB) return { ...e, supersetWith: null };
-        return e;
-      }),
-    }));
-    setLinkingEx(null);
-  };
-
-  const removeSet = (exName, idx) => {
-    setSession((s) => ({
-      ...s,
-      exercises: s.exercises.map((e) => e.name === exName ? { ...e, sets: e.sets.filter((_, i) => i !== idx) } : e),
-    }));
-  };
-
-  const isPR = (exName, weight) => {
-    const prevMax = Math.max(0, ...workouts.flatMap((w) => w.exercises.filter((e) => e.name === exName).flatMap((e) => e.sets.map((s) => s.weight))));
-    return weight > prevMax;
-  };
-
-  const totalSets = session.exercises.reduce((s, e) => s + e.sets.length, 0);
-  const totalVolume = session.exercises.reduce((s, e) => s + e.sets.reduce((s2, st) => s2 + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0), 0);
-  const musclesTrained = [...new Set(session.exercises.map((ex) => allExercises.find((e) => e.name === ex.name)?.muscle).filter(Boolean))];
-  const skippedExercises = session.exercises.filter((ex) => ex.sets.length === 0);
-  const targetSetsTotal = session.exercises.reduce((s, ex) => s + (ex.targetSets || 0), 0);
-  const mostSetsIncomplete = targetSetsTotal > 0 && totalSets < targetSetsTotal * 0.5;
-  // The exact same computeWorkoutXp call finishWorkout uses to build the stored xpBreakdown —
-  // this preview MUST match what actually gets saved and added to the running total once Finish
-  // is tapped, or the summary lies about what's about to happen (the original bug this fixes).
-  const streakDelta = computeStreak([...workouts, session]) - computeStreak(workouts);
-  const xpBreakdownPreview = computeWorkoutXp(session, { prCount: sessionPRs.length, streakDelta });
-
+  const detail = detailId ? workouts.find((w) => w.id === detailId) : null;
   return (
     <div style={{ padding: "24px 18px" }}>
-      {prToast && (
-        <div className="atlas-card" style={{
-          position: "sticky", top: 0, zIndex: 20, marginBottom: 14, borderColor: "var(--brass)",
-          background: "linear-gradient(135deg, rgba(62,207,142,0.18), var(--bg-elev))",
-          display: "flex", alignItems: "center", gap: 10, boxShadow: "0 4px 18px rgba(62,207,142,0.25)",
-        }}>
-          <Trophy size={22} color="var(--brass)" style={{ flexShrink: 0 }} />
-          <div>
-            <div className="disp" style={{ fontSize: 14, color: "var(--brass)" }}>New Personal Record!</div>
-            <div className="mono" style={{ fontSize: 12 }}>
-              {prToast.exName} — {prToast.weight}kg × {prToast.reps} {prToast.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
-            </div>
-          </div>
-        </div>
-      )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div>
-          <h1 className="disp" style={{ fontSize: 24 }}>{session.planDayName || "Today's Session"}</h1>
-          <div className="mono" style={{ fontSize: 13, color: "var(--steel)" }}>⏱ {fmtClock((now - session.startedAt) / 1000)} elapsed</div>
-        </div>
-        <button className="atlas-btn-ghost" onClick={() => setConfirmDiscard(true)} style={{ padding: "6px 10px" }}>Cancel</button>
+      <h1 className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Train</h1>
+      <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18 }}>Log today's session and let the coach handle progression.</div>
+      <button className="atlas-btn" style={{ width: "100%", padding: 16, fontSize: 15, minHeight: 52 }} onClick={() => onStartWorkout()}>
+        <Plus size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Start Workout
+      </button>
+
+      <div style={{ marginTop: 26 }}>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 10, color: "var(--ink-dim)" }}>History</h2>
+        <HistoryList workouts={workouts} customExercises={customExercises} onOpen={(w) => setDetailId(w.id)} />
       </div>
 
-      {confirmDiscard && !reviewing && (
-        <div className="atlas-card" style={{ marginBottom: 14, borderColor: "var(--rest)", background: "rgba(255,107,129,0.08)" }}>
-          <div className="disp" style={{ fontSize: 14, color: "var(--rest)", marginBottom: 6 }}>Discard this workout?</div>
-          <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 12 }}>
-            {session.exercises.length === 0 ? "Nothing's been logged yet." : `You've logged ${session.exercises.reduce((s, e) => s + e.sets.length, 0)} set(s). This can't be undone.`}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDiscard(false)}>Keep Going</button>
-            <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} onClick={onDiscard}>Discard Workout</button>
-          </div>
-        </div>
-      )}
-
-      {session.restEndAt && now < session.restEndAt && (
-        <div className="atlas-card" style={{ marginBottom: 14, borderColor: "var(--steel)", background: "rgba(47,217,184,0.08)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <div className="disp" style={{ fontSize: 14, color: "var(--steel)" }}>Resting</div>
-            <div className="mono" style={{ fontSize: 20 }}>{fmtClock((session.restEndAt - now) / 1000)}</div>
-          </div>
-          <div className="bar-track" style={{ marginBottom: 10 }}>
-            <div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, ((session.restEndAt - now) / (restDuration * 1000)) * 100))}%`, background: "var(--steel)" }} />
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button className="atlas-btn-ghost" style={{ flex: 1, padding: "6px 0", fontSize: 11 }} onClick={() => setSession((s) => ({ ...s, restEndAt: Math.max(now, s.restEndAt - 15000) }))}>-15s</button>
-            <button className="atlas-btn-ghost" style={{ flex: 1, padding: "6px 0", fontSize: 11 }} onClick={() => setSession((s) => ({ ...s, restEndAt: s.restEndAt + 15000 }))}>+15s</button>
-            <button className="atlas-btn-ghost" style={{ flex: 1, padding: "6px 0", fontSize: 11 }} onClick={() => setSession((s) => ({ ...s, restEndAt: null }))}>Skip</button>
-          </div>
-        </div>
-      )}
-
-      {session.exercises.map((ex) => {
-        const suggestion = suggestNextTarget(workouts, ex.name, profile.goal);
-        const meta = allExercises.find((e) => e.name === ex.name);
-        const tips = meta ? (POSE_TIPS[meta.pose] || []) : [];
-        const currentType = typeIn[ex.name] || "normal";
-        return (
-          <div key={ex.name} className="atlas-card" style={{ marginBottom: 12, borderColor: ex.supersetWith ? "var(--warn)" : "var(--line)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {meta && <ExerciseThumb ex={meta} size={40} />}
-              <div style={{ flex: 1 }}>
-                <div className="disp" style={{ fontSize: 16 }}>{ex.name}</div>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {meta && (
-                    <button onClick={() => setOpenCues((v) => ({ ...v, [ex.name]: !v[ex.name] }))}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--steel)", fontSize: 11 }} className="mono">
-                      {openCues[ex.name] ? "Hide form cues" : "Show form cues"}
-                    </button>
-                  )}
-                  <button onClick={() => setLinkingEx(linkingEx === ex.name ? null : ex.name)}
-                    style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--warn)", fontSize: 11 }} className="mono">
-                    {ex.supersetWith ? `⚡ Linked with ${ex.supersetWith}` : "⚡ Link as superset"}
-                  </button>
-                </div>
-              </div>
-            </div>
-            {linkingEx === ex.name && (
-              <div style={{ marginTop: 8, padding: 8, background: "var(--bg-elev2)", borderRadius: 8 }}>
-                <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 6 }}>PAIR WITH:</div>
-                {session.exercises.filter((e) => e.name !== ex.name).length === 0 && <div style={{ fontSize: 11, color: "var(--ink-dim)" }}>Add another exercise first.</div>}
-                {session.exercises.filter((e) => e.name !== ex.name).map((e) => (
-                  <button key={e.name} onClick={() => toggleSuperset(ex.name, e.name)} className="pill" style={{ marginRight: 6, marginBottom: 6, cursor: "pointer", border: "1px solid var(--warn)", background: ex.supersetWith === e.name ? "var(--warn)" : "transparent", color: ex.supersetWith === e.name ? "#2E1500" : "var(--warn)" }}>
-                    {e.name}
-                  </button>
-                ))}
-              </div>
-            )}
-            {meta && openCues[ex.name] && (
-              <ul style={{ margin: "8px 0 4px", paddingLeft: 18, fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.6 }}>
-                {tips.map((t, i) => <li key={i}>{t}</li>)}
-              </ul>
-            )}
-            <div style={{ display: "flex", gap: 6, alignItems: "flex-start", marginTop: 8, marginBottom: 10 }}>
-              <TrendingUp size={13} color="var(--brass)" style={{ marginTop: 2, flexShrink: 0 }} />
-              <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                {suggestion.text}
-                {ex.targetSets && ex.targetReps && (
-                  <span style={{ color: "var(--warn)" }}> · Plan target: {ex.targetSets} × {ex.targetReps}{ex.sets.length > 0 ? ` (${ex.sets.length}/${ex.targetSets} done)` : ""}</span>
-                )}
-              </div>
-            </div>
-
-            {ex.sets.map((s, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: "1px solid var(--line)" }}>
-                <span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)", width: 20 }}>{i + 1}</span>
-                <span className="mono" style={{ flex: 1 }}>{formatSet(s, meta?.trackingType)}</span>
-                {s.type && s.type !== "normal" && <span className="pill" style={{ fontSize: 9, background: SET_TYPE_COLORS[s.type] + "22", color: SET_TYPE_COLORS[s.type] }}>{SET_TYPE_LABELS[s.type]}</span>}
-                {WEIGHT_REPS_TRACKING_TYPES.has(meta?.trackingType || "weight_reps") && isPR(ex.name, s.weight) && <Trophy size={14} color="var(--brass)" />}
-                <button onClick={() => removeSet(ex.name, i)} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label={`Remove set ${i + 1} for ${ex.name}`}>
-                  <X size={14} color="var(--ink-dim)" />
-                </button>
-              </div>
-            ))}
-
-            <div style={{ display: "flex", gap: 5, marginTop: 10, marginBottom: 6, flexWrap: "wrap" }}>
-              {SET_TYPES.map((t) => (
-                <button key={t} onClick={() => setTypeIn((v) => ({ ...v, [ex.name]: t }))} className="pill" style={{
-                  cursor: "pointer", fontSize: 10,
-                  border: `1px solid ${currentType === t ? SET_TYPE_COLORS[t] : "var(--line)"}`,
-                  background: currentType === t ? SET_TYPE_COLORS[t] + "22" : "transparent",
-                  color: currentType === t ? SET_TYPE_COLORS[t] : "var(--ink-dim)",
-                }}>{SET_TYPE_LABELS[t]}</button>
-              ))}
-            </div>
-            {/* Each tracking type shows only the inputs that actually mean something for it — a
-                plank never asks for weight, a treadmill run never asks for reps. */}
-            {(() => {
-              const tt = meta?.trackingType || "weight_reps";
-              const setNum = (setter) => (e) => setter((v) => ({ ...v, [ex.name]: e.target.value }));
-              if (tt === "bodyweight_reps") return (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
-                  <input className="atlas-input" placeholder="+kg (optional)" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Added weight in kg for ${ex.name}`} />
-                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
-                </div>
-              );
-              if (tt === "assisted_bodyweight") return (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
-                  <input className="atlas-input" placeholder="assist kg" type="number" value={assistIn[ex.name] || ""} onChange={setNum(setAssistIn)} aria-label={`Assistance weight in kg for ${ex.name}`} />
-                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
-                </div>
-              );
-              if (tt === "reps_only") return (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
-                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
-                </div>
-              );
-              if (tt === "duration" || tt === "isometric_hold") return (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
-                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
-                </div>
-              );
-              if (tt === "distance_duration") return (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="meters" type="number" value={distanceIn[ex.name] || ""} onChange={setNum(setDistanceIn)} aria-label={`Distance in meters for ${ex.name}`} />
-                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
-                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
-                </div>
-              );
-              if (tt === "weight_distance" || tt === "weighted_duration") return (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
-                  {tt === "weight_distance" && <input className="atlas-input" placeholder="meters" type="number" value={distanceIn[ex.name] || ""} onChange={setNum(setDistanceIn)} aria-label={`Distance in meters for ${ex.name}`} />}
-                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
-                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
-                </div>
-              );
-              return (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
-                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
-                  <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
-                </div>
-              );
-            })()}
-          </div>
-        );
-      })}
-
-      {!picker ? (
-        <button className="atlas-btn-ghost" style={{ width: "100%", marginTop: 4 }} onClick={() => setPicker(true)}>
-          <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add Exercise
-        </button>
-      ) : detailEx ? (
-        <ExerciseDetailCard
-          ex={detailEx} onAdd={addExercise} onBack={() => setDetailEx(null)}
-          onArchive={detailEx.isCustom ? async () => { await onArchiveCustomExercise(detailEx.name); setDetailEx(null); } : null}
+      {detail && (
+        <WorkoutDetailModal
+          workout={detail} workouts={workouts} customExercises={customExercises}
+          onClose={() => setDetailId(null)} onEditWorkout={onEditWorkout} onDeleteWorkout={onDeleteWorkout}
         />
-      ) : creatingCustom ? (
-        <div className="atlas-card">
-          <button onClick={() => { setCreatingCustom(false); setCustomError(null); }} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginBottom: 12 }}>
-            ← Back to library
-          </button>
-          <div className="disp" style={{ fontSize: 16, marginBottom: 12 }}>New Custom Exercise</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>NAME</div>
-              <input autoFocus className="atlas-input" placeholder="e.g. Cable Y-Raise" value={customName} onChange={(e) => { setCustomName(e.target.value); setCustomError(null); }} />
-            </div>
-            <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>PRIMARY MUSCLE</div>
-              <select aria-label="Primary muscle" className="atlas-input" value={customPrimaryMuscle} onChange={(e) => setCustomPrimaryMuscle(e.target.value)}>
-                {MUSCLE_GROUPS.map((group) => (
-                  <optgroup key={group} label={group.charAt(0).toUpperCase() + group.slice(1)}>
-                    {(REGIONS_BY_GROUP[group] || []).map((r) => (
-                      <option key={r} value={r}>{REGION_LABEL[r]}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>
-                Category: {REGION_TO_GROUP[customPrimaryMuscle]} (set automatically from the muscle above)
-              </div>
-            </div>
-            <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>SECONDARY MUSCLES (optional)</div>
-              <select
-                aria-label="Secondary muscles (optional, multiple)"
-                className="atlas-input" multiple size={5}
-                value={customSecondaryMuscles}
-                onChange={(e) => setCustomSecondaryMuscles([...e.target.selectedOptions].map((o) => o.value))}
-              >
-                {READINESS_MUSCLE_IDS.filter((r) => r !== customPrimaryMuscle).map((r) => (
-                  <option key={r} value={r}>{REGION_LABEL[r]}</option>
-                ))}
-              </select>
-              <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 4 }}>Ctrl/Cmd-click to select more than one.</div>
-            </div>
-            <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>EQUIPMENT</div>
-              <select aria-label="Equipment" className="atlas-input" value={customEquip} onChange={(e) => setCustomEquip(e.target.value)}>
-                {EQUIPMENT_TYPES.map((eq) => <option key={eq} value={eq}>{eq}</option>)}
-              </select>
-            </div>
-            <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>HOW IS IT LOGGED?</div>
-              <select aria-label="How is it logged" className="atlas-input" value={customTrackingType} onChange={(e) => setCustomTrackingType(e.target.value)}>
-                {TRACKING_TYPES.map((t) => <option key={t} value={t}>{TRACKING_TYPE_LABEL[t]}</option>)}
-              </select>
-            </div>
-            <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>ALIASES / OTHER NAMES (optional, comma-separated)</div>
-              <input className="atlas-input" placeholder="e.g. Y Raise, Cable Y" value={customAliases} onChange={(e) => setCustomAliases(e.target.value)} />
-            </div>
-            <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>NOTES / INSTRUCTIONS (optional)</div>
-              <textarea className="atlas-input" rows={2} placeholder="How you set it up and perform it" value={customNotes} onChange={(e) => setCustomNotes(e.target.value)} />
-            </div>
-            <div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 4 }}>IMAGE URL (optional — a link you own the rights to)</div>
-              <input className="atlas-input" placeholder="https://..." value={customImageUrl} onChange={(e) => setCustomImageUrl(e.target.value)} />
-            </div>
-            {customError && <div className="mono" style={{ color: "var(--rest)", fontSize: 12 }}>{customError}</div>}
-            <button className="atlas-btn" style={{ width: "100%", marginTop: 6 }} onClick={createCustomExercise}>
-              <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Create & Add to Workout
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="atlas-card">
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <Search size={14} color="var(--ink-dim)" />
-            <input autoFocus className="atlas-input" placeholder="Search exercises" value={search} onChange={(e) => setSearch(e.target.value)} />
-          </div>
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }}>
-            <button onClick={() => { setMuscleFilter("all"); setRegionFilter("all"); }} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: muscleFilter === "all" ? "var(--brass-soft)" : "transparent", color: muscleFilter === "all" ? "var(--brass)" : "var(--ink-dim)" }}>All</button>
-            {MUSCLE_GROUPS.map((m) => (
-              <button key={m} onClick={() => { setMuscleFilter(m); setRegionFilter("all"); }} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", textTransform: "capitalize", background: muscleFilter === m ? "var(--brass-soft)" : "transparent", color: muscleFilter === m ? "var(--brass)" : "var(--ink-dim)" }}>{m}</button>
-            ))}
-          </div>
-          {muscleFilter !== "all" && (REGIONS_BY_GROUP[muscleFilter] || []).length > 1 && (
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 6 }} role="group" aria-label={`Filter ${muscleFilter} by specific muscle`}>
-              <button onClick={() => setRegionFilter("all")} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: regionFilter === "all" ? "var(--bg-elev2)" : "transparent", color: regionFilter === "all" ? "var(--ink)" : "var(--ink-dim)" }}>Any {muscleFilter}</button>
-              {REGIONS_BY_GROUP[muscleFilter].map((r) => (
-                <button key={r} onClick={() => setRegionFilter(r)} className="pill" style={{ cursor: "pointer", border: `1px solid ${regionFilter === r ? "var(--brass)" : "var(--line)"}`, background: regionFilter === r ? "var(--brass-soft)" : "transparent", color: regionFilter === r ? "var(--brass)" : "var(--ink-dim)" }}>{REGION_LABEL[r]}</button>
-              ))}
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
-            <button onClick={() => setEquipFilter("all")} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: equipFilter === "all" ? "var(--bg-elev2)" : "transparent", color: equipFilter === "all" ? "var(--ink)" : "var(--ink-dim)" }}>Any Equipment</button>
-            {EQUIPMENT_TYPES.map((eq) => (
-              <button key={eq} onClick={() => setEquipFilter(eq)} className="pill" style={{ cursor: "pointer", border: `1px solid ${equipFilter === eq ? EQUIPMENT_COLORS[eq] : "var(--line)"}`, background: "transparent", color: equipFilter === eq ? EQUIPMENT_COLORS[eq] : "var(--ink-dim)" }}>{eq}</button>
-            ))}
-          </div>
-          <button
-            onClick={() => { setCreatingCustom(true); setCustomName(search); }}
-            className="atlas-btn-ghost"
-            style={{ width: "100%", marginBottom: 10, borderColor: "var(--steel)", color: "var(--steel)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-          >
-            <Plus size={14} /> Create Custom Exercise
-          </button>
-          <div style={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
-            {filtered.length === 0 && (
-              <div style={{ fontSize: 12, color: "var(--ink-dim)", padding: 8 }}>
-                No exercises match those filters. Use "Create Custom Exercise" above to add your own.
-              </div>
-            )}
-            {filtered.slice(0, visibleExerciseCount).map((ex) => {
-              // A result that only matched because the searched term is a SECONDARY muscle for
-              // this exercise (e.g. "triceps" matching Bench Press) gets labeled "Also trains
-              // triceps" — it must never read as if this were a direct triceps exercise.
-              const secondaryOnly = search.trim() && matchedOnlyViaSecondaryMuscle(ex, search);
-              return (
-                <button key={ex.name} onClick={() => setDetailEx(ex)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "var(--bg-elev2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "var(--ink)" }}>
-                  <ExerciseThumb ex={ex} size={30} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13 }}>
-                      {ex.name}
-                      {ex.isCustom && <span className="pill" style={{ marginLeft: 6, fontSize: 8, border: "1px solid var(--steel)", color: "var(--steel)" }}>Custom</span>}
-                    </div>
-                    <span className="mono" style={{ fontSize: 10, color: EQUIPMENT_COLORS[ex.equipment] }}>{ex.equipment}</span>
-                    {secondaryOnly && (
-                      <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginLeft: 8, fontStyle: "italic" }}>
-                        Also trains {search.trim().toLowerCase()}
-                      </span>
-                    )}
-                  </div>
-                  <ChevronRight size={15} color="var(--ink-dim)" />
-                </button>
-              );
-            })}
-            {filtered.length > visibleExerciseCount && (
-              <button
-                onClick={() => setVisibleExerciseCount((n) => n + EXERCISE_PAGE_SIZE)}
-                className="mono"
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: "8px 0", minHeight: 44, width: "100%", textAlign: "center" }}
-              >
-                Show {Math.min(EXERCISE_PAGE_SIZE, filtered.length - visibleExerciseCount)} more ({filtered.length - visibleExerciseCount} remaining)
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {session.exercises.length > 0 && (
-        <button className="atlas-btn" style={{ width: "100%", marginTop: 18, padding: 14 }} onClick={() => setReviewing(true)}>
-          Finish Workout
-        </button>
-      )}
-
-      {reviewing && (
-        <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 50, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px" }}>
-          <h1 className="disp" style={{ fontSize: 22, marginBottom: 4 }}>Workout Summary</h1>
-          <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 10 }}>
-            ⏱ {fmtClock((now - session.startedAt) / 1000)} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} · {totalSets} set{totalSets === 1 ? "" : "s"} · {Math.round(totalVolume)}kg volume
-          </div>
-
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-            {musclesTrained.map((m) => (
-              <span key={m} className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)", textTransform: "capitalize" }}>{m}</span>
-            ))}
-          </div>
-
-          {/* Itemized to the exact number that gets saved and added to the account's running
-              total — see the comment on finishWorkout for why this used to silently disagree
-              with that total (a real, reported bug: "+55 XP" shown here, +65 actually applied). */}
-          <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--brass)" }}>
-            <div className="disp" style={{ fontSize: 13, color: "var(--brass)", marginBottom: 8 }}>XP Earned</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Workout completion</span><span className="mono">+{xpBreakdownPreview.completion}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Sets &amp; exercises</span><span className="mono">+{xpBreakdownPreview.sets}</span></div>
-              {xpBreakdownPreview.prBonus > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Personal record bonus</span><span className="mono">+{xpBreakdownPreview.prBonus}</span></div>
-              )}
-              {xpBreakdownPreview.streakBonus > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-dim)" }}><span>Streak bonus</span><span className="mono">+{xpBreakdownPreview.streakBonus}</span></div>
-              )}
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
-              <span className="disp">Total XP earned</span>
-              <span className="mono" style={{ color: "var(--brass)" }}>+{xpBreakdownPreview.total}</span>
-            </div>
-          </div>
-
-          {sessionPRs.length > 0 && (
-            <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--brass)" }}>
-              <div className="disp" style={{ fontSize: 13, color: "var(--brass)", marginBottom: 8 }}><Trophy size={13} style={{ verticalAlign: -2, marginRight: 5 }} />{sessionPRs.length} New PR{sessionPRs.length === 1 ? "" : "s"}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {sessionPRs.map((pr, i) => (
-                  <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                    {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {mostSetsIncomplete && (
-            <div className="atlas-card" style={{ marginBottom: 16, borderColor: "var(--warn)", background: "rgba(255,165,61,0.08)" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                <AlertTriangle size={15} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.5 }}>
-                  You logged {totalSets} of {targetSetsTotal} planned sets for {session.planDayName || "this workout"}. Saving now will record it as done — you can always start another session to finish the rest.
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
-            {session.exercises.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-dim)" }}>No exercises logged.</div>}
-            {session.exercises.map((ex) => (
-              <div key={ex.name} className="atlas-card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <div className="disp" style={{ fontSize: 14 }}>{ex.name}</div>
-                  {ex.sets.length === 0 && <span className="pill mono" style={{ background: "rgba(255,107,129,0.12)", color: "var(--rest)" }}>Skipped</span>}
-                </div>
-                {ex.sets.length === 0 ? (
-                  <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>No sets logged — added to this workout but never completed.</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    {ex.sets.map((s, i) => (
-                      <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                        {s.weight}kg × {s.reps}{s.type && s.type !== "normal" ? ` (${SET_TYPE_LABELS[s.type]})` : ""}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div style={{ marginBottom: 20 }}>
-            <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", display: "block", marginBottom: 4 }}>NOTES (OPTIONAL)</label>
-            <textarea
-              className="atlas-input"
-              style={{ resize: "vertical", minHeight: 60, fontFamily: "inherit" }}
-              placeholder="How did it feel? Anything to remember for next time…"
-              value={session.notes || ""}
-              onChange={(e) => setSession((s) => ({ ...s, notes: e.target.value }))}
-            />
-          </div>
-
-          {finishError && <div className="mono" style={{ color: "var(--rest)", fontSize: 12, marginBottom: 12 }}>{finishError}</div>}
-
-          {confirmDiscard ? (
-            <div className="atlas-card" style={{ marginBottom: 12, borderColor: "var(--rest)", background: "rgba(255,107,129,0.08)" }}>
-              <div className="disp" style={{ fontSize: 14, color: "var(--rest)", marginBottom: 6 }}>Discard this workout?</div>
-              <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 12 }}>This can't be undone.</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDiscard(false)}>Keep Going</button>
-                <button className="atlas-btn" style={{ flex: 1, background: "var(--rest)" }} onClick={onDiscard}>Discard Workout</button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button className="atlas-btn" style={{ width: "100%", padding: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} disabled={finishingWorkout} onClick={() => onFinish(session, sessionPRs)}>
-                {finishingWorkout && <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />}
-                {finishingWorkout ? "Saving…" : "Save Workout"}
-              </button>
-              <button className="atlas-btn-ghost" style={{ width: "100%" }} disabled={finishingWorkout} onClick={() => setReviewing(false)}>Continue Editing</button>
-              <button onClick={() => setConfirmDiscard(true)} disabled={finishingWorkout} className="mono" style={{ background: "none", border: "none", cursor: finishingWorkout ? "default" : "pointer", color: "var(--ink-dim)", fontSize: 12, padding: 6, textAlign: "center" }}>
-                Discard Workout
-              </button>
-            </div>
-          )}
-        </div>
       )}
     </div>
   );
@@ -3091,7 +2113,15 @@ function CoachMessageContent({ content }) {
 //      presented as if other people are watching.
 
 export function workoutVolume(workout) {
-  return (workout.exercises || []).reduce((s, e) => s + (e.sets || []).reduce((s2, st) => s2 + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0), 0);
+  return workoutVolumeKg(workout);
+}
+
+// One-line text for a stored PR record. Records saved before PRs carried their set had weight/reps
+// only; newer ones carry the set and its measurement type.
+export function prText(pr) {
+  const text = pr.set ? formatSetMeasured(pr.set, pr.trackingType) : `${pr.weight}kg × ${pr.reps}`;
+  const note = { weight: "(heaviest yet)", reps: "(most reps)", duration: "(longest hold)", distance: "(farthest)", assistance: "(least assistance)" }[pr.type] || "";
+  return `${pr.exName} — ${text} ${note}`.trim();
 }
 
 function ShareCard({ workout, athleteName }) {
@@ -3104,7 +2134,7 @@ function ShareCard({ workout, athleteName }) {
   const setCount = (workout.exercises || []).reduce((n, e) => n + (e.sets || []).length, 0);
   const durationMin = workout.startedAt && workout.completedAt ? Math.max(1, Math.round((new Date(workout.completedAt) - workout.startedAt) / 60000)) : null;
   const bestPR = (workout.prs || [])[0] || null;
-  const dateLabel = new Date(workout.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const dateLabel = formatDateOnly(workout.date, { weekday: "long", month: "long", day: "numeric" });
 
   const svgMarkup = `
     <svg xmlns="http://www.w3.org/2000/svg" width="600" height="750" viewBox="0 0 600 750">
@@ -3123,10 +2153,10 @@ function ShareCard({ workout, athleteName }) {
       ${bestPR ? `
         <rect x="60" y="260" width="480" height="64" rx="12" fill="#3ECF8E22" stroke="#3ECF8E" stroke-width="1.5" />
         <text x="84" y="288" font-family="'JetBrains Mono', monospace" font-size="11" letter-spacing="1" fill="#3ECF8E">NEW PERSONAL RECORD</text>
-        <text x="84" y="312" font-family="Oswald, sans-serif" font-size="19" fill="#F4F8F6">${escapeXml(bestPR.exName)} — ${bestPR.weight}kg × ${bestPR.reps}</text>
+        <text x="84" y="312" font-family="Oswald, sans-serif" font-size="19" fill="#F4F8F6">${escapeXml(prText(bestPR))}</text>
       ` : ""}
       ${[
-        { label: "VOLUME", value: `${volume.toLocaleString()}kg` },
+        volume > 0 ? { label: "VOLUME", value: `${volume.toLocaleString()}kg` } : { label: "EXERCISES", value: `${(workout.exercises || []).length}` },
         { label: "SETS", value: `${setCount}` },
         { label: "DURATION", value: durationMin ? `${durationMin} min` : "—" },
       ].map((s, i) => `
@@ -3273,7 +2303,7 @@ function WorkoutCompleteScreen({ workout, streakBefore, streakAfter, athleteDisp
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {workout.prs.map((pr, i) => (
                 <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                  {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
+                  {prText(pr)}
                 </div>
               ))}
             </div>
@@ -4960,6 +3990,14 @@ export default function App() {
   // them straight into their account on that temporary session.
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [checkoutResult, setCheckoutResult] = useState(null); // "success" | "cancelled" | null
+  // Workout-saving reliability (see src/lib/workoutSync.js): the in-progress session is stored on
+  // this device on every change and synced to the account in the background; a finished workout is
+  // queued durably before any network call and removed from the queue only once the server confirms.
+  const [saveStatus, setSaveStatus] = useState({ state: "saved", at: null });
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncNotice, setSyncNotice] = useState(null);
+  const sessionSaveSeq = useRef(0);
+  const skipNextSessionSave = useRef(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthUser(session?.user ?? null));
@@ -4974,6 +4012,9 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return;
     (async () => {
+      // A workout that was finished while offline (or whose save was interrupted) is replayed
+      // first. The save is idempotent by workout id, so replaying one that already landed is a no-op.
+      try { await withTimeout(flushPendingWorkouts(authUser.id, syncStore), 15000, "flush_pending"); } catch (e) { /* still offline: stays queued */ }
       const [p, w, n, wl, sess, ce, fav, chal] = await Promise.all([
         loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises), loadKey(KEYS.favorites), loadKey(KEYS.challenges),
       ]);
@@ -4982,7 +4023,10 @@ export default function App() {
       // "drop the bad items" instead of handing a malformed item into code downstream that
       // assumes every item has certain fields and crashing the whole app. (Verified live: an
       // exercise object missing `.name` crashed Train's search via `e.name.toLowerCase()`.)
-      const workouts = sanitizeList(w, isValidWorkout);
+      const stillPending = listPending(authUser.id);
+      setPendingCount(stillPending.length);
+      // Queued-but-unsynced workouts are shown in history immediately, not hidden until they sync.
+      const workouts = mergeWorkouts(sanitizeList(w, isValidWorkout), stillPending.filter(isValidWorkout));
       const nutrition = sanitizeList(n, isValidFoodEntry);
       const weightlog = sanitizeList(wl, isValidWeightEntry);
       const customExercises = sanitizeList(ce, isValidCustomExercise);
@@ -4997,10 +4041,14 @@ export default function App() {
       // never got cleared, not a real in-progress one — discard it and finish clearing the row.
       // isValidSession also rejects malformed/truncated session data (missing fields, wrong
       // types) so a corrupted row can't crash Train when it reads session.exercises/.startedAt.
-      const validSess = isValidSession(sess) ? sess : null;
+      // Prefer whichever copy of the in-progress workout was touched most recently: the account copy,
+      // or the one kept on this device (which survives a lost connection or a killed tab).
+      const localBackup = loadSessionBackup(authUser.id)?.session;
+      const candidate = pickNewerSession(isValidSession(sess) ? sess : null, isValidSession(localBackup) ? localBackup : null);
+      const validSess = candidate ? normalizeSession(candidate, customExercises) : null;
       const stale = validSess && isStaleSession(validSess, workouts);
-      if (validSess && !stale) { setSession(validSess); setTab("train"); }
-      else if (validSess && stale) { saveKey(KEYS.session, null); }
+      if (validSess && !stale) { skipNextSessionSave.current = candidate === sess; setSession(validSess); setTab("train"); }
+      else if (validSess && stale) { saveKey(KEYS.session, null); saveSessionBackup(authUser.id, null); }
       else if (sess) { saveKey(KEYS.session, null); } // sess existed but failed validation — clear the corrupt row
       setCustomExercises(customExercises);
       setFavorites(favorites);
@@ -5228,12 +4276,64 @@ export default function App() {
     setTab("dashboard");
   };
 
-  // Auto-save the in-progress session on every change so a page reload mid-workout never loses logged sets.
+  // Persists the in-progress workout so a reload, crash or lost connection mid-session never loses
+  // logged sets: a synchronous copy on this device on EVERY change, plus a debounced write to the
+  // account with an explicit saved / saving / error status the logger shows.
+  const persistSession = async (sess) => {
+    const seq = ++sessionSaveSeq.current;
+    setSaveStatus((st) => ({ ...st, state: "saving" }));
+    try {
+      const ok = await withTimeout(saveKey(KEYS.session, sess), 15000, "session_save");
+      if (seq !== sessionSaveSeq.current) return; // a newer change superseded this write
+      setSaveStatus(ok ? { state: "saved", at: Date.now() } : (st) => ({ ...st, state: "error" }));
+    } catch (e) {
+      if (seq === sessionSaveSeq.current) setSaveStatus((st) => ({ ...st, state: "error" }));
+    }
+  };
+  const sessionRef = useRef(null);
+  sessionRef.current = session;
   useEffect(() => {
-    if (!loaded) return;
-    if (session) saveKey(KEYS.session, session);
-    else saveKey(KEYS.session, null);
+    if (!loaded || !authUser) return undefined;
+    saveSessionBackup(authUser.id, session);
+    if (skipNextSessionSave.current) { skipNextSessionSave.current = false; return undefined; }
+    setSaveStatus((st) => (st.state === "saved" ? { ...st, state: "saving" } : st));
+    const t = setTimeout(() => persistSession(session), session ? 600 : 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, loaded]);
+  // Flush immediately when the page is hidden or the connection returns, rather than waiting out the debounce.
+  useEffect(() => {
+    if (!loaded || !authUser) return undefined;
+    const flush = () => { if (sessionRef.current && saveStatus.state !== "saved") persistSession(sessionRef.current); };
+    const onHide = () => { if (document.visibilityState === "hidden") flush(); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("online", flush);
+    return () => { document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", flush); window.removeEventListener("online", flush); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, authUser, saveStatus.state]);
+  const retrySessionSave = () => { if (sessionRef.current) persistSession(sessionRef.current); };
+
+  // Replays workouts waiting to sync (after reconnecting, or when the athlete taps "Sync now").
+  const syncPendingWorkouts = async () => {
+    if (!authUser) return;
+    try {
+      const res = await withTimeout(flushPendingWorkouts(authUser.id, syncStore), 20000, "flush_pending");
+      if (res.workouts) setWorkouts((cur) => mergeWorkouts(res.workouts, cur.filter((w) => listPending(authUser.id).some((q) => q.id === w.id))));
+      setPendingCount(listPending(authUser.id).length);
+      setSyncNotice(null);
+    } catch (e) {
+      setPendingCount(listPending(authUser.id).length);
+      setSyncNotice(describeSaveFailure(e));
+    }
+  };
+  useEffect(() => {
+    if (!loaded || !authUser) return undefined;
+    const onOnline = () => { if (listPending(authUser.id).length > 0) syncPendingWorkouts(); };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, authUser]);
 
   const completeOnboarding = async (form) => {
     // No `targets` snapshot stored here — getNutritionTargets(profile) derives it fresh from
@@ -5248,41 +4348,45 @@ export default function App() {
     logEvent("onboarding_completed", { goal: form.goal, experience: form.experience, trainingDays: form.trainingDays });
   };
 
-  // Idempotent by construction: once `session` is cleared, a second call (e.g. a double-click
-  // on Finish before the first click's state update commits) is a no-op instead of a duplicate
-  // history entry. If the save itself fails, the active session is left untouched — nothing is
-  // lost, and the caller gets a retryable error instead of a silently-dropped workout.
-  const finishWorkout = async (s, sessionPRs = []) => {
-    if (finishingRef.current || !session) return null;
+  // Finishing a workout (measured in scripts/measure-save-latency.mjs: the old path made six
+  // sequential round trips and had no deadline, so a slow or dead connection left the button on
+  // "Saving…" indefinitely). Now:
+  //   1. the workout is queued durably on this device BEFORE any network call;
+  //   2. ONE conflict-safe, idempotent write (id = the session id, merge by id, compare-and-set on
+  //      the row version) runs under a deadline — a double tap or a retry can never duplicate it,
+  //      and another device's workouts are merged, never overwritten;
+  //   3. only the core write gates the UI; the plan advance and the session cleanup run afterwards
+  //      in the background, and nothing optional (AI, analytics) is ever awaited here;
+  //   4. on failure the session stays active, the queue keeps the workout, and the error says it is
+  //      safe — reloading and reconnecting replays the queue and finishes the job.
+  const finishWorkout = async (s) => {
+    if (finishingRef.current || !session || !authUser) return null;
     finishingRef.current = true;
     setFinishingWorkout(true);
     setFinishError(null);
-    // Computed once, here, and stored on the workout itself — this exact object is what both the
-    // finish-summary screen and any later workout-history detail view read, so they can never show
-    // two different numbers for the same workout the way the old "recompute an aggregate formula
-    // from scratch each time" design did (a real, reported bug: summary said +55 XP, the account
-    // total actually went up by 65, because the total secretly included a streak bonus the summary
-    // omitted).
+    const prs = sessionPrEvents(workouts, s, customExercises).map((e) => ({ exName: e.exName, type: e.type, trackingType: e.trackingType, set: e.set, weight: e.weight, reps: e.reps }));
+    // Computed once, here, and stored on the workout itself so the summary and any later history
+    // view always show the same numbers (a real, reported bug: +55 XP shown, +65 applied).
     const streakBefore = computeStreak(workouts);
     const streakAfter = computeStreak([...workouts, s]);
-    const xpBreakdown = computeWorkoutXp(s, { prCount: sessionPRs.length, streakDelta: streakAfter - streakBefore });
-    const completed = { ...s, completedAt: new Date().toISOString(), xpBreakdown, prs: sessionPRs };
-    const next = [...workouts, completed];
-    const savedWorkout = await saveKey(KEYS.workouts, next);
-    if (!savedWorkout) {
-      setFinishError("Couldn't save your workout — check your connection and try again. Nothing was lost.");
+    const xpBreakdown = computeWorkoutXp(s, { prCount: prs.length, streakDelta: streakAfter - streakBefore });
+    const completed = finalizeSession(s, { now: Date.now(), xpBreakdown, prs, timeZone: getTimeZone() });
+    enqueuePending(authUser.id, completed);
+    setPendingCount(listPending(authUser.id).length);
+    try {
+      const res = await withTimeout(saveCompletedWorkouts(syncStore, [completed]), 20000, "workout_save");
+      dequeuePending(authUser.id, completed.id);
+      setPendingCount(listPending(authUser.id).length);
+      setWorkouts(mergeWorkouts(res.workouts, []));
+    } catch (err) {
+      setFinishError(describeSaveFailure(err));
+      captureMessage("workout save failed: " + (err?.code || err?.message || "error"));
       finishingRef.current = false;
       setFinishingWorkout(false);
       return null;
     }
-    setWorkouts(next);
-    if (profile?.activePlan && s.plannedDayIndex != null && s.plannedDayIndex === profile.activePlan.currentDayIndex) {
-      const nextIndex = (profile.activePlan.currentDayIndex + 1) % profile.activePlan.days.length;
-      const updatedProfile = { ...profile, activePlan: { ...profile.activePlan, currentDayIndex: nextIndex } };
-      if (await saveKey(KEYS.profile, updatedProfile)) setProfile(updatedProfile);
-    }
+    // The workout is safely stored. Leave the saving state NOW.
     setSession(null);
-    await saveKey(KEYS.session, null);
     finishingRef.current = false;
     setFinishingWorkout(false);
     setTab("dashboard");
@@ -5292,35 +4396,47 @@ export default function App() {
       setCount: completed.exercises.reduce((n, e) => n + e.sets.length, 0),
       planned: completed.plannedDayIndex != null,
     });
+    // Best-effort follow-ups, never awaited by the UI. Advancing the plan is idempotent per workout.
+    const plan = profile?.activePlan;
+    if (plan && s.plannedDayIndex != null && s.plannedDayIndex === plan.currentDayIndex && plan.lastAdvancedWorkoutId !== completed.id) {
+      const nextIndex = (plan.currentDayIndex + 1) % plan.days.length;
+      const updatedProfile = { ...profile, activePlan: { ...plan, currentDayIndex: nextIndex, lastAdvancedWorkoutId: completed.id } };
+      saveKey(KEYS.profile, updatedProfile).then((ok) => { if (ok) setProfile(updatedProfile); });
+    }
     return completed;
   };
 
   const discardWorkout = async () => {
     setSession(null);
+    saveSessionBackup(authUser?.id, null);
     await saveKey(KEYS.session, null);
     setTab("dashboard");
   };
 
-  // Editing/deleting a past (already-finished) workout — used by the workout-history detail view.
-  // Both follow the same save-then-setState order as every other mutation in this file (addFood,
-  // editFood, finishWorkout): the write is confirmed to have actually landed before local state
-  // changes, so a failed save leaves the UI showing the last known-good data instead of a value
-  // that silently never made it to storage. Progress, streaks, muscle recovery, and PR detection
-  // are all derived from `workouts` via useMemo/pure functions elsewhere (muscleRecovery,
-  // Progress.jsx's charts, evaluatePR) — they recompute automatically from whatever `workouts`
-  // becomes, with no separate cache to keep in sync.
+  // Editing/deleting a past workout. Both are conflict-safe per workout (src/lib/workoutSync.js):
+  // the server copy is re-read and merged, so editing here can never erase workouts saved from
+  // another device, and a workout deleted elsewhere is not resurrected by a stale edit. Progress,
+  // streaks, readiness, PRs and the next-target recommendations are all derived from `workouts`,
+  // so they recompute from whatever this becomes.
   const editWorkout = async (id, patch) => {
-    const next = workouts.map((w) => (w.id === id ? { ...w, ...patch } : w));
-    const ok = await saveKey(KEYS.workouts, next);
-    if (ok) setWorkouts(next);
-    return ok;
+    try {
+      const res = await withTimeout(editWorkoutSynced(syncStore, id, patch), 20000, "workout_edit");
+      setWorkouts(mergeWorkouts(res.workouts, []));
+      if (res.missing) { setSyncNotice("That workout was deleted on another device, so your change wasn't applied."); return false; }
+      return true;
+    } catch (e) {
+      return false;
+    }
   };
 
   const deleteWorkout = async (id) => {
-    const next = workouts.filter((w) => w.id !== id);
-    const ok = await saveKey(KEYS.workouts, next);
-    if (ok) setWorkouts(next);
-    return ok;
+    try {
+      const res = await withTimeout(deleteWorkoutSynced(syncStore, id), 20000, "workout_delete");
+      setWorkouts(mergeWorkouts(res.workouts, []));
+      return true;
+    } catch (e) {
+      return false;
+    }
   };
 
   // Centralizes both "start today's scheduled workout" (Home/Train, when an active plan exists)
@@ -5330,15 +4446,7 @@ export default function App() {
     if (session) { setTab("train"); return; }
     const plan = profile?.activePlan;
     const day = plannedDayIndex != null && plan?.days ? plan.days[plannedDayIndex] : null;
-    const exercises = day
-      ? day.muscleGroups.flatMap((mg) => mg.exercises.map((e) => ({
-          name: e.name, sets: [], supersetWith: null, targetSets: e.sets, targetReps: e.reps,
-        })))
-      : [];
-    setSession({
-      id: uid(), date: todayStr(), startedAt: Date.now(), restEndAt: null, exercises,
-      planDayName: day?.day || null, plannedDayIndex: plannedDayIndex ?? null,
-    });
+    setSession(createSession({ planDay: day, plannedDayIndex: plannedDayIndex ?? null, unit: profile?.unit || "kg", customExercises }));
     setTab("train");
     logEvent("workout_started", { planned: plannedDayIndex != null });
   };
@@ -5584,8 +4692,17 @@ export default function App() {
         />
       ) : (
         <>
+          {(pendingCount > 0 || syncNotice) && (
+            <div role="status" style={{ margin: "10px 14px 0", padding: "10px 12px", borderRadius: 10, border: "1px solid var(--warn)", background: "rgba(255,165,61,0.08)", display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}>
+              <span style={{ flex: 1, lineHeight: 1.45 }}>
+                {pendingCount > 0 ? `${pendingCount} workout${pendingCount === 1 ? "" : "s"} saved on this device, waiting to sync. ` : ""}{syncNotice || ""}
+              </span>
+              {pendingCount > 0 && <button type="button" className="atlas-btn-ghost" style={{ minHeight: 44, padding: "0 12px", fontSize: 12 }} onClick={syncPendingWorkouts}>Sync now</button>}
+              {!pendingCount && <button type="button" aria-label="Dismiss" className="atlas-btn-ghost" style={{ minHeight: 44, minWidth: 44, padding: 0 }} onClick={() => setSyncNotice(null)}>×</button>}
+            </div>
+          )}
           {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} onOpenChallenges={() => setShowChallenges(true)} onViewExercises={onViewExercises} />}
-          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onArchiveCustomExercise={archiveCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} initialMuscleFilter={trainMuscleFilter} />}
+          {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onArchiveCustomExercise={archiveCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} initialMuscleFilter={trainMuscleFilter} saveStatus={saveStatus} onRetrySave={retrySessionSave} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (

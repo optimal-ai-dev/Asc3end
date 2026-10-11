@@ -455,3 +455,17 @@ describe("duplicate consolidation — RDL and Chest Supported Row", () => {
     expect(dups).toEqual([]);
   });
 });
+
+import { prText } from "./App.jsx";
+describe("prText — personal-record lines read in each exercise's own units (never 'kg ×' for a hold)", () => {
+  it("renders a duration PR, a weight PR, and a legacy weight/reps record", () => {
+    expect(prText({ exName: "Plank", type: "duration", trackingType: "isometric_hold", set: { durationSeconds: 30 } })).toBe("Plank — 30s (longest hold)");
+    expect(prText({ exName: "Barbell Bench Press", type: "weight", trackingType: "weight_reps", set: { weight: 85, reps: 5 } })).toBe("Barbell Bench Press — 85kg × 5 (heaviest yet)");
+    expect(prText({ exName: "Squat", type: "reps", weight: 100, reps: 6 })).toBe("Squat — 100kg × 6 (most reps)");
+  });
+  it("never contains 'kg ×' without a number, NaN or undefined", () => {
+    for (const pr of [{ exName: "Plank", type: "duration", trackingType: "isometric_hold", set: { durationSeconds: 45 } }, { exName: "Pull-Up", type: "reps", trackingType: "bodyweight_reps", set: { reps: 12, weight: 0 } }]) {
+      expect(prText(pr)).not.toMatch(/NaN|undefined|kg ×\s|^\s*kg/);
+    }
+  });
+});

@@ -72,6 +72,16 @@ export const REGION_LABEL = Object.fromEntries(
   [...MUSCLE_REGIONS, ...UNMAPPED_READINESS_REGIONS].map((r) => [r.id, r.label])
 );
 
+// Every readiness region (the 18 drawn on the body map plus the 3 filter/search-only ones),
+// grouped by coarse muscle group — used to scope region filters to the selected coarse group, and
+// (reverse map) to derive a custom exercise's browsing category from its precise primary muscle.
+export const ALL_READINESS_REGIONS = [...MUSCLE_REGIONS, ...UNMAPPED_READINESS_REGIONS];
+export const REGIONS_BY_GROUP = MUSCLE_GROUPS.reduce((acc, g) => {
+  acc[g] = ALL_READINESS_REGIONS.filter((r) => r.group === g).map((r) => r.id);
+  return acc;
+}, {});
+export const REGION_TO_GROUP = Object.fromEntries(ALL_READINESS_REGIONS.map((r) => [r.id, r.group]));
+
 // No entries here today: every region in READINESS_MUSCLE_IDS now has real, independently-computed
 // exercise data behind it (see the region-mapping fixes below), so nothing needs to borrow another
 // muscle's reading. Kept as a live mechanism (not deleted) because it's still the correct, honest

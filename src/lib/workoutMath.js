@@ -87,6 +87,25 @@ export function evaluatePR(historySets, weight, reps) {
   return evaluateSetPR(historySets, { weight, reps, type: "normal" }, "weight_reps");
 }
 
+/** Every personal record set during an in-progress (or just-finished) session, judged set by set
+ *  against prior history plus the session's own earlier sets. Deterministic, so correcting or
+ *  deleting a set changes the result — nothing about PRs is cached. */
+export function sessionPrEvents(workouts, session, customExercises) {
+  const events = [];
+  for (const entry of session?.exercises || []) {
+    const type = entryType(entry, customExercises);
+    let history = (workouts || []).flatMap((w) =>
+      (w.exercises || []).filter((e) => e.name === entry.name && entryType(e, customExercises) === type).flatMap((e) => e.sets || [])
+    );
+    for (const set of entry.sets || []) {
+      const verdict = evaluateSetPR(history, set, type);
+      if (verdict.isPR) events.push({ exId: entry.id, exName: entry.name, setId: set.id, type: verdict.type, set, trackingType: type, weight: set.weight, reps: set.reps });
+      if (isPrEligible(set) && isSetComplete(set, type)) history = history.concat(set);
+    }
+  }
+  return events;
+}
+
 // Current consecutive-day training streak, counting back from today (or from yesterday if
 // nothing's logged yet today — a rest day doesn't zero out an active streak until a day is
 // actually skipped). Workout dates are local calendar-date strings (see ./dates), so the streak

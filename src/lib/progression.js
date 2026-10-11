@@ -14,7 +14,7 @@
 import {
   effectiveTrackingType, isSetComplete, isBaselineEligible, estimate1RM, formatSet, formatDuration, specFor,
 } from "./measurement.js";
-import { workoutInstant } from "./dates.js";
+import { workoutInstant, formatDateOnly } from "./dates.js";
 
 export const GOAL_REP_RANGES = {
   muscle_growth: [8, 12],
@@ -140,7 +140,7 @@ export function computeProgression({ workouts, exerciseName, trackingType = "wei
 
   const last = sessions[0];
   const source = sourceOf(last);
-  const when = source.date;
+  const when = formatDateOnly(source.date, { month: "short", day: "numeric" }, "en-US");
   const stepUnit = incrementFor(equipment, unit, increments);
   const spec = specFor(type);
   const priorTarget = last.entry.targetReps ?? last.entry.target ?? null;

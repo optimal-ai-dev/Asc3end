@@ -128,7 +128,7 @@ describe("rep range, increments and progression decisions", () => {
     const workouts = [session("2026-10-01", [bench([work(80, 10)])], { id: "abc" })];
     const p = computeProgression({ workouts, ...BENCH });
     expect(p.source).toEqual({ workoutId: "abc", date: "2026-10-01" });
-    expect(p.text).toContain("2026-10-01");
+    expect(p.text).toContain("Oct 1");
   });
 });
 
@@ -274,5 +274,25 @@ describe("misc", () => {
     const plank = events.find((e) => e.name === "Plank");
     expect(plank.type).toBe("duration");
     expect(plank.set).toEqual({ durationSeconds: 45 });
+  });
+});
+
+import { sessionPrEvents } from "./workoutMath";
+describe("sessionPrEvents", () => {
+  const prior = [session("2026-10-01", [bench([work(80, 8)])])];
+  const live = (sets) => ({ exercises: [{ id: "e1", name: "Barbell Bench Press", trackingType: "weight_reps", sets }] });
+  it("finds PRs against history and the session's own earlier sets, ignoring warm-ups", () => {
+    const sess = live([{ id: "a", weight: 100, reps: 1, type: "warmup" }, { id: "b", weight: 82.5, reps: 8, type: "normal" }, { id: "c", weight: 82.5, reps: 9, type: "normal" }, { id: "d", weight: 80, reps: 8, type: "normal" }]);
+    const ev = sessionPrEvents(prior, sess);
+    expect(ev.map((e) => `${e.setId}:${e.type}`)).toEqual(["b:weight", "c:reps"]);
+  });
+  it("deleting a set recomputes (no stale PR)", () => {
+    const sess = live([{ id: "b", weight: 82.5, reps: 8, type: "normal" }]);
+    expect(sessionPrEvents(prior, sess)).toHaveLength(1);
+    expect(sessionPrEvents(prior, live([{ id: "b", weight: 70, reps: 8, type: "normal" }]))).toHaveLength(0);
+  });
+  it("a first-ever plank hold is a duration PR; a shorter one later is not", () => {
+    const sess = { exercises: [{ id: "p", name: "Plank", trackingType: "isometric_hold", sets: [{ id: "1", durationSeconds: 30, type: "normal" }, { id: "2", durationSeconds: 25, type: "normal" }, { id: "3", durationSeconds: 45, type: "normal" }] }] };
+    expect(sessionPrEvents([], sess).map((e) => `${e.setId}:${e.type}`)).toEqual(["1:duration", "3:duration"]);
   });
 });
