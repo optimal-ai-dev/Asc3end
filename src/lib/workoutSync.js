@@ -18,7 +18,7 @@
 //   * Failures throw/return — they never silently drop data. Callers keep the unsaved workout in a
 //     durable local queue and retry (see pendingQueue.js).
 
-import { listPending, dequeuePending } from "./pendingQueue";
+import { listPending, dequeuePending } from "./pendingQueue.js";
 
 export const WORKOUTS_KEY = "atlas:workouts";
 const MAX_ATTEMPTS = 4;

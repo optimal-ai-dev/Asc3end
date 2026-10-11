@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EXERCISES, POSES, POSES_FINISH, POSE_TIPS, SECONDARY_MUSCLES } from "./App.jsx";
+import { figureFidelity } from "./exerciseMedia.js";
 
 // The illustration system's core promise is "never show a broken image" — every exercise in the
 // library references a `pose` key, and ExerciseFigure falls back to POSES.squat at runtime if a
@@ -13,19 +14,19 @@ describe("exercise illustration data integrity", () => {
     expect(missing, `these approved-media exercises reference a pose with no POSES entry: ${missing.join(", ")}`).toEqual([]);
   });
 
-  // A handful of genuinely new movement patterns (kickbacks, sled/cardio-machine work, sissy/
-  // cossack/reverse-nordic squats, jump-rope, burpees, box jumps, med-ball throws) were added
-  // without inventing unreviewed illustration geometry for them — each is explicitly flagged
-  // mediaStatus:"pending" instead, so the detail view shows an honest "Demonstration coming soon"
-  // state (see getExerciseMediaState in App.jsx) rather than a wrong or reused figure. This test
-  // guards the other side of that contract: nothing is marked "approved" without real geometry, and
-  // every "pending" exercise genuinely lacks a POSES entry (i.e. pending isn't hiding exercises
-  // that actually do have real illustration data).
-  it("every mediaStatus:'pending' exercise genuinely has no POSES entry (pending isn't over-applied)", () => {
+  // Which exercises may show a figure is decided PER EXERCISE (src/exerciseMedia.js figureFidelity),
+  // not per pose: the lying-press figure used to be shown for Dumbbell Fly, Pullover, Skull Crusher
+  // and Svend Press, the seated-press figure for Pec Deck and cable flies, and so on — figures that
+  // taught a different movement. This guards both sides of the new contract: nothing is "approved"
+  // unless its rule says the artwork truthfully depicts it, and every "pending" exercise that DOES
+  // have pose artwork is pending for a stated, specific reason (the figure depicts something else).
+  it("every pending exercise that has pose artwork is pending for a stated reason, and every approved one passes its rule", () => {
     const pending = EXERCISES.filter((e) => e.mediaStatus === "pending");
     expect(pending.length).toBeGreaterThan(0);
-    const wronglyPending = pending.filter((e) => POSES[e.pose]).map((e) => `${e.name} -> ${e.pose}`);
-    expect(wronglyPending, `these exercises have real POSES data but are marked pending: ${wronglyPending.join(", ")}`).toEqual([]);
+    const unexplained = pending.filter((e) => POSES[e.pose] && !figureFidelity(e).reason).map((e) => e.name);
+    expect(unexplained).toEqual([]);
+    const wronglyApproved = EXERCISES.filter((e) => e.mediaStatus === "approved" && !figureFidelity(e).approved).map((e) => e.name);
+    expect(wronglyApproved).toEqual([]);
   });
 
   it("mediaStatus is only ever 'approved' or 'pending' for a built-in exercise", () => {

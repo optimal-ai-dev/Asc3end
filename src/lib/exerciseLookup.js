@@ -2,7 +2,7 @@
 // `name` is the persisted identity of an exercise (see the stability contract in exerciseData.js);
 // `id` is the catalogue's stable slug and is what the coach and exports expose alongside it.
 
-import { EXERCISES } from "../exerciseData";
+import { EXERCISES } from "../exerciseData.js";
 
 const BY_NAME = new Map();
 const BY_ALIAS = new Map();

@@ -3,14 +3,14 @@
 // chart — never a "kg", a "reps" or an estimated 1RM — and dates are local calendar-date strings
 // handled with ./dates (never UTC slices).
 
-import { MUSCLE_GROUPS } from "../exerciseData";
-import { findExercise } from "./exerciseLookup";
+import { MUSCLE_GROUPS } from "../exerciseData.js";
+import { findExercise } from "./exerciseLookup.js";
 import {
   effectiveTrackingType, isSetComplete, isPrEligible, isWorkingSet, bestSet, compareSets, estimate1RM, setVolume,
   formatSet, specFor, formatDuration, formatDistance,
-} from "./measurement";
-import { allTimePrEvents, workingSets } from "./workoutMath";
-import { today as localToday, addDays, dayOfWeek, startOfWeek, daysBetween } from "./dates";
+} from "./measurement.js";
+import { allTimePrEvents, workingSets } from "./workoutMath.js";
+import { today as localToday, addDays, dayOfWeek, startOfWeek, daysBetween } from "./dates.js";
 
 const byDateAsc = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 

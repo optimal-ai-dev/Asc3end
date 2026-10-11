@@ -7,14 +7,14 @@
 // or a 1RM, a warm-up never counts as a working set, and "today" is the viewer's local date, not
 // the UTC date.
 
-import { classifyDayAdherence } from "./nutritionMath";
+import { classifyDayAdherence } from "./nutritionMath.js";
 import {
   effectiveTrackingType, isSetComplete, isWorkingSet, isPrEligible, setVolume, specFor, estimate1RM,
   bestSet, compareSets, exerciseVolume, setKind, isBaselineEligible,
-} from "./measurement";
-import { computeProgression, GOAL_REP_RANGES } from "./progression";
-import { resolveTrackingType, findExercise } from "./exerciseLookup";
-import { today as localToday, addDays, startOfWeek, daysBetween, getTimeZone } from "./dates";
+} from "./measurement.js";
+import { computeProgression, GOAL_REP_RANGES } from "./progression.js";
+import { resolveTrackingType, findExercise } from "./exerciseLookup.js";
+import { today as localToday, addDays, startOfWeek, daysBetween, getTimeZone } from "./dates.js";
 
 export const REP_RANGES = GOAL_REP_RANGES;
 

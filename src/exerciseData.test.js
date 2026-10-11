@@ -258,11 +258,12 @@ describe("guidance resolution (instructions/form cues) never returns empty conte
 // exact combination of aliases, region mapping, equipment, and trackingType that must never
 // silently drift as the catalogue is edited in the future.
 describe("named regression tests", () => {
-  it("RDL — findable by abbreviation, correctly mapped to lowerBack, weight_reps tracked", () => {
+  it("RDL — findable by abbreviation, primary muscle hamstrings (a hamstring-dominant hinge, not a lower-back lift), weight_reps tracked", () => {
     const ex = EXERCISES.find((e) => e.name === "Romanian Deadlift");
     expect(ex).toBeTruthy();
     expect(matchesExerciseSearch(ex, "rdl")).toBe(true);
-    expect(regionForExercise(ex)).toBe("lowerBack");
+    expect(regionForExercise(ex)).toBe("hamstrings");
+    expect(ex.muscle).toBe("legs");
     expect(ex.trackingType).toBe("weight_reps");
   });
 
@@ -361,7 +362,7 @@ describe("Rope Pushdown — corrected classification (previously displayed \"Pri
     const ex = EXERCISES.find((e) => e.name === "Rope Pushdown");
     expect(ex.mechanics).toBe("isolation");
     expect(ex.equipment).toBe("Cable");
-    expect(ex.pose).toBe("triceps_ext");
+    expect(ex.pose).toBe("pushdown"); // its own cable-pushdown pose, no longer the shared overhead-extension pose
   });
 });
 

@@ -22,6 +22,9 @@
 // cardio entries were previously jammed under "core" for lack of anywhere better to put them; this
 // reclassifies their `muscle` field (metadata only, `name` unchanged) to a home that actually
 // describes them, and is where every new carry/sled/cardio-machine/throw exercise lives.
+import { findGuidanceFamily } from "./exerciseGuidance.js";
+import { figureFidelity } from "./exerciseMedia.js";
+
 export const MUSCLE_GROUPS = ["chest", "back", "shoulders", "arms", "legs", "core", "conditioning"];
 
 // Anatomical region — the fine-grained 18-region set the muscle-readiness map already renders
@@ -154,6 +157,7 @@ export const POSE_TIPS = {
   neck: ["Move slowly and stop well short of pain", "Use light resistance until control is established", "Keep the rest of the spine neutral throughout"],
   curl: ["Keep elbows pinned to your sides", "Avoid swinging the torso to move the weight", "Control the lowering phase, don't just drop it"],
   triceps_ext: ["Keep elbows fixed and close to your sides or head", "Extend fully but avoid snapping the elbow joint", "Control the return instead of letting it fly back"],
+  pushdown: ["Pin the elbows to your sides and keep the upper arms still", "Push down to full elbow extension, then squeeze the triceps", "Let the handle rise only until the forearms are about parallel to the floor"],
   wrist_curl: ["Move through the wrist only, forearm stays still", "Use a full range of motion, don't rush it", "Light weight is enough — this is a small joint"],
   squat: ["Brace core before descending, keep it tight throughout", "Knees track in line with toes, don't cave inward", "Hit consistent depth every rep"],
   leg_press: ["Don't let knees cave inward under load", "Avoid locking knees out hard at the top", "Lower until knees reach roughly 90°"],
@@ -260,6 +264,7 @@ export const SECONDARY_REGIONS_BY_POSE = {
   neck: [],
   curl: ["forearms"],
   triceps_ext: [],
+  pushdown: [],
   wrist_curl: [],
   squat: ["glutes", "hamstrings", "adductors", "abs"],
   leg_press: ["glutes", "hamstrings"],
@@ -311,6 +316,7 @@ export const POSE_SETUP_EXECUTION = {
   shrug: { setup: "Stand tall holding the weight at the sides or in front, arms straight.", execution: "Lift the shoulders straight up toward the ears, pause briefly, then lower under control.", breathingCue: "Exhale on the lift, inhale on the descent." },
   neck: { setup: "Sit or stand tall with the rest of the spine neutral, using light resistance or bodyweight only.", execution: "Move the head slowly and deliberately through the intended direction, then return to the start.", breathingCue: "Breathe normally throughout — this is a slow, controlled movement." },
   curl: { setup: "Stand or sit with the weight held at arm's length, elbows pinned close to the torso.", execution: "Curl the weight up by flexing the elbow, squeeze briefly at the top, then lower under control to full extension.", breathingCue: "Exhale on the curl, inhale on the lowering." },
+  pushdown: { setup: "Stand facing a high cable with a rope or bar attached, feet about hip-width, a slight forward lean and the elbows pinned to your sides, hands holding the attachment at about chest height.", execution: "Push the attachment down by straightening the elbows until the arms are fully extended (spreading the rope ends apart at the bottom if using a rope), squeeze the triceps, then let it rise under control until the forearms are about parallel to the floor.", breathingCue: "Exhale as you push down, inhale as it rises." },
   triceps_ext: { setup: "Fix the upper arms close to the torso or overhead, holding the bar, rope or dumbbell at a bent-elbow starting position.", execution: "Extend through the elbow to full lockout without moving the upper arm, then return under control to the start.", breathingCue: "Exhale on the extension, inhale on the return." },
   wrist_curl: { setup: "Rest the forearm on a bench or the thigh with the wrist free to move, holding a light weight.", execution: "Move the weight through the wrist joint only, using a full range of motion, then return under control.", breathingCue: "Breathe normally — the load is light enough not to require bracing." },
   squat: { setup: "Set the bar or weight in position, feet roughly shoulder width, brace the core before descending.", execution: "Sit the hips back and down while keeping the knees tracking over the toes, reaching consistent depth, then drive back up.", breathingCue: "Inhale and brace before descending, exhale after passing the hardest part of the ascent." },
@@ -354,7 +360,7 @@ const COMPOUND_POSES = new Set([
   "press_overhead", "squat", "leg_press", "lunge", "erg", "burpee", "box_jump", "reverse_nordic",
   "sissy_squat", "cossack_squat",
 ]);
-const PUSH_POSES = new Set(["press_lying", "press_seated_machine", "push_up", "dip", "press_overhead", "squat", "leg_press", "lunge", "leg_extension", "calf_raise", "box_jump"]);
+const PUSH_POSES = new Set(["pushdown", "press_lying", "press_seated_machine", "push_up", "dip", "press_overhead", "squat", "leg_press", "lunge", "leg_extension", "calf_raise", "box_jump"]);
 const PULL_POSES = new Set(["pullup", "pulldown", "row", "hinge", "curl", "shrug", "leg_curl", "rear_delt", "lateral_raise", "leg_raise_hang", "twist", "erg"]);
 const STATIC_POSES = new Set(["plank", "wrist_curl", "neck", "hip_swing", "sissy_squat", "reverse_nordic"]);
 const LOCOMOTION_POSES = new Set(["carry", "run_walk", "bike", "stair_climb", "jump_rope", "erg"]);
@@ -386,13 +392,33 @@ function deriveDifficulty(ex) {
   if (COMPOUND_POSES.has(ex.pose) && (ex.equipment === "Barbell" || ex.equipment === "Bodyweight")) return "intermediate";
   return "intermediate";
 }
+// Exercises whose pose-based default would log them the wrong way (audit: Dead Bug, Bird Dog, Ab
+// Wheel and others share the plank pose but are counted in reps, not held for time; Farmer's Hold
+// and Plate Pinch are loaded holds). Explicit values always beat the derived ones.
+const TRACKING_OVERRIDES = {
+  "Dead Bug": "bodyweight_reps", "Bird Dog": "bodyweight_reps", "Ab Wheel Rollout": "bodyweight_reps",
+  "TRX Fallout": "bodyweight_reps", "High Plank Shoulder Tap": "bodyweight_reps", "Mountain Climbers": "duration",
+  "Stir the Pot": "bodyweight_reps", "Ab Rollout (Barbell)": "bodyweight_reps", "Renegade Row": "weight_reps",
+  "Pallof Press": "weight_reps", "Suitcase Deadlift Hold (Core)": "weighted_duration",
+  "Farmer's Carry Hold (Grip)": "weighted_duration", "Plate Pinch": "weighted_duration",
+  "Sissy Squat": "bodyweight_reps", "Reverse Nordic Curl": "bodyweight_reps",
+  "Svend Press": "weight_reps", "Ankle Weight Hip Abduction": "weight_reps", "Monster Walk": "reps_only",
+  "Cossack Squat": "bodyweight_reps",
+};
+// Equipment that has no meaningful kg value: a bodyweight/suspension/stability-ball exercise is
+// counted in reps (with optional added weight), a band exercise in reps.
+const REP_ONLY_EQUIPMENT = new Set(["Bodyweight", "Stability Ball", "Suspension Trainer"]);
+
 function deriveTrackingType(ex) {
+  if (TRACKING_OVERRIDES[ex.name]) return TRACKING_OVERRIDES[ex.name];
   if (ASSISTED_HINTS.test(ex.name)) return "assisted_bodyweight";
   if (WEIGHTED_BODYWEIGHT_HINTS.test(ex.name) && ex.equipment === "Bodyweight") return "bodyweight_plus_weight";
-  if (ex.pose === "plank" || ex.pose === "sissy_squat" || ex.pose === "reverse_nordic") return "isometric_hold";
+  if (ex.pose === "plank") return "isometric_hold";
   if (ex.pose === "distance_duration") return "distance_duration";
   if (DURATION_POSES.has(ex.pose) && ex.equipment === "Conditioning") return "distance_duration";
   if (ex.equipment === "Bodyweight" && ["pullup", "dip", "push_up", "leg_raise_hang", "kickback", "burpee", "jump_rope"].includes(ex.pose)) return "bodyweight_reps";
+  if (REP_ONLY_EQUIPMENT.has(ex.equipment)) return "bodyweight_reps";
+  if (ex.equipment === "Resistance Band") return "reps_only";
   return "weight_reps";
 }
 
@@ -472,7 +498,7 @@ export const POSE_TO_REGION = {
     shrug: "traps", neck: "traps",
   },
   back: { pullup: "lats", pulldown: "lats", row: "upperBack", hinge: "lowerBack" },
-  arms: { curl: "biceps", press_lying: "triceps", triceps_ext: "triceps", dip: "triceps", wrist_curl: "forearms", kickback: "triceps", push_up: "triceps" },
+  arms: { curl: "biceps", press_lying: "triceps", triceps_ext: "triceps", pushdown: "triceps", dip: "triceps", wrist_curl: "forearms", kickback: "triceps", push_up: "triceps" },
   core: { core_crunch: "abs", leg_raise_hang: "abs", plank: "abs", twist: "obliques" },
   legs: {
     squat: "quads", leg_press: "quads", leg_extension: "quads", lunge: "quads", plank: "quads",
@@ -590,7 +616,7 @@ const RAW_EXERCISES = [
   { name: "Iso-Lateral Row", muscle: "back", equipment: "Machine", pose: "row" },
   { name: "Rack Pull", muscle: "back", equipment: "Barbell", pose: "hinge" },
   { name: "Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge", aliases: ["Conventional Deadlift"] },
-  { name: "Romanian Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge", aliases: ["RDL"] },
+  { name: "Romanian Deadlift", muscle: "legs", equipment: "Barbell", pose: "hinge", aliases: ["RDL"] },
   { name: "Snatch Grip Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge" },
   { name: "Good Morning", muscle: "back", equipment: "Barbell", pose: "hinge" },
   // new back
@@ -608,8 +634,8 @@ const RAW_EXERCISES = [
   { name: "Kroc Row", muscle: "back", equipment: "Dumbbell", pose: "row" },
   { name: "Trap Bar Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge" },
   { name: "Deficit Deadlift", muscle: "back", equipment: "Barbell", pose: "hinge" },
-  { name: "Dumbbell Romanian Deadlift", muscle: "back", equipment: "Dumbbell", pose: "hinge" },
-  { name: "Single Leg Romanian Deadlift", muscle: "back", equipment: "Dumbbell", pose: "hinge", aliases: ["Dumbbell Romanian Deadlift (Single Leg)", "Single-Leg RDL"] },
+  { name: "Dumbbell Romanian Deadlift", muscle: "legs", equipment: "Dumbbell", pose: "hinge" },
+  { name: "Single Leg Romanian Deadlift", muscle: "legs", equipment: "Dumbbell", pose: "hinge", aliases: ["Dumbbell Romanian Deadlift (Single Leg)", "Single-Leg RDL"] },
   { name: "Back Extension", muscle: "back", equipment: "Bodyweight", pose: "hinge", aliases: ["Hyperextension"] },
   { name: "Weighted Back Extension", muscle: "back", equipment: "Dumbbell", pose: "hinge" },
   { name: "Reverse Hyper", muscle: "back", equipment: "Machine", pose: "hinge", aliases: ["Reverse Hyperextension"] },
@@ -690,13 +716,13 @@ const RAW_EXERCISES = [
   { name: "JM Press", muscle: "arms", equipment: "Barbell", pose: "press_lying" },
   { name: "Dumbbell Overhead Extension", muscle: "arms", equipment: "Dumbbell", pose: "triceps_ext", aliases: ["Dumbbell Overhead Triceps Extension"] },
   { name: "Single Arm Overhead Extension", muscle: "arms", equipment: "Dumbbell", pose: "triceps_ext", aliases: ["Single-Arm Dumbbell Overhead Triceps Extension"] },
-  { name: "Rope Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext", aliases: ["Rope Triceps Pushdown", "Rope Tricep Pushdown"] },
-  { name: "Straight Bar Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext", aliases: ["Straight-Bar Triceps Pushdown", "Bar Pushdown", "Tricep Pressdown"] },
-  { name: "V-Bar Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext", aliases: ["V-Bar Triceps Pushdown"] },
-  { name: "Reverse Grip Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext", aliases: ["Reverse-Grip Triceps Pushdown"] },
+  { name: "Rope Pushdown", muscle: "arms", equipment: "Cable", pose: "pushdown", aliases: ["Rope Triceps Pushdown", "Rope Tricep Pushdown"] },
+  { name: "Straight Bar Pushdown", muscle: "arms", equipment: "Cable", pose: "pushdown", aliases: ["Straight-Bar Triceps Pushdown", "Bar Pushdown", "Tricep Pressdown"] },
+  { name: "V-Bar Pushdown", muscle: "arms", equipment: "Cable", pose: "pushdown", aliases: ["V-Bar Triceps Pushdown"] },
+  { name: "Reverse Grip Pushdown", muscle: "arms", equipment: "Cable", pose: "pushdown", aliases: ["Reverse-Grip Triceps Pushdown"] },
   { name: "Overhead Rope Extension", muscle: "arms", equipment: "Cable", pose: "triceps_ext", aliases: ["Rope Overhead Triceps Extension"] },
   { name: "Cross Body Cable Extension", muscle: "arms", equipment: "Cable", pose: "triceps_ext", aliases: ["Cross-Body Cable Triceps Extension"] },
-  { name: "Single Arm Pushdown", muscle: "arms", equipment: "Cable", pose: "triceps_ext", aliases: ["Single-Arm Cable Pushdown"] },
+  { name: "Single Arm Pushdown", muscle: "arms", equipment: "Cable", pose: "pushdown", aliases: ["Single-Arm Cable Pushdown"] },
   { name: "Triceps Extension Machine", muscle: "arms", equipment: "Machine", pose: "triceps_ext", aliases: ["Triceps Press Machine"] },
   { name: "Assisted Dip Machine", muscle: "arms", equipment: "Machine", pose: "dip", aliases: ["Assisted Dip"] },
   { name: "Plate Loaded Dip Machine", muscle: "arms", equipment: "Machine", pose: "dip", aliases: ["Machine Triceps Dip"] },
@@ -765,7 +791,7 @@ const RAW_EXERCISES = [
   { name: "Glute Bridge", muscle: "legs", equipment: "Bodyweight", pose: "hip_thrust" },
   { name: "Cable Kickback", muscle: "legs", equipment: "Cable", pose: "hip_thrust", aliases: ["Cable Glute Kickback"] },
   { name: "Machine Kickback", muscle: "legs", equipment: "Machine", pose: "hip_thrust", aliases: ["Glute Drive"] },
-  { name: "Cable Pull Through", muscle: "legs", equipment: "Cable", pose: "hinge", aliases: ["Cable Pull-Through"] },
+  { name: "Cable Pull Through", muscle: "legs", equipment: "Cable", pose: "hinge", region: "glutes", aliases: ["Cable Pull-Through"] },
   { name: "Frog Pumps", muscle: "legs", equipment: "Bodyweight", pose: "hip_thrust" },
   { name: "Sumo Deadlift", muscle: "legs", equipment: "Barbell", pose: "hinge" },
   { name: "Standing Calf Raise", muscle: "legs", equipment: "Machine", pose: "calf_raise" },
@@ -805,8 +831,8 @@ const RAW_EXERCISES = [
   { name: "Barbell Glute Bridge", muscle: "legs", equipment: "Barbell", pose: "hip_thrust" },
   { name: "Cable Hip Thrust", muscle: "legs", equipment: "Cable", pose: "hip_thrust" },
   { name: "Banded Hip Thrust", muscle: "legs", equipment: "Bodyweight", pose: "hip_thrust" },
-  { name: "Kettlebell Swing", muscle: "legs", equipment: "Kettlebell", pose: "hinge" },
-  { name: "Single Arm Kettlebell Swing", muscle: "legs", equipment: "Kettlebell", pose: "hinge" },
+  { name: "Kettlebell Swing", muscle: "legs", equipment: "Kettlebell", pose: "hinge", region: "glutes" },
+  { name: "Single Arm Kettlebell Swing", muscle: "legs", equipment: "Kettlebell", pose: "hinge", region: "glutes" },
   { name: "Kettlebell Deadlift", muscle: "legs", equipment: "Kettlebell", pose: "hinge" },
   { name: "Kettlebell Goblet Squat", muscle: "legs", equipment: "Kettlebell", pose: "squat" },
   { name: "Standing Calf Raise Machine (Plate Loaded)", muscle: "legs", equipment: "Machine", pose: "calf_raise" },
@@ -1012,18 +1038,10 @@ const INSTRUCTION_OVERRIDES = {
   "Close-Grip Push-Up": { setup: "Set up in a push-up position with hands roughly shoulder-width or slightly narrower.", execution: "Lower the chest toward the hands with elbows tracking close to the body, then press back up.", formCues: ["Narrower than a standard push-up, but not touching like a diamond push-up", "Keep the body in a straight line throughout", "Elbows track back at a shallow angle, not flared to 90°"] },
 };
 
-// Only these pose values have hand-authored, anatomically-verified illustration geometry today —
-// see ExerciseFigure/POSES in App.jsx. Anything else is a genuinely new movement pattern this
-// expansion introduces without inventing unreviewed geometry for it: exercises using one of these
-// poses get an honest "Demonstration coming soon" state instead of a wrong or reused visual. This
-// is the same quality bar the muscle-readiness figure was already held to — a smaller number of
-// approved, accurate demonstrations beats a full set where some are quietly wrong.
-const POSES_WITH_APPROVED_MEDIA = new Set([
-  "press_lying", "press_seated_machine", "push_up", "dip", "pullup", "pulldown", "row", "hinge",
-  "press_overhead", "lateral_raise", "rear_delt", "shrug", "neck", "curl", "triceps_ext",
-  "wrist_curl", "squat", "leg_press", "lunge", "leg_extension", "leg_curl", "hip_thrust",
-  "calf_raise", "hip_swing", "core_crunch", "leg_raise_hang", "plank", "twist", "carry",
-]);
+// Which exercises may show a figure is decided PER EXERCISE by figureFidelity() (see exerciseMedia.js),
+// not per pose: a pose is only approved for the specific exercises its artwork truthfully depicts.
+// Everything else shows the neutral "demonstration coming soon" state next to accurate written
+// instructions, rather than a figure that teaches a different movement.
 
 // Four states, not two: "approved" (real, reviewed geometry) and "pending" (no asset built yet,
 // honest placeholder) are the two this catalogue actually uses today. "unavailable" and
@@ -1037,20 +1055,33 @@ const POSES_WITH_APPROVED_MEDIA = new Set([
 export const MEDIA_STATUS_VALUES = ["approved", "pending", "unavailable", "rejected"];
 
 function deriveMediaStatus(ex) {
-  return POSES_WITH_APPROVED_MEDIA.has(ex.pose) ? "approved" : "pending";
+  return figureFidelity(ex).approved ? "approved" : "pending";
 }
 
 /** Setup/execution/form-cue/mistake/safety bundle for one exercise — override first, pose-level
  *  shared default otherwise. Used by the exercise detail view in App.jsx. */
+// Safety notes written for one implement must not be attached to exercises that use another
+// (the barbell-squat note was showing on cable and bodyweight squats).
+const SAFETY_NOTE_EQUIPMENT = { squat: ["Barbell", "Smith Machine"] };
+function poseSafetyNote(ex) {
+  const note = SAFETY_NOTES[ex.pose];
+  if (!note) return null;
+  const allowed = SAFETY_NOTE_EQUIPMENT[ex.pose];
+  return !allowed || allowed.includes(ex.equipment) ? note : null;
+}
+
 export function getExerciseGuidance(ex) {
-  const override = INSTRUCTION_OVERRIDES[ex.name];
+  // Resolution order: a hand-written per-exercise override, then the exercise's movement family
+  // (exerciseGuidance.js — for movements whose pose-level text would be wrong), then the generic
+  // pose-level default.
+  const override = INSTRUCTION_OVERRIDES[ex.name] || (ex.name ? findGuidanceFamily(ex) : null);
   const base = POSE_SETUP_EXECUTION[ex.pose] || { setup: "", execution: "" };
   const setup = override?.setup || base.setup;
   const execution = override?.execution || base.execution;
-  const breathingCue = override?.breathingCue || base.breathingCue || "";
-  const formCues = override?.formCues || POSE_TIPS[ex.pose] || [];
-  const commonMistakes = override?.commonMistakes || COMMON_MISTAKES[ex.pose] || [];
-  const safetyNote = override?.safetyNote || SAFETY_NOTES[ex.pose] || null;
+  const breathingCue = override?.breathingCue || (override ? "" : base.breathingCue) || "";
+  const formCues = override?.formCues?.length ? override.formCues : POSE_TIPS[ex.pose] || [];
+  const commonMistakes = override?.commonMistakes?.length ? override.commonMistakes : COMMON_MISTAKES[ex.pose] || [];
+  const safetyNote = override?.safetyNote || (override ? null : poseSafetyNote(ex)) || null;
   const instructions = [setup, execution].filter(Boolean);
   return { instructions, setup, execution, breathingCue, formCues, commonMistakes, safetyNote };
 }

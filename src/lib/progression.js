@@ -13,8 +13,8 @@
 
 import {
   effectiveTrackingType, isSetComplete, isBaselineEligible, estimate1RM, formatSet, formatDuration, specFor,
-} from "./measurement";
-import { workoutInstant } from "./dates";
+} from "./measurement.js";
+import { workoutInstant } from "./dates.js";
 
 export const GOAL_REP_RANGES = {
   muscle_growth: [8, 12],
