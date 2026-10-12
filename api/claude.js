@@ -19,7 +19,8 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { getMonthlyUsage, incrementMonthlyUsage } from "../lib/monthlyUsage.js";
-import { computeSubscriptionState, isEntitled } from "../src/lib/subscription.js";
+import { isEntitled } from "../src/lib/subscription.js";
+import { getSubscriptionState } from "../lib/subscriptionServer.js";
 import { canAccessFeature, isMeteredFeature, FEATURES, FREE_MONTHLY_LIMIT } from "../src/lib/entitlements.js";
 import { buildCoachContext, COACH_DATA_RULES } from "../src/lib/coachContext.js";
 
@@ -50,27 +51,6 @@ function validateAnthropicBody(body) {
     if (t?.type !== "web_search_20250305" || t?.name !== "web_search" || t?.max_uses !== 1) return "Invalid tools.";
   }
   return null;
-}
-
-// Selects the newer cancel_at_period_end/plan columns with a fallback to the original 3-column
-// shape if they don't exist yet on this database (matches the same defensive read App.jsx's
-// refreshSubscription does) — without this, a database that hasn't had the Phase 4/5 migration
-// applied yet would make the wider select error out, `sub` come back null, and every demo/paid
-// user would suddenly read as "free" and lose Coach/Meals access entirely.
-async function getSubscriptionState(userId) {
-  let { data: sub, error } = await supabaseAdmin
-    .from("subscriptions")
-    .select("status, stripe_customer_id, current_period_end, cancel_at_period_end, plan")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) {
-    ({ data: sub } = await supabaseAdmin
-      .from("subscriptions")
-      .select("status, stripe_customer_id, current_period_end")
-      .eq("user_id", userId)
-      .maybeSingle());
-  }
-  return computeSubscriptionState(sub || null);
 }
 
 // Loads the athlete's own recorded training data and turns it into the structured, bounded context

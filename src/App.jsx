@@ -17,6 +17,9 @@ import SupportPage from "./SupportPage";
 import { playPRSound, playRestDoneSound } from "./lib/sounds";
 import ActiveWorkout from "./WorkoutLogger";
 import { HistoryList, WorkoutDetailModal } from "./WorkoutHistory";
+import MealsNearYou from "./MealsNearYou";
+import FoodLogSheet, { MacroConsistencyNote } from "./FoodLogSheet";
+import { describeEntrySource } from "./lib/macroCheck";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
 import { captureMessage } from "./lib/errorMonitoring";
@@ -161,39 +164,6 @@ function mealMacroGuidance(goal, timing) {
     return { ...g, carbs: [g.carbs[0], Math.round(g.carbs[1] * 1.1)], fat: [Math.max(5, g.fat[0] - 5), Math.round(g.fat[1] * 0.7)], note: "easy to digest before training" };
   }
   return { ...g, protein: [Math.round(g.protein[0] * 1.05), Math.round(g.protein[1] * 1.1)], note: "supports post-training recovery" };
-}
-
-/* Picks the "Best Value" nearby-meal option deterministically rather than trusting the model's own
-   self-assessment — scores macro fit against the person's target range, distance, and price, so the
-   badge means the same thing every time instead of being whatever the AI happened to call out. */
-function scoreBestMeal(places, guidance) {
-  if (!places.length) return -1;
-  const macroFit = (p) => {
-    const ranges = [[p.calories, guidance.calories], [p.protein, guidance.protein], [p.carbs, guidance.carbs], [p.fat, guidance.fat]];
-    const scores = ranges.map(([val, [lo, hi]]) => {
-      if (val == null) return 0.5;
-      if (val >= lo && val <= hi) return 1;
-      const span = hi - lo || 1;
-      const dist = val < lo ? lo - val : val - hi;
-      return Math.max(0, 1 - dist / span);
-    });
-    return scores.reduce((a, b) => a + b, 0) / scores.length;
-  };
-  const normInverted = (values) => {
-    const nums = values.map((v) => (v == null ? null : v));
-    const present = nums.filter((v) => v != null);
-    if (present.length === 0) return nums.map(() => 0.5);
-    const min = Math.min(...present), max = Math.max(...present);
-    return nums.map((v) => (v == null ? 0.5 : max === min ? 1 : 1 - (v - min) / (max - min)));
-  };
-  const distScores = normInverted(places.map((p) => p.distanceKm));
-  const priceScores = normInverted(places.map((p) => p.price));
-  let bestIdx = 0, bestScore = -Infinity;
-  places.forEach((p, i) => {
-    const score = macroFit(p) * 0.5 + distScores[i] * 0.25 + priceScores[i] * 0.25;
-    if (score > bestScore) { bestScore = score; bestIdx = i; }
-  });
-  return bestIdx;
 }
 
 // Order-independent, per-word substring search — every word in the query must appear somewhere
@@ -3064,29 +3034,36 @@ function FoodScanner({ onAdd, onClose }) {
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
   };
 
-  const lookupBarcode = async (code) => {
+  const lookupBarcode = async (rawCode) => {
+    const code = String(rawCode || "").trim();
+    // Barcodes are 8-14 digits; anything else is rejected before it is ever put in a URL.
+    if (!/^\d{8,14}$/.test(code)) { setError("That doesn't look like a barcode — it should be 8 to 14 digits."); return; }
     setLoading(true);
     setError(null);
     stopCamera();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 9000);
     try {
-      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json`);
+      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`, { signal: controller.signal });
+      if (!res.ok && res.status !== 404) throw new Error("unavailable");
       const data = await res.json();
-      if (data.status !== 1 || !data.product) throw new Error("not found");
+      if (data.status !== 1 || !data.product) { setError("That barcode isn't in the product database. Try photo mode, or enter the food manually."); setLoading(false); clearTimeout(timer); return; }
       const n = data.product.nutriments || {};
+      // A nutrient the database doesn't have stays UNKNOWN (null) — it is never turned into a 0 that
+      // would silently under-count what the athlete ate.
+      const read = (k) => (Number.isFinite(Number(n[k])) && n[k] !== "" && n[k] !== null ? Math.round(Number(n[k]) * 10) / 10 : null);
       setResult({
         name: data.product.product_name || `Barcode ${code}`,
-        per100g: {
-          calories: Math.round(n["energy-kcal_100g"] || 0),
-          protein: Math.round(n["proteins_100g"] || 0),
-          carbs: Math.round(n["carbohydrates_100g"] || 0),
-          fat: Math.round(n["fat_100g"] || 0),
-        },
-        source: "barcode",
+        per100g: { calories: read("energy-kcal_100g"), protein: read("proteins_100g"), carbs: read("carbohydrates_100g"), fat: read("fat_100g") },
+        source: "barcode", code, retrievedAt: Date.now(),
       });
       setGrams(100);
     } catch (e) {
-      setError("Couldn't find that barcode. Try the photo mode instead, or check the number.");
+      setError(e?.name === "AbortError" || e?.message === "unavailable" || e instanceof TypeError
+        ? "Couldn't reach the product database — check your connection and try again, or enter the food manually."
+        : "Couldn't read that product — try again, or enter the food manually.");
     }
+    clearTimeout(timer);
     setLoading(false);
   };
 
@@ -3149,12 +3126,13 @@ function FoodScanner({ onAdd, onClose }) {
       }
       const text = extractClaudeText(data);
       const parsed = extractJSON(text);
+      const num = (v) => (Number.isFinite(Number(v)) && v !== null && v !== "" ? Number(v) : null);
       setResult({
         name: parsed.name || "Unknown food",
-        per100g: { calories: parsed.caloriesPer100g || 0, protein: parsed.proteinPer100g || 0, carbs: parsed.carbsPer100g || 0, fat: parsed.fatPer100g || 0 },
-        source: "photo",
+        per100g: { calories: num(parsed.caloriesPer100g), protein: num(parsed.proteinPer100g), carbs: num(parsed.carbsPer100g), fat: num(parsed.fatPer100g) },
+        source: "photo", estimated: true, retrievedAt: Date.now(),
       });
-      setGrams(parsed.estimatedGrams || 150);
+      setGrams(num(parsed.estimatedGrams) > 0 ? Math.round(num(parsed.estimatedGrams)) : 150);
     } catch (e) {
       setError(
         e.message && (e.message.startsWith("Usage limit") || e.message.includes("Premium"))
@@ -3206,12 +3184,12 @@ function FoodScanner({ onAdd, onClose }) {
     reader.readAsDataURL(file);
   };
 
+  const scale = (per100) => (per100 === null || per100 === undefined || per100 === "" || !Number.isFinite(Number(per100)) ? null : Math.round((Number(per100) * grams) / 100));
   const totals = result ? {
-    calories: Math.round((result.per100g.calories * grams) / 100),
-    protein: Math.round((result.per100g.protein * grams) / 100),
-    carbs: Math.round((result.per100g.carbs * grams) / 100),
-    fat: Math.round((result.per100g.fat * grams) / 100),
+    calories: scale(result.per100g.calories), protein: scale(result.per100g.protein), carbs: scale(result.per100g.carbs), fat: scale(result.per100g.fat),
   } : null;
+  const missingNutrition = !!result && Object.values(result.per100g).some((v) => v === null || v === undefined || v === "");
+  const setPer100 = (k) => (e) => setResult((r) => ({ ...r, per100g: { ...r.per100g, [k]: e.target.value === "" ? null : e.target.value } }));
 
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Scan food" style={{ position: "fixed", inset: 0, background: "rgba(10,11,13,0.95)", zIndex: 50, display: "flex", flexDirection: "column", padding: "calc(18px + env(safe-area-inset-top)) 18px 18px", maxWidth: 480, margin: "0 auto" }}>
@@ -3276,24 +3254,38 @@ function FoodScanner({ onAdd, onClose }) {
       )}
 
       {result && totals && (
-        <div className="atlas-card">
+        <div className="atlas-card" style={{ overflowY: "auto" }}>
           <div className="disp" style={{ fontSize: 16 }}>{result.name}</div>
-          <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 12 }}>
-            {result.source === "barcode" ? "From barcode lookup" : "From photo scan"} · {result.per100g.calories} kcal / 100g
+          <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 10, lineHeight: 1.6 }}>
+            {result.source === "barcode"
+              ? <>Community product database (Open Food Facts) — can be out of date or incomplete; check the pack. <a href={`https://world.openfoodfacts.org/product/${result.code}` } target="_blank" rel="noopener noreferrer" style={{ color: "var(--steel)" }}>View record</a> · retrieved {new Date(result.retrievedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</>
+              : <><b style={{ color: "var(--warn)" }}>Photo estimate.</b> Portion size is the biggest source of error — adjust the grams to match what you ate.</>}
           </div>
-          <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>PORTION SIZE — ADJUST IF NEEDED (GRAMS)</label>
-          <input type="number" className="atlas-input" value={grams} onChange={(e) => setGrams(e.target.value === "" ? 0 : +e.target.value.replace(/^0+(?=\d)/, ""))} style={{ marginTop: 4, marginBottom: 12 }} />
-          <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-            <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.calories}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>KCAL</div></div>
-            <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.protein}g</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>PROTEIN</div></div>
-            <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.carbs}g</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>CARBS</div></div>
-            <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.fat}g</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>FAT</div></div>
+          {missingNutrition && (
+            <div role="alert" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--warn)", marginBottom: 10 }}>
+              {result.source === "barcode" ? "This product has no nutrition data for some values." : "Some values couldn't be read from the photo."} Enter the missing numbers below (per 100 g) before logging — they aren't assumed to be zero.
+            </div>
+          )}
+          <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }} htmlFor="scan-grams">PORTION SIZE — ADJUST IF NEEDED (GRAMS)</label>
+          <input id="scan-grams" type="text" inputMode="decimal" className="atlas-input" value={grams} onChange={(e) => { const n = Number(e.target.value.replace(",", ".")); setGrams(e.target.value === "" || !Number.isFinite(n) || n < 0 ? 0 : n); }} style={{ marginTop: 4, marginBottom: 12, minHeight: 48 }} />
+          <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 4 }}>NUTRITION PER 100 G (EDITABLE)</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {[["calories", "kcal"], ["protein", "protein"], ["carbs", "carbs"], ["fat", "fat"]].map(([k, label]) => (
+              <input key={k} className="atlas-input" type="text" inputMode="decimal" aria-label={`${label} per 100 grams`} placeholder={label} value={result.per100g[k] ?? ""} onChange={setPer100(k)} style={{ minHeight: 44, textAlign: "center", minWidth: 0 }} />
+            ))}
           </div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+            <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.calories ?? "—"}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>KCAL</div></div>
+            <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.protein ?? "—"}{totals.protein != null ? "g" : ""}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>PROTEIN</div></div>
+            <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.carbs ?? "—"}{totals.carbs != null ? "g" : ""}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>CARBS</div></div>
+            <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.fat ?? "—"}{totals.fat != null ? "g" : ""}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>FAT</div></div>
+          </div>
+          <div style={{ marginBottom: 12 }}><MacroConsistencyNote values={totals} onUseSuggested={(kcal) => setResult((r) => ({ ...r, per100g: { ...r.per100g, calories: grams > 0 ? Math.round((kcal * 100) / grams) : r.per100g.calories } }))} /></div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => { setResult(null); setError(null); }}>
+            <button className="atlas-btn-ghost" style={{ flex: 1, minHeight: 48 }} onClick={() => { setResult(null); setError(null); }}>
               <RefreshCw size={14} style={{ verticalAlign: -2, marginRight: 5 }} /> Scan Again
             </button>
-            <button className="atlas-btn" style={{ flex: 1 }} onClick={() => { onAdd({ id: uid(), date: todayStr(), name: `${result.name} (${grams}g)`, ...totals }); onClose(); }}>
+            <button className="atlas-btn" style={{ flex: 1, minHeight: 48 }} disabled={missingNutrition || !(grams > 0)} onClick={() => { onAdd({ id: uid(), date: todayStr(), name: `${result.name} (${grams}g)`, calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat, source: result.source, ...(result.estimated ? { estimated: true } : {}) }); onClose(); }}>
               <Plus size={14} style={{ verticalAlign: -2, marginRight: 5 }} /> Add to Log
             </button>
           </div>
@@ -3386,11 +3378,7 @@ function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, fav
   useEffect(() => {
     if (backgroundRef.current) backgroundRef.current.inert = scannerOpen;
   }, [scannerOpen]);
-  const [locationInput, setLocationInput] = useState("");
-  const [mealTiming, setMealTiming] = useState("post");
-  const [findingMeals, setFindingMeals] = useState(false);
-  const [mealResults, setMealResults] = useState(null);
-  const [mealError, setMealError] = useState(null);
+  const [estimateNote, setEstimateNote] = useState(null); // { message, tone }
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const targets = getNutritionTargets(profile);
@@ -3415,8 +3403,10 @@ function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, fav
       id: uid(), date: todayStr(), name: form.name,
       calories: +form.calories || 0, protein: +form.protein || 0,
       carbs: +form.carbs || 0, fat: +form.fat || 0,
+      ...(form.estimated ? { estimated: true, source: "ai_estimate" } : {}),
     });
     setForm({ name: "", calories: "", protein: "", carbs: "", fat: "" });
+    setEstimateNote(null);
   };
 
   const copyYesterday = () => {
@@ -3442,75 +3432,24 @@ function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, fav
     setEditForm(null);
   };
 
+  // An AI estimate only FILLS the fields — nothing is logged until the athlete presses "Add to Log" —
+  // and it is labelled as an estimate (and stored as one) with the macro/calorie check shown live.
   const estimate = async () => {
     if (!form.name) return;
     setEstimating(true);
+    setEstimateNote(null);
     try {
-      const prompt = `Estimate calories and macros for this food/meal description: "${form.name}". Return ONLY valid JSON, no markdown fences: {"calories":number,"protein":number,"carbs":number,"fat":number}`;
-      const text = await callClaude([{ role: "user", content: prompt }], 200);
+      const prompt = `Estimate calories and macros for ONE typical serving of this food/meal description: "${form.name}". State the portion you assumed. Return ONLY valid JSON, no markdown fences: {"calories":number,"protein":number,"carbs":number,"fat":number,"portion":"e.g. about 250 g"}`;
+      const text = await callClaude([{ role: "user", content: prompt }], 250);
       const parsed = extractJSON(text);
-      setForm((f) => ({ ...f, calories: parsed.calories, protein: parsed.protein, carbs: parsed.carbs, fat: parsed.fat }));
-    } catch (e) { /* silent fail, user can enter manually */ }
-    setEstimating(false);
-  };
-
-  const findNearbyMeals = async (locationText) => {
-    setFindingMeals(true);
-    setMealError(null);
-    setMealResults(null);
-    try {
-      const g = mealMacroGuidance(profile.goal, mealTiming);
-      const timingNote = mealTiming === "pre" ? "a pre-workout meal, eaten 1-3 hours before training" : "a post-workout meal to support recovery";
-      const now = new Date();
-      const dayName = now.toLocaleDateString(undefined, { weekday: "long" });
-      const timeLabel = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-      const hour = now.getHours();
-      const dayPart = hour < 11 ? "morning (breakfast)" : hour < 15 ? "midday (lunch)" : hour < 21 ? "evening (dinner)" : "late night (light/snack)";
-      const system = `You are a nutrition search assistant. Perform exactly ONE web search, then immediately respond — do not search again or refine your query. You must respond with ONLY a single valid JSON object — no preamble, no markdown fences, no explanation of your search, no citations. Just the JSON object and nothing else, even though you have access to web search to inform your answer.`;
-      const prompt = `Find 4 real food places near "${locationText}" that are OPEN RIGHT NOW and still serving food. Asc3end is a fitness app — someone using this feature is specifically trying to hit a training-goal macro target, not just find the nearest thing that's open, so the result list must not default to fast food out of convenience. Hard rule: at most 1 of the 4 places may be a fast-food chain (McDonald's, KFC, Subway, etc.) — the other 3+ must be genuinely different options: a casual/local restaurant, a cafe, a poke/salad/grain-bowl place, a grocery store or deli with prepared food, or similar. If fewer than 4 non-fast-food places are realistically open right now near that location, it is fine to include more than 1 fast-food option, but only as a last resort — actively search for and prefer the healthier, non-fast-food options first. Do not include any place that would be closed at this time, and do not suggest a menu item that isn't actually served at this hour.
-
-It is currently ${dayName}, ${timeLabel} (${dayPart}) at that location. The item you pick for each place MUST match what's actually served at this time of day — e.g. do not suggest a breakfast-only item if it's the afternoon or evening, and don't suggest a heavy dinner item if it's the middle of the day, unless that place genuinely serves it all day.
-
-This is for ${timingNote}. Person's goal: ${GOAL_LABELS[profile.goal]} (${g.rationale}). For each place, name ONE specific menu item that roughly fits: ${g.calories[0]}-${g.calories[1]} kcal, ${g.protein[0]}-${g.protein[1]}g protein, ${g.carbs[0]}-${g.carbs[1]}g carbs, ${g.fat[0]}-${g.fat[1]}g fat (your best real estimate, doesn't need to hit the range exactly).
-Also give your best real-world price estimate for that item in local currency, and the local currency symbol (e.g. "$", "£", "€").
-Estimate each place's approximate straight-line distance in km from "${locationText}".
-Write one short sentence (max 2) per place stating the macros and why it fits their goal, in your own words — never quote menus or reviews.
-Respond with ONLY this JSON, nothing else:
-{"places":[{"name":"","cuisine":"","distanceKm":0.0,"item":"","price":0.0,"currency":"$","calories":0,"protein":0,"carbs":0,"fat":0,"note":""}]}`;
-      const text = await callClaude(
-        [{ role: "user", content: prompt }],
-        1800,
-        // max_uses caps this at one search round instead of Claude iterating with several —
-        // multi-round searches were pushing real requests past 30+ seconds.
-        [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
-        system,
-        "meals"
-      );
-      const parsed = extractJSON(text);
-      if (!Array.isArray(parsed.places) || parsed.places.length === 0) throw new Error("No places came back — try a more specific location.");
-      const places = parsed.places.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
-      const bestIdx = scoreBestMeal(places, g);
-      setMealResults(places.map((p, i) => ({ ...p, isBestValue: i === bestIdx })));
+      const ok = ["calories", "protein", "carbs", "fat"].every((k) => Number.isFinite(Number(parsed[k])) && Number(parsed[k]) >= 0);
+      if (!ok) throw new Error("The estimate wasn't usable — enter it manually or try again.");
+      setForm((f) => ({ ...f, calories: Math.round(parsed.calories), protein: Math.round(parsed.protein), carbs: Math.round(parsed.carbs), fat: Math.round(parsed.fat), estimated: true }));
+      setEstimateNote({ message: `AI estimate for ${parsed.portion ? `"${String(parsed.portion).slice(0, 60)}"` : "one typical serving"} — real portions vary, so check and edit the numbers before adding.`, tone: "info" });
     } catch (e) {
-      setMealError(e.message && e.message !== "No JSON found in response" && e.message !== "Incomplete JSON in response"
-        ? e.message
-        : "Couldn't find nearby places just now — try a more specific location (suburb or city), or try again.");
+      setEstimateNote({ message: e?.code === "premium_required" ? e.message : (e?.message && !/JSON|No response/.test(e.message) ? e.message : "Couldn't estimate that just now — enter the numbers yourself, or try again."), tone: "error" });
     }
-    onUsageChange?.();
-    setFindingMeals(false);
-  };
-
-  const useDeviceLocation = () => {
-    setMealError(null);
-    if (!navigator.geolocation) {
-      setMealError("Location isn't available on this device — type a suburb or city instead.");
-      return;
-    }
-    setFindingMeals(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => findNearbyMeals(`latitude ${pos.coords.latitude}, longitude ${pos.coords.longitude}`),
-      () => { setFindingMeals(false); setMealError("Location permission denied — type a suburb or city instead."); }
-    );
+    setEstimating(false);
   };
 
   return (
@@ -3551,74 +3490,13 @@ Respond with ONLY this JSON, nothing else:
       {!isPremium && mealsRemaining <= 0 ? (
         <div style={{ marginBottom: 16 }}><Paywall feature="meals" onUpgrade={onUpgrade} /></div>
       ) : (
-      <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <MapPin size={15} color="var(--brass)" />
-            <div className="disp" style={{ fontSize: 14 }}>Meals Near You</div>
-          </div>
-          {!isPremium && (
-            <span className="mono" style={{ fontSize: 10, color: "var(--brass)" }}>{mealsRemaining} free left this month</span>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-          <button onClick={() => setMealTiming("pre")} className="pill" style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid var(--line)", background: mealTiming === "pre" ? "var(--brass-soft)" : "transparent", color: mealTiming === "pre" ? "var(--brass)" : "var(--ink-dim)" }}>Pre-Workout</button>
-          <button onClick={() => setMealTiming("post")} className="pill" style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid var(--line)", background: mealTiming === "post" ? "var(--brass-soft)" : "transparent", color: mealTiming === "post" ? "var(--brass)" : "var(--ink-dim)" }}>Post-Workout</button>
-        </div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-          <input className="atlas-input" placeholder="Suburb or city" value={locationInput} onChange={(e) => setLocationInput(e.target.value)} />
-        </div>
-        {/* Previously an icon-only button with no visible text — real feedback was that people
-            didn't notice it was there at all. A clearly labeled button is unmistakable, and
-            visually distinct from the "search by typed location" flow below it. */}
-        <button className="atlas-btn-ghost" style={{ width: "100%", marginBottom: 8, fontSize: 12 }} onClick={useDeviceLocation} disabled={findingMeals}>
-          <Navigation size={13} color="var(--brass)" style={{ verticalAlign: -2, marginRight: 6 }} />
-          {findingMeals ? "Finding your location…" : "Use My Current Location"}
-        </button>
-        <button className="atlas-btn" style={{ width: "100%" }} onClick={() => locationInput && findNearbyMeals(locationInput)} disabled={findingMeals || !locationInput}>
-          {findingMeals ? <Loader2 size={14} style={{ verticalAlign: -2, marginRight: 6, animation: "spin 1s linear infinite" }} /> : <Search size={14} style={{ verticalAlign: -2, marginRight: 6 }} />}
-          {findingMeals ? "Searching…" : "Find Meals"}
-        </button>
-        {findingMeals && <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 6, textAlign: "center" }}>Searching the web for real nearby options — can take up to 15-20 seconds.</div>}
-        {mealError && <div style={{ fontSize: 11, color: "var(--rest)", marginTop: 8 }}>{mealError}</div>}
-        {mealResults && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-            <div className="mono" style={{ fontSize: 9.5, color: "var(--ink-dim)", lineHeight: 1.5, background: "var(--bg-elev2)", borderRadius: 8, padding: "6px 8px" }}>
-              AI-estimated from web search, not a live/verified feed — prices, hours and menu items can be out of date. Double-check before you go.
-            </div>
-            {mealResults.map((p, i) => (
-              <div key={i} style={{ borderTop: p.isBestValue ? "1px solid var(--good)" : "1px solid var(--line)", paddingTop: 10, background: p.isBestValue ? "rgba(126,217,87,0.06)" : "transparent", borderRadius: p.isBestValue ? 8 : 0, padding: p.isBestValue ? "10px 8px 8px" : "10px 0 0" }}>
-                {p.isBestValue && (
-                  <span className="pill mono" style={{ background: "var(--good)", color: "#0F2E0A", marginBottom: 5, display: "inline-block" }}>★ BEST VALUE</span>
-                )}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    {p.price != null && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--good)" }}>~{p.currency || "$"}{Number(p.price).toFixed(2)}</span>}
-                    {p.distanceKm != null && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--brass)" }}>{p.distanceKm < 1 ? `${Math.round(p.distanceKm * 1000)}m` : `${p.distanceKm.toFixed(1)}km`}</span>}
-                  </div>
-                </div>
-                <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 1 }}>{p.cuisine}</div>
-                <div style={{ fontSize: 13, color: "var(--steel)", marginTop: 5 }}>{p.item}</div>
-                <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
-                  <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{p.calories} kcal</span>
-                  <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>P {p.protein}g</span>
-                  <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>C {p.carbs}g</span>
-                  <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>F {p.fat}g</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 4, lineHeight: 1.4 }}>{p.note}</div>
-                <button
-                  className="atlas-btn-ghost"
-                  style={{ marginTop: 6, padding: "5px 10px", fontSize: 10 }}
-                  onClick={() => onAdd({ id: uid(), date: todayStr(), name: `${p.item} (${p.name})`, calories: p.calories || 0, protein: p.protein || 0, carbs: p.carbs || 0, fat: p.fat || 0 })}
-                >
-                  <Plus size={11} style={{ verticalAlign: -2, marginRight: 4 }} /> Log this meal
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+        <MealsNearYou
+          goalRationale={mealMacroGuidance(profile.goal, "post").rationale}
+          mealGuidance={mealMacroGuidance(profile.goal, "post")}
+          onAdd={onAdd} onUsageChange={onUsageChange} onPaywall={onUpgrade}
+          callClaude={callClaude} extractJSON={extractJSON} todayStr={todayStr} uid={uid}
+          remainingLabel={!isPremium ? `${mealsRemaining} free left this month` : null}
+        />
       )}
 
       <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Quick Add</div>
@@ -3668,19 +3546,21 @@ Respond with ONLY this JSON, nothing else:
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <div className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Log Custom Food</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <input className="atlas-input" placeholder="e.g. chicken rice bowl" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} aria-label="Food description" />
+          <input className="atlas-input" placeholder="e.g. chicken rice bowl" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value, ...(e.target.value === "" ? { estimated: false } : {}) }))} aria-label="Food description" />
           <button className="atlas-btn-ghost" style={{ padding: "8px 10px" }} onClick={estimate} disabled={estimating} aria-label="Estimate macros with AI" title="Estimate macros with AI">
             <Sparkles size={14} color="var(--brass)" />
           </button>
         </div>
         {estimating && <div style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 6 }}>Estimating macros…</div>}
+        {estimateNote && <div role={estimateNote.tone === "error" ? "alert" : "status"} style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 6, color: estimateNote.tone === "error" ? "var(--rest)" : "var(--warn)" }}>{estimateNote.message}</div>}
         <div style={{ display: "flex", gap: 6 }}>
           <input className="atlas-input" type="number" placeholder="kcal" value={form.calories} onChange={(e) => setForm((f) => ({ ...f, calories: e.target.value }))} aria-label="Calories" />
           <input className="atlas-input" type="number" placeholder="protein" value={form.protein} onChange={(e) => setForm((f) => ({ ...f, protein: e.target.value }))} aria-label="Protein grams" />
           <input className="atlas-input" type="number" placeholder="carbs" value={form.carbs} onChange={(e) => setForm((f) => ({ ...f, carbs: e.target.value }))} aria-label="Carbs grams" />
           <input className="atlas-input" type="number" placeholder="fat" value={form.fat} onChange={(e) => setForm((f) => ({ ...f, fat: e.target.value }))} aria-label="Fat grams" />
         </div>
-        <button className="atlas-btn" style={{ width: "100%", marginTop: 8 }} onClick={submit}>Add to Log</button>
+        <div style={{ marginTop: 8 }}><MacroConsistencyNote values={form} onUseSuggested={(kcal) => setForm((f) => ({ ...f, calories: kcal }))} /></div>
+        <button className="atlas-btn" style={{ width: "100%", marginTop: 8, minHeight: 48 }} onClick={submit}>Add to Log</button>
       </div>
 
       <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Today</div>
@@ -3708,7 +3588,7 @@ Respond with ONLY this JSON, nothing else:
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontSize: 13 }}>{f.name}</div>
-                  <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{f.calories}kcal · P{f.protein} C{f.carbs} F{f.fat}</div>
+                  <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{f.estimated ? "≈" : ""}{f.calories}kcal · P{f.protein} C{f.carbs} F{f.fat}{describeEntrySource(f) ? <span className="pill" style={{ marginLeft: 6, fontSize: 8, border: "1px solid var(--warn)", color: "var(--warn)" }}>{describeEntrySource(f)}</span> : null}</div>
                 </div>
                 <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                   <button onClick={() => onToggleFavorite(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={isFav ? `Remove ${f.name} from favorites` : `Add ${f.name} to favorites`}>
@@ -4084,10 +3964,14 @@ export default function App() {
   const skipNextSessionSave = useRef(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setAuthUser(session?.user ?? null));
+    // Keep the SAME user object while the id is unchanged. Supabase re-emits SIGNED_IN / TOKEN_REFRESHED
+    // (e.g. when the tab regains focus) with a fresh object; treating that as a new user re-ran the whole
+    // data load, which replaced in-memory state and pulled the athlete back to an active workout.
+    const sameUser = (prev, next) => (prev && next && prev.id === next.id ? prev : (next ?? null));
+    supabase.auth.getSession().then(({ data: { session } }) => setAuthUser((prev) => sameUser(prev, session?.user)));
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
-      setAuthUser(session?.user ?? null);
+      setAuthUser((prev) => sameUser(prev, session?.user));
       if (!session) setLoaded(false);
     });
     return () => listener.subscription.unsubscribe();
