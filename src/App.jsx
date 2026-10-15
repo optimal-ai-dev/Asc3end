@@ -1260,10 +1260,9 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
             {gamification.badges.map((b) => (
               <div key={b.id} title={b.label} style={{
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 3, width: 56,
-                opacity: b.earned ? 1 : 0.3,
               }}>
-                <div style={{ fontSize: 20, filter: b.earned ? "none" : "grayscale(1)" }}>{b.icon}</div>
-                <div className="mono" style={{ fontSize: 8, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
+                <div style={{ fontSize: 20, filter: b.earned ? "none" : "grayscale(1)", opacity: b.earned ? 1 : 0.4 }}>{b.icon}</div>
+                <div className="mono" style={{ fontSize: 9, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
               </div>
             ))}
           </div>
@@ -2390,7 +2389,7 @@ function ChallengesScreen({ workouts, nutrition, profile, streak, challenges, on
             {gamification.badges.map((b) => (
               <div key={b.id} title={b.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 68 }}>
                 <div style={{ fontSize: 22, filter: b.earned ? "none" : "grayscale(1)", opacity: b.earned ? 1 : 0.4 }}>{b.icon}</div>
-                <div className="mono" style={{ fontSize: 8, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
+                <div className="mono" style={{ fontSize: 9, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
                 {!b.earned && (
                   <div className="bar-track" style={{ width: "100%", height: 4 }}><div className="bar-fill" style={{ width: `${(b.current / b.target) * 100}%`, background: "var(--steel)" }} /></div>
                 )}
@@ -2937,7 +2936,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
         {!plan && !planError && !genLoading && <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 8 }}>Generate a personalised split based on your goal and schedule.</div>}
       </div>
 
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 2 }}>
+      <div ref={scrollRef} role="log" aria-label="Coach conversation" tabIndex={0} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 2 }}>
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "chat-bubble-user" : "chat-bubble-ai"} style={{ fontSize: 13.5, lineHeight: 1.5 }}>
             {m.workout ? (

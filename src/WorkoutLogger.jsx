@@ -347,7 +347,7 @@ function ExerciseCard({
         </div>
 
         {plannedRows > 0 && Array.from({ length: plannedRows }).map((_, k) => (
-          <div key={k} className="mono" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 36, borderTop: "1px dashed var(--line)", fontSize: 11, color: "var(--ink-dim)", opacity: 0.7 }}>
+          <div key={k} className="mono" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 36, borderTop: "1px dashed var(--line)", fontSize: 11, color: "var(--ink-dim)" }}>
             <span aria-hidden="true" style={{ width: 22, height: 22, borderRadius: 11, border: "1.5px dashed var(--ink-dim)", flexShrink: 0 }} />
             <span>Set {done + 2 + k} · planned{targetText ? ` ${targetText}` : ""}</span>
           </div>
