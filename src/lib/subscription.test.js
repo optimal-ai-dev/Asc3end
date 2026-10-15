@@ -24,10 +24,21 @@ describe("computeSubscriptionState", () => {
   });
 
   it("active + cancel_at_period_end -> paid/cancelled, but still type 'paid' (access continues until period end)", () => {
-    const state = computeSubscriptionState({ status: "active", stripe_customer_id: "cus_123", cancel_at_period_end: true, plan: "annual", current_period_end: "2026-12-01T00:00:00Z" });
+    const state = computeSubscriptionState({ status: "active", stripe_customer_id: "cus_123", cancel_at_period_end: true, plan: "annual", current_period_end: "2026-12-01T00:00:00Z" }, Date.parse("2026-11-20T00:00:00Z"));
     expect(state.type).toBe("paid");
     expect(state.status).toBe("cancelled");
     expect(isEntitled(state)).toBe(true); // still entitled — the whole point of this state
+  });
+
+  it("a cancel-at-period-end subscription stops being entitled once its period has ended, even if the 'deleted' webhook never arrived", () => {
+    const row = { status: "active", stripe_customer_id: "cus_123", cancel_at_period_end: true, plan: "monthly", current_period_end: "2026-12-01T00:00:00Z" };
+    expect(isEntitled(computeSubscriptionState(row, Date.parse("2026-12-01T00:30:00Z")))).toBe(true); // clock allowance
+    expect(computeSubscriptionState(row, Date.parse("2026-12-01T02:00:00Z"))).toEqual({ type: "free", status: "inactive" });
+  });
+
+  it("a renewing subscription is not cut off by its period-end date (renewal webhook updates it)", () => {
+    const row = { status: "active", stripe_customer_id: "cus_123", cancel_at_period_end: false, plan: "monthly", current_period_end: "2026-12-01T00:00:00Z" };
+    expect(isEntitled(computeSubscriptionState(row, Date.parse("2026-12-03T00:00:00Z")))).toBe(true);
   });
 
   it("past_due -> paid/past_due, still entitled (grace period, not instant cutoff)", () => {

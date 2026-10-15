@@ -47,6 +47,17 @@ function detectPlan(subscription) {
   return null;
 }
 
+// The subscription as Stripe has it right now. Falls back to the event payload only when Stripe says
+// the object no longer exists; any other failure throws so the webhook answers 5xx and Stripe retries.
+async function currentSubscription(fromEvent) {
+  try {
+    return (await stripe.subscriptions.retrieve(fromEvent.id)) || fromEvent;
+  } catch (e) {
+    if (e?.code === "resource_missing" || e?.statusCode === 404) return fromEvent;
+    throw e;
+  }
+}
+
 async function upsertFromSubscription(subscription) {
   const userId = subscription.metadata?.supabase_user_id;
   if (!userId) return; // not one of ours (or created outside the checkout flow) — nothing to sync
@@ -61,7 +72,8 @@ async function upsertFromSubscription(subscription) {
     plan: detectPlan(subscription),
     updated_at: new Date().toISOString(),
   });
-  if (error) console.error("subscriptions upsert failed", { userId, code: error.code, message: error.message });
+  // Throw so the caller answers 5xx (Stripe retries) instead of acknowledging an event whose result was lost.
+  if (error) { console.error("subscriptions upsert failed", { userId, code: error.code, message: error.message }); throw new Error("subscriptions upsert failed"); }
 }
 
 export default async function handler(req, res) {
@@ -98,7 +110,10 @@ export default async function handler(req, res) {
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
-        await upsertFromSubscription(event.data.object);
+        // Stripe does not guarantee delivery order: a delayed "updated" (active) arriving AFTER
+        // "deleted" would otherwise re-grant access to a cancelled customer. So the event is only a
+        // signal — the current subscription is re-read from Stripe and THAT is what gets stored.
+        await upsertFromSubscription(await currentSubscription(event.data.object));
         break;
       case "checkout.session.completed": {
         const session = event.data.object;
@@ -119,6 +134,13 @@ export default async function handler(req, res) {
       case "invoice.payment_failed":
         console.log("invoice.payment_failed", { subscription: event.data.object.subscription });
         break;
+      // Refund / dispute policy: a refund or dispute does not by itself change access — access follows
+      // the subscription, which the owner cancels (Stripe Dashboard or portal) → customer.subscription.deleted.
+      // Logged so a dispute is visible in Vercel logs.
+      case "charge.refunded":
+      case "charge.dispute.created":
+        console.log(event.type, { charge: event.data.object.id });
+        break;
       case "customer.subscription.trial_will_end":
         // Hook point for a future "your trial ends in 3 days" notification — no email sending
         // exists in this codebase yet, so this just logs for now rather than silently doing
@@ -130,7 +152,10 @@ export default async function handler(req, res) {
     }
     res.status(200).json({ received: true });
   } catch (e) {
-    console.error("Stripe webhook handler error", e);
+    console.error("Stripe webhook handler error", { eventId: event.id, type: event.type, message: e?.message });
+    // Release the dedupe claim, otherwise Stripe's retry would be treated as a duplicate and the
+    // event (e.g. the activation after a paid checkout) would be silently lost forever.
+    if (!dedupeError) await supabaseAdmin.from("processed_webhook_events").delete().eq("event_id", event.id);
     res.status(500).json({ error: "Webhook handler failed" });
   }
 }

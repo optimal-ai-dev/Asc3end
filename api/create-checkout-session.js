@@ -44,7 +44,7 @@ export default async function handler(req, res) {
   try {
     const { data: existing } = await supabaseAdmin
       .from("subscriptions")
-      .select("stripe_customer_id, status, current_period_end, cancel_at_period_end, plan")
+      .select("stripe_customer_id, stripe_subscription_id, status, current_period_end, cancel_at_period_end, plan")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -56,6 +56,13 @@ export default async function handler(req, res) {
     // still refused here, since client-side hiding is not the actual enforcement boundary.
     if (computeSubscriptionState(existing || null).type === "demo") {
       return res.status(400).json({ error: "This is a demo Asc3end+ account and can't start a paid checkout." });
+    }
+
+    // Someone who already has a live paid subscription must manage it in the billing portal — a second
+    // checkout would create a second subscription and bill them twice.
+    const current = computeSubscriptionState(existing || null);
+    if (current.type === "paid") {
+      return res.status(409).json({ error: "You already have an Asc3end+ subscription — manage it from Billing in Settings.", code: "already_subscribed" });
     }
 
     let customerId = existing?.stripe_customer_id;
@@ -78,6 +85,11 @@ export default async function handler(req, res) {
     // check the caller out on a plan they didn't ask for.
     if (plan !== "monthly" && plan !== "annual") {
       return res.status(400).json({ error: "Invalid plan — must be \"monthly\" or \"annual\"." });
+    }
+    // The free trial is for first-time subscribers only: anyone who has ever had a subscription on this
+    // account (the row keeps its subscription id after it ends) gets a clear refusal instead of a trial.
+    if (trial && existing?.stripe_subscription_id) {
+      return res.status(400).json({ error: "The free trial is only available the first time you subscribe — you can still subscribe without it.", code: "trial_not_available" });
     }
     const priceId = priceIdForPlan(plan);
     if (!priceId) {

@@ -153,6 +153,31 @@ describe("api/create-checkout-session", () => {
     expect(fakeStripe.checkout.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ customer: "cus_existing" }));
   });
 
+  it("refuses a second checkout for someone who already has a live subscription (would bill twice)", async () => {
+    for (const status of ["active", "trialing", "past_due"]) {
+      state.subscriptionsByUser.set(FREE_USER, { user_id: FREE_USER, stripe_customer_id: "cus_existing", stripe_subscription_id: "sub_1", status });
+      fakeStripe.checkout.sessions.create.mockClear();
+      const res = fakeRes();
+      await handler(fakeReq({ token: "valid-token", body: { plan: "annual" } }), res);
+      expect(res.statusCode).toBe(409);
+      expect(res.body.code).toBe("already_subscribed");
+      expect(fakeStripe.checkout.sessions.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it("a lapsed subscriber can resubscribe, but not with a second free trial", async () => {
+    state.subscriptionsByUser.set(FREE_USER, { user_id: FREE_USER, stripe_customer_id: "cus_existing", stripe_subscription_id: "sub_old", status: "canceled" });
+    const noTrial = fakeRes();
+    await handler(fakeReq({ token: "valid-token", body: { plan: "monthly", trial: true } }), noTrial);
+    expect(noTrial.statusCode).toBe(400);
+    expect(noTrial.body.code).toBe("trial_not_available");
+    expect(fakeStripe.checkout.sessions.create).not.toHaveBeenCalled();
+    const ok = fakeRes();
+    await handler(fakeReq({ token: "valid-token", body: { plan: "monthly" } }), ok);
+    expect(ok.statusCode).toBe(200);
+    expect(fakeStripe.checkout.sessions.create.mock.calls[0][0].subscription_data.trial_period_days).toBeUndefined();
+  });
+
   it("only applies a trial period when the client explicitly requests one", async () => {
     await handler(fakeReq({ token: "valid-token", body: { plan: "monthly", trial: true } }), fakeRes());
     expect(fakeStripe.checkout.sessions.create).toHaveBeenCalledWith(expect.objectContaining({

@@ -283,16 +283,16 @@ const PROBLEMS = [
 const HOW_IT_WORKS = [
   { step: "1", title: "Tell it your goal", body: "Muscle, strength, fat loss, or general fitness — plus your experience and training days." },
   { step: "2", title: "Train with a plan that adapts", body: "The AI Coach builds and adjusts your program from what you actually log, not a fixed template." },
-  { step: "3", title: "Track food in seconds", body: "Manual entry, quick-add favorites, or snap a photo — macros estimated automatically." },
+  { step: "3", title: "Track food quickly", body: "Manual entry, quick-add favorites, or (with Asc3end+) a photo or barcode scan. Estimates are shown for you to check before anything is logged." },
   { step: "4", title: "See it add up", body: "Streaks, PRs, muscle recovery status, and progress charts, all from the same log." },
 ];
 
 const FEATURES = [
   { icon: Dumbbell, title: "Workout Logging", body: "Sets, reps, and weight with PR detection and next-target suggestions built in." },
-  { icon: MessageCircle, title: "AI Coach", body: "A chat coach that knows your training history and goal, not a generic chatbot." },
+  { icon: MessageCircle, title: "AI Coach", body: "A chat coach that can see your recorded sets, reps and weights, and says so when the data isn't there." },
   { icon: UtensilsCrossed, title: "Nutrition Tracking", body: "Manual entry, quick-add favorites, and AI macro estimates from a description." },
-  { icon: Camera, title: "Food Scanner", body: "Photograph a meal or scan a barcode instead of typing it in by hand." },
-  { icon: TrendingUp, title: "Progress & Recovery", body: "Strength charts, streaks, and a per-muscle-group recovery estimate." },
+  { icon: Camera, title: "Food Scanner (Asc3end+)", body: "Photograph a meal or scan a barcode. Photo results are estimates and barcode data can be incomplete, so you review and edit before logging." },
+  { icon: TrendingUp, title: "Progress & Recovery", body: "Strength charts, streaks, PRs, and a per-muscle \"recently trained\" view that estimates recovery from your logged sets." },
 ];
 
 function Section({ children, style }) {
@@ -320,18 +320,18 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
       {/* Hero */}
       <Section style={{ textAlign: "center", paddingTop: 64, paddingBottom: 40 }}>
         <div className="disp" style={{ fontSize: 34, lineHeight: 1.15, marginBottom: 14 }}>
-          Train, eat, and progress — with an AI coach that actually knows your history.
+          Train, eat, and progress — with an AI coach that reads your logged workouts.
         </div>
         <div style={{ color: "var(--ink-dim)", fontSize: 15, lineHeight: 1.6, marginBottom: 28 }}>
-          Asc3end replaces the notes app, the spreadsheet, and the generic meal tracker with one
-          place that adapts to what you log.
+          Asc3end keeps your training, food and coaching in one place, so the next-weight suggestions and
+          the coach's answers come from what you actually logged.
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
           <button onClick={onStartFree} className="atlas-btn" style={{ padding: "12px 24px", fontSize: 14 }}>Start Free</button>
           <button onClick={onLogIn} className="atlas-btn-ghost" style={{ padding: "12px 24px", fontSize: 14 }}>Log In</button>
         </div>
         <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 14 }}>
-          Free to start — no card required. Asc3end+ unlocks unlimited AI features from AUD ${MONTHLY_PRICE}/mo.
+          Free to start — no card required. Asc3end+ unlocks unlimited* AI coaching and the food scanner from AUD ${MONTHLY_PRICE}/mo. Cancel anytime.
         </div>
       </Section>
 
@@ -417,7 +417,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
               "You log a number. It gets stored.",
               "You decide what weight to lift next.",
               "Meals are a static database lookup.",
-              "Progress is a chart you interpret yourself.",
+              "Progress is a chart with no context.",
             ].map((line) => (
               <div key={line} style={{ display: "flex", gap: 8, fontSize: 12.5, color: "var(--ink-dim)", lineHeight: 1.6, marginBottom: 8 }}>
                 <span aria-hidden="true">–</span><span>{line}</span>
@@ -429,8 +429,8 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
             {[
               "You log a number. Asc3end tells you what it means.",
               "Your coach recommends the next weight from your actual history.",
-              "Meals Near You is ranked by your goals, not just distance.",
-              "Progress comes with a plain-language read on whether it's real.",
+              "Meals Near You shows real nearby venues with their source, plus typical orders for your macros — labelled as estimates.",
+              "Progress charts show your lifts, PRs and trends over time.",
             ].map((line) => (
               <div key={line} style={{ display: "flex", gap: 8, fontSize: 12.5, color: "var(--ink)", lineHeight: 1.6, marginBottom: 8 }}>
                 <Check size={14} color="var(--brass)" style={{ flexShrink: 0, marginTop: 1 }} /><span>{line}</span>
@@ -449,7 +449,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
             <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Free</div>
             <div className="disp" style={{ fontSize: 28, marginBottom: 12 }}>$0</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.7 }}>
-              Unlimited workout logging<br />Unlimited nutrition tracking<br />Progress & strength analytics<br />{FREE_MONTHLY_LIMIT} AI Coach chats & meal searches per month
+              Unlimited workout logging<br />Unlimited nutrition tracking<br />Progress & strength analytics<br />{FREE_MONTHLY_LIMIT} AI Coach messages & {FREE_MONTHLY_LIMIT} Meals Near You uses per month
             </div>
             <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10 }}>No card required. Never expires.</div>
           </div>
@@ -480,6 +480,14 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
             </div>
           ))}
           <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8 }}>{FEATURE_COMPARISON_FOOTNOTE}</div>
+          <div style={{ fontSize: 11.5, color: "var(--ink-dim)", marginTop: 10, lineHeight: 1.6 }}>
+            Cancel anytime from Settings → Manage Billing; you keep access until the end of the period you paid for.{" "}
+            <button onClick={() => onOpenLegal("refundPolicy")} style={{ background: "none", border: "none", padding: 0, color: "var(--steel)", cursor: "pointer", fontSize: 11.5, textDecoration: "underline" }}>Refund policy</button>
+            {" · "}
+            <button onClick={() => onOpenLegal("subscriptionTerms")} style={{ background: "none", border: "none", padding: 0, color: "var(--steel)", cursor: "pointer", fontSize: 11.5, textDecoration: "underline" }}>Subscription terms</button>
+            {" · "}
+            <button onClick={() => onOpenLegal("support")} style={{ background: "none", border: "none", padding: 0, color: "var(--steel)", cursor: "pointer", fontSize: 11.5, textDecoration: "underline" }}>Support</button>
+          </div>
         </div>
       </Section>
 

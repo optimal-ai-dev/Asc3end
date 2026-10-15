@@ -29,5 +29,7 @@ export const PRICING_FAQ = [
   { q: "Do I need a card to use Asc3end?", a: "No. The Free plan does not require a card and does not expire. You are only charged if you choose to upgrade to Asc3end+." },
   { q: "Can I cancel anytime?", a: "Yes. Cancel from Profile > Manage Billing whenever you like — you keep Asc3end+ until the end of the period you already paid for, then it reverts to the Free plan automatically. No phone calls, no retention flow." },
   { q: "Is my payment information secure?", a: "Payments are handled entirely by Stripe — Asc3end never sees or stores your card number." },
-  { q: "Can I switch between monthly and annual?", a: "Yes, any time from Profile > Manage Billing, which opens Stripe's own billing portal." },
+  { q: "Can I switch between monthly and annual?", a: "Use Profile > Manage Billing, which opens Stripe's own billing portal, to change or cancel your plan. If you don't see a plan-change option there, contact support and we'll switch it for you." },
+  { q: "Is there a free trial?", a: "New subscribers can choose a 7-day free trial at checkout, once per account. Your card is saved at checkout and charged automatically when the trial ends unless you cancel first — the first charge date is shown on Stripe's checkout page." },
+  { q: "How do refunds work?", a: "Refunds for the current period are considered case by case — see the Refund Policy in the footer or contact support. Your statutory consumer rights are not affected." },
 ];

@@ -25,11 +25,13 @@ const { fakeAdmin, state } = vi.hoisted(() => {
             state.processedEvents.add(event_id);
             return { error: null };
           },
+          delete() { return { async eq(_k, id) { state.processedEvents.delete(id); return { error: null }; } }; },
         };
       }
       if (table === "subscriptions") {
         return {
           async upsert(row) {
+            if (state.failUpserts) return { error: { code: "XX000", message: "db down" } };
             state.upsertCalls++;
             state.subscriptionsByUser.set(row.user_id, row);
             return { error: null };
@@ -87,6 +89,7 @@ describe("Stripe webhook handler", () => {
     state.processedEvents.clear();
     state.subscriptionsByUser.clear();
     state.upsertCalls = 0;
+    state.failUpserts = false;
     fakeStripe.webhooks.constructEvent.mockReset();
     fakeStripe.subscriptions.retrieve.mockReset();
     process.env.STRIPE_MONTHLY_PRICE_ID = "price_monthly";
@@ -172,6 +175,73 @@ describe("Stripe webhook handler", () => {
     fakeStripe.webhooks.constructEvent.mockReturnValue(event);
     await handler(fakeReq(), fakeRes());
     expect(state.subscriptionsByUser.get("user-1")).toMatchObject({ status: "active", cancel_at_period_end: true });
+  });
+
+  describe("delayed / out-of-order delivery", () => {
+    it("a stale 'updated: active' event delivered after the subscription ended does not re-grant access — Stripe's current state wins", async () => {
+      const stale = makeSubscriptionEvent({ id: "evt_stale", status: "active" });
+      fakeStripe.webhooks.constructEvent.mockReturnValue(stale);
+      fakeStripe.subscriptions.retrieve.mockResolvedValue({ ...stale.data.object, status: "canceled" });
+      await handler(fakeReq(), fakeRes());
+      expect(state.subscriptionsByUser.get("user-1").status).toBe("canceled");
+      expect(fakeStripe.subscriptions.retrieve).toHaveBeenCalledWith("sub_123");
+    });
+
+    it("events for one subscription in any order converge on the same final row", async () => {
+      const current = makeSubscriptionEvent({ id: "x", status: "past_due" }).data.object;
+      fakeStripe.subscriptions.retrieve.mockResolvedValue(current);
+      for (const [id, status] of [["e3", "past_due"], ["e1", "active"], ["e2", "trialing"]]) {
+        fakeStripe.webhooks.constructEvent.mockReturnValueOnce(makeSubscriptionEvent({ id, status }));
+        await handler(fakeReq(), fakeRes());
+      }
+      expect(state.subscriptionsByUser.get("user-1").status).toBe("past_due");
+    });
+
+    it("if Stripe says the subscription no longer exists, the event payload is used", async () => {
+      const ev = makeSubscriptionEvent({ id: "evt_gone", type: "customer.subscription.deleted", status: "canceled" });
+      fakeStripe.webhooks.constructEvent.mockReturnValue(ev);
+      fakeStripe.subscriptions.retrieve.mockRejectedValue(Object.assign(new Error("No such subscription"), { code: "resource_missing" }));
+      const res = fakeRes();
+      await handler(fakeReq(), res);
+      expect(res.statusCode).toBe(200);
+      expect(state.subscriptionsByUser.get("user-1").status).toBe("canceled");
+    });
+  });
+
+  describe("failure and retry", () => {
+    it("a failed database write answers 5xx and the retry is processed (not swallowed as a duplicate)", async () => {
+      const ev = makeSubscriptionEvent({ id: "evt_retry", status: "active" });
+      fakeStripe.webhooks.constructEvent.mockReturnValue(ev);
+      state.failUpserts = true;
+      const res1 = fakeRes();
+      await handler(fakeReq(), res1);
+      expect(res1.statusCode).toBe(500);
+      expect(state.subscriptionsByUser.has("user-1")).toBe(false);
+      state.failUpserts = false;
+      const res2 = fakeRes();
+      await handler(fakeReq(), res2);
+      expect(res2.statusCode).toBe(200);
+      expect(res2.body).toEqual({ received: true });
+      expect(state.subscriptionsByUser.get("user-1").status).toBe("active");
+    });
+
+    it("a Stripe API outage while reconciling answers 5xx so Stripe redelivers", async () => {
+      fakeStripe.webhooks.constructEvent.mockReturnValue(makeSubscriptionEvent({ id: "evt_outage" }));
+      fakeStripe.subscriptions.retrieve.mockRejectedValue(Object.assign(new Error("timeout"), { code: "api_connection_error" }));
+      const res = fakeRes();
+      await handler(fakeReq(), res);
+      expect(res.statusCode).toBe(500);
+    });
+  });
+
+  it("refund and dispute events are acknowledged without changing access (access follows the subscription)", async () => {
+    for (const type of ["charge.refunded", "charge.dispute.created"]) {
+      fakeStripe.webhooks.constructEvent.mockReturnValueOnce({ id: "evt_" + type, type, data: { object: { id: "ch_1" } } });
+      const res = fakeRes();
+      await handler(fakeReq(), res);
+      expect(res.statusCode).toBe(200);
+    }
+    expect(state.upsertCalls).toBe(0);
   });
 
   it("an unrecognized event type is acknowledged (200) without touching subscriptions", async () => {

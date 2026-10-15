@@ -17,7 +17,7 @@
 // { status, stripe_customer_id, current_period_end, cancel_at_period_end, plan } — undefined
 // means "not checked yet" (loading), null means "no row" (free), an object is a real row.
 
-export function computeSubscriptionState(subscription) {
+export function computeSubscriptionState(subscription, now = Date.now()) {
   if (subscription === undefined) return { type: "loading" };
   if (subscription === null) return { type: "free", status: "inactive" };
 
@@ -27,6 +27,13 @@ export function computeSubscriptionState(subscription) {
   // entitlement — a real subscription always gets a stripe_customer_id from the checkout webhook.
   if (!stripe_customer_id && (status === "active" || status === "trialing")) {
     return { type: "demo", status: "active" };
+  }
+
+  // A cancelled-at-period-end subscription is paid up only until that period ends. Normally Stripe's
+  // "deleted" webhook flips it, but access must not depend on that webhook arriving: once the period
+  // end has passed (with a small clock allowance) the entitlement is over.
+  if (cancel_at_period_end && current_period_end && new Date(current_period_end).getTime() + 60 * 60 * 1000 < now) {
+    return { type: "free", status: "inactive" };
   }
 
   if (status === "trialing" || status === "active") {

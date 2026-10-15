@@ -1949,7 +1949,7 @@ function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLo
 
             <label style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", marginBottom: 16, cursor: "pointer" }}>
               <input type="checkbox" checked={trial} onChange={(e) => setTrial(e.target.checked)} />
-              <span style={{ fontSize: 12.5 }}>Start with a 7-day free trial</span>
+              <span style={{ fontSize: 12.5 }}>Start with a 7-day free trial <span style={{ color: "var(--ink-dim)" }}>(first-time subscribers, once per account)</span></span>
             </label>
 
             {billingError && <div style={{ color: "var(--rest)", fontSize: 12, marginBottom: 12 }}>{billingError}</div>}

@@ -97,7 +97,7 @@ export const LEGAL_COPY = {
     title: "Subscription Terms",
     sections: [
       { heading: "Billing", body: "Asc3end+ is billed in advance on a recurring monthly (AUD $9.99) or annual (AUD $79.99) basis via Stripe. Your subscription renews automatically until you cancel." },
-      { heading: "Free trial (if offered)", body: "Asc3end+ checkout may offer an optional free trial period, clearly disclosed on Stripe's own checkout page before you confirm, including the exact date your card will first be charged. Starting a trial is opt-in — the Free plan itself never requires this." },
+      { heading: "Free trial (if offered)", body: "Asc3end+ checkout may offer an optional free trial period, clearly disclosed on Stripe's own checkout page before you confirm, including the exact date your card will first be charged. Starting a trial is opt-in, and a trial is available once per account — if you have subscribed before, you can still subscribe without a trial. The Free plan itself never requires this." },
       { heading: "Cancellation", body: "Cancelling stops future renewals but does not refund the current period — you keep Asc3end+ access until the end of the period you already paid for, then your account reverts to the Free plan automatically." },
       { heading: "Price changes", body: "Prices are shown before checkout. If prices change, we'll provide notice before the change applies to your next billing period." },
       { heading: "Payment failures", body: "If a renewal payment fails, your subscription enters a grace period during which you keep access while Stripe retries the charge. If payment continues to fail, Asc3end+ access ends and your account reverts to the Free plan." },
