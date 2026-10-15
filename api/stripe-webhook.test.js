@@ -31,6 +31,7 @@ const { fakeAdmin, state } = vi.hoisted(() => {
       if (table === "subscriptions") {
         return {
           async upsert(row) {
+            if (state.fkViolation) return { error: { code: "23503", message: "fk" } };
             if (state.failUpserts) return { error: { code: "XX000", message: "db down" } };
             state.upsertCalls++;
             state.subscriptionsByUser.set(row.user_id, row);
@@ -250,5 +251,18 @@ describe("Stripe webhook handler", () => {
     await handler(fakeReq(), res);
     expect(res.statusCode).toBe(200);
     expect(state.upsertCalls).toBe(0);
+  });
+});
+
+describe("subscription events for a deleted account", () => {
+  it("are acknowledged (not retried forever) when the user no longer exists", async () => {
+    const ev = makeSubscriptionEvent({ id: "evt_ghost", type: "customer.subscription.deleted", status: "canceled" });
+    fakeStripe.webhooks.constructEvent.mockReturnValue(ev);
+    fakeStripe.subscriptions.retrieve.mockResolvedValue(ev.data.object);
+    state.fkViolation = true;
+    const res = fakeRes();
+    await handler(fakeReq(), res);
+    state.fkViolation = false;
+    expect(res.statusCode).toBe(200);
   });
 });

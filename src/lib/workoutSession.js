@@ -119,27 +119,39 @@ export function moveExercise(session, id, delta, { now = Date.now() } = {}) {
 }
 
 /** Replaces one exercise with another, keeping its place, plan targets, note, rest and superset
- *  link, so an unavailable machine never means rebuilding the workout. Logged sets carry over only
- *  if they are still valid under the new exercise's measurement type; otherwise they are listed in
- *  `dropped` so the UI can say so before committing. */
+ *  link, so an unavailable machine never means rebuilding the workout.
+ *
+ *  Sets that are already logged are a record of what the athlete actually did, so they are NEVER
+ *  re-attributed to a different exercise or deleted: if the old exercise has logged sets it keeps them
+ *  (its target becomes what was done) and the replacement is inserted right after it for the sets that
+ *  remain. With nothing logged yet, the replacement simply takes the old exercise's place. */
 export function swapExercise(session, id, newEx, { now = Date.now(), customExercises = [] } = {}) {
-  const old = session.exercises.find((e) => e.id === id);
-  if (!old) return { session, dropped: [] };
+  const idx = session.exercises.findIndex((e) => e.id === id);
+  if (idx < 0) return { session, dropped: [] };
+  const old = session.exercises[idx];
   if (session.exercises.some((e) => e.id !== id && e.name === newEx.name)) return { session, dropped: [], duplicate: true };
-  const fresh = exerciseEntry(newEx, { customExercises, id });
-  const kept = old.sets.filter((s) => isSetComplete(s, fresh.trackingType));
-  const dropped = old.sets.filter((s) => !isSetComplete(s, fresh.trackingType));
+  const done = old.sets.length;
+  const split = done > 0;
+  const fresh = exerciseEntry(newEx, { customExercises, id: split ? newId() : id });
+  const remaining = old.targetSets != null ? Math.max(1, old.targetSets - done) : null;
   const next = {
     ...fresh,
-    sets: kept,
-    supersetWith: old.supersetWith,
+    sets: [],
+    supersetWith: split ? null : old.supersetWith,
     swappedFrom: old.swappedFrom || old.name,
-    ...(old.targetSets != null ? { targetSets: old.targetSets } : {}),
+    ...(split ? (remaining != null ? { targetSets: remaining } : {}) : (old.targetSets != null ? { targetSets: old.targetSets } : {})),
     ...(old.targetReps != null && fresh.trackingType === old.trackingType ? { targetReps: old.targetReps } : {}),
     ...(old.restSeconds != null ? { restSeconds: old.restSeconds } : {}),
-    ...(old.note ? { note: old.note } : {}),
+    ...(old.note && !split ? { note: old.note } : {}),
   };
-  return { session: touch(mapEx(session, id, () => next), now), dropped };
+  const exercises = session.exercises.slice();
+  if (split) {
+    exercises[idx] = { ...old, targetSets: done, swappedTo: next.name };
+    exercises.splice(idx + 1, 0, next);
+  } else {
+    exercises[idx] = next;
+  }
+  return { session: touch({ ...session, exercises }, now), dropped: [], split };
 }
 
 export function setExerciseNote(session, id, note, { now = Date.now() } = {}) {

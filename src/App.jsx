@@ -1226,7 +1226,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
           >
             <div>
               <div className="disp" style={{ fontSize: 13, color: "var(--brass)" }}>Upgrade to Premium</div>
-              <div style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 2 }}>AI Coach, food scanner, and Meals Near You — $9.99/mo</div>
+              <div style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 2 }}>AI Coach, food scanner, and Meals Near You — AUD ${MONTHLY_PRICE}/mo</div>
             </div>
             {billingLoading === "checkout" ? <Loader2 size={18} color="var(--brass)" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} /> : <ChevronRight size={18} color="var(--brass)" style={{ flexShrink: 0 }} />}
           </button>
@@ -1252,7 +1252,7 @@ function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, o
             <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)" }}>Level {gamification.level}</div>
             <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{gamification.xpIntoLevel} / 500 XP</span>
           </div>
-          <button onClick={onOpenChallenges} className="atlas-btn-ghost" style={{ padding: "4px 10px", fontSize: 10, minHeight: 30 }}>Challenges</button>
+          <button onClick={onOpenChallenges} className="atlas-btn-ghost" style={{ padding: "4px 12px", fontSize: 10, minHeight: 40 }}>Challenges</button>
         </div>
         <div className="bar-track" style={{ marginBottom: workouts.length > 0 ? 12 : 0 }}><div className="bar-fill" style={{ width: `${(gamification.xpIntoLevel / 500) * 100}%`, background: "var(--brass)" }} /></div>
         {workouts.length > 0 ? (
@@ -1411,7 +1411,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
   const row = (label, control) => (
     <div style={{ marginBottom: 12 }}>
       <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", display: "block", marginBottom: 4 }}>{label}</label>
-      {control}
+      {React.isValidElement(control) && ["input", "select", "textarea"].includes(control.type) && !control.props["aria-label"] ? React.cloneElement(control, { "aria-label": String(label).replace(/\s*\/\s*/g, " per ").toLowerCase() }) : control}
     </div>
   );
 
@@ -1470,7 +1470,7 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <h2 className="disp" style={{ fontSize: 15 }}>Nutrition Targets</h2>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} className="mono">
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minHeight: 44 }} className="mono">
             <input type="checkbox" checked={overrideOn} onChange={(e) => { setOverrideOn(e.target.checked); if (e.target.checked) setOverrideForm(profile.macroOverride || currentTargets); }} />
             <span style={{ fontSize: 11, color: "var(--ink-dim)" }}>Set manually</span>
           </label>
@@ -1518,9 +1518,9 @@ function Profile({ profile, authUser, workouts, nutrition, weightlog, customExer
           <>
             <button onClick={() => onUpgrade()} disabled={billingLoading === "checkout"} className="atlas-btn" style={{ width: "100%" }}>
               {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
-              Upgrade to Premium — $9.99/mo
+              Upgrade to Premium — AUD ${MONTHLY_PRICE}/mo
             </button>
-            <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ display: "block", width: "100%", textAlign: "center", background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "8px 0 0" }}>
+            <button onClick={() => setShowComparison((v) => !v)} className="mono" style={{ display: "block", minHeight: 44, width: "100%", textAlign: "center", background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "8px 0 0" }}>
               {showComparison ? "Hide" : "See"} Free vs Premium {showComparison ? <ChevronUp size={12} style={{ verticalAlign: -2 }} /> : <ChevronDown size={12} style={{ verticalAlign: -2 }} />}
             </button>
             {showComparison && <FeatureComparisonTable />}

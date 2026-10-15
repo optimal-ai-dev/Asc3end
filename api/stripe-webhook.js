@@ -72,6 +72,9 @@ async function upsertFromSubscription(subscription) {
     plan: detectPlan(subscription),
     updated_at: new Date().toISOString(),
   });
+  // The account was deleted (its subscription is cancelled as part of that): nothing to sync, and
+  // retrying would never succeed.
+  if (error?.code === "23503") { console.log("subscription event for a deleted account ignored", { userId }); return; }
   // Throw so the caller answers 5xx (Stripe retries) instead of acknowledging an event whose result was lost.
   if (error) { console.error("subscriptions upsert failed", { userId, code: error.code, message: error.message }); throw new Error("subscriptions upsert failed"); }
 }

@@ -11,7 +11,7 @@ const EXERCISE_PAGE_SIZE = 40;
 
 const ghostBtn = { background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center" };
 const pillStyle = (active, color = "var(--brass)", soft = "var(--brass-soft)") => ({
-  cursor: "pointer", minHeight: 32, border: `1px solid ${active ? color : "var(--line)"}`,
+  cursor: "pointer", minHeight: 40, border: `1px solid ${active ? color : "var(--line)"}`,
   background: active ? soft : "transparent", color: active ? color : "var(--ink-dim)",
 });
 

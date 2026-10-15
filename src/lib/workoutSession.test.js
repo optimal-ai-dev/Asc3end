@@ -82,30 +82,45 @@ describe("adding, removing and reordering", () => {
 });
 
 describe("swap an unavailable machine without rebuilding the workout", () => {
-  it("keeps position, target, note, rest and logged sets when the measurement type matches", () => {
+  it("with nothing logged yet, the replacement takes the same place, target, note and rest", () => {
     let s = addExercises(base(), [ex("Chest Press Machine"), ex("Plank")]).session;
     const id = s.exercises[0].id;
     s = { ...s, exercises: s.exercises.map((e) => (e.id === id ? { ...e, targetSets: 3, targetReps: "8-12" } : e)) };
     s = setExerciseNote(s, id, "seat 4");
     s = setExerciseRest(s, id, 120);
-    s = logSet(s, id, { weight: 60, reps: 10 }, { now: NOW }).session;
-    const { session, dropped } = swapExercise(s, id, ex("Flat Dumbbell Press"));
-    const swapped = session.exercises[0];
-    expect(swapped).toMatchObject({ id, name: "Flat Dumbbell Press", targetSets: 3, targetReps: "8-12", note: "seat 4", restSeconds: 120, swappedFrom: "Chest Press Machine" });
-    expect(swapped.sets).toHaveLength(1);
-    expect(dropped).toEqual([]);
+    const { session, split } = swapExercise(s, id, ex("Flat Dumbbell Press"));
+    expect(split).toBe(false);
+    expect(session.exercises).toHaveLength(2);
+    expect(session.exercises[0]).toMatchObject({ id, name: "Flat Dumbbell Press", targetSets: 3, targetReps: "8-12", note: "seat 4", restSeconds: 120, swappedFrom: "Chest Press Machine", sets: [] });
     expect(session.exercises[1].name).toBe("Plank");
   });
 
-  it("drops (and reports) logged sets that make no sense for the new measurement type", () => {
+  it("logged sets stay with the exercise they were performed on; the replacement takes the remaining sets", () => {
+    let s = addExercises(base(), [ex("Chest Press Machine"), ex("Plank")]).session;
+    const id = s.exercises[0].id;
+    s = { ...s, exercises: s.exercises.map((e) => (e.id === id ? { ...e, targetSets: 3, targetReps: "8-12" } : e)) };
+    s = logSet(s, id, { weight: 60, reps: 10 }, { now: NOW }).session;
+    const { session, split, dropped } = swapExercise(s, id, ex("Flat Dumbbell Press"));
+    expect(split).toBe(true);
+    expect(dropped).toEqual([]);
+    expect(session.exercises.map((e) => e.name)).toEqual(["Chest Press Machine", "Flat Dumbbell Press", "Plank"]);
+    expect(session.exercises[0].sets).toHaveLength(1);       // the 60 kg x 10 stays on the machine it was done on
+    expect(session.exercises[0].targetSets).toBe(1);
+    expect(session.exercises[1]).toMatchObject({ sets: [], targetSets: 2, targetReps: "8-12", swappedFrom: "Chest Press Machine" });
+    expect(sessionTotals(session).sets).toBe(1);
+  });
+
+  it("a rep target never leaks onto a timed hold, and logged sets are never deleted by a swap", () => {
     let s = addExercises(base(), [ex("Chest Press Machine")]).session;
     const id = s.exercises[0].id;
+    s = { ...s, exercises: s.exercises.map((e) => (e.id === id ? { ...e, targetSets: 3, targetReps: "8-12" } : e)) };
+    const plain = swapExercise(s, id, ex("Plank")).session;
+    expect(plain.exercises[0].trackingType).toBe("isometric_hold");
+    expect(plain.exercises[0].targetReps).toBeUndefined();
     s = logSet(s, id, { weight: 60, reps: 10 }).session;
-    const { session, dropped } = swapExercise(s, id, ex("Plank"));
-    expect(session.exercises[0].trackingType).toBe("isometric_hold");
-    expect(session.exercises[0].sets).toEqual([]);
-    expect(dropped).toHaveLength(1);
-    expect(session.exercises[0].targetReps).toBeUndefined(); // a rep target must not leak onto a timed hold
+    const { session } = swapExercise(s, id, ex("Plank"));
+    expect(session.exercises[0].sets).toHaveLength(1);
+    expect(session.exercises[1].targetReps).toBeUndefined();
   });
 
   it("refuses to swap into an exercise already in the workout", () => {

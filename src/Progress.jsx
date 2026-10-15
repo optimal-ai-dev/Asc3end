@@ -499,7 +499,7 @@ export default function Progress({ profile, workouts, weightlog, customExercises
                   role="tab"
                   aria-selected={mapView === v}
                   className="pill"
-                  style={{ cursor: "pointer", textTransform: "capitalize", minHeight: 32, border: `1px solid ${mapView === v ? "var(--brass)" : "var(--line)"}`, background: mapView === v ? "var(--brass-soft)" : "transparent", color: mapView === v ? "var(--brass)" : "var(--ink-dim)" }}
+                  style={{ cursor: "pointer", textTransform: "capitalize", minHeight: 40, minWidth: 56, border: `1px solid ${mapView === v ? "var(--brass)" : "var(--line)"}`, background: mapView === v ? "var(--brass-soft)" : "transparent", color: mapView === v ? "var(--brass)" : "var(--ink-dim)" }}
                 >
                   {v}
                 </button>

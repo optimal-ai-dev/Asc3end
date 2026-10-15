@@ -5,6 +5,9 @@
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { stripe } from "../lib/stripe.js";
+
+const ENDED = new Set(["canceled", "incomplete_expired"]);
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -26,6 +29,25 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Deleting the account must never leave a paying subscription running: the subscriptions row is
+    // removed below, so without this the customer would keep being charged for an account that no
+    // longer exists. Cancel in Stripe FIRST; if that can't be confirmed, nothing is deleted.
+    const { data: sub } = await supabaseAdmin
+      .from("subscriptions")
+      .select("stripe_subscription_id, status")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (sub?.stripe_subscription_id && !ENDED.has(sub.status)) {
+      try {
+        await stripe.subscriptions.cancel(sub.stripe_subscription_id);
+      } catch (e) {
+        if (e?.code !== "resource_missing") {
+          console.error("delete-account: could not cancel subscription", { userId: user.id, code: e?.code || e?.type });
+          return res.status(502).json({ error: "We couldn't cancel your subscription, so your account has NOT been deleted. Please try again in a moment, or contact support." });
+        }
+      }
+    }
+
     // Every one of these tables' user_id references auth.users with no ON DELETE clause (default:
     // NO ACTION) — deleteUser() below fails with a foreign-key violation if any row for this user
     // is left behind anywhere. feature_usage_monthly was missing from this list entirely (added

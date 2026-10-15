@@ -24,6 +24,7 @@ export const SET_TYPE_COLORS = { normal: "#4F9DFF", warmup: "#3ECF8E", drop: "#F
 
 const fmtClock = (secs) => {
   const s = Math.max(0, Math.round(secs));
+  if (s >= 3600) return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
@@ -181,7 +182,7 @@ function ExerciseCard({
           <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", display: "flex", gap: 8, flexWrap: "wrap" }}>
             <span>{prog.planned > 0 ? `${done}/${prog.planned} sets` : `${done} set${done === 1 ? "" : "s"}`}</span>
             {targetText && <span style={{ color: "var(--warn)" }}>Target {targetText}{progression.target.source === "plan" ? " (plan)" : ""}</span>}
-            {ex.swappedFrom && <span>swapped from {ex.swappedFrom}</span>}
+            {ex.swappedFrom && <span>swapped from {ex.swappedFrom}</span>}{ex.swappedTo && <span>continued on {ex.swappedTo}</span>}
           </div>
         </div>
         <div style={{ position: "relative" }}>
@@ -216,7 +217,7 @@ function ExerciseCard({
         <div style={{ fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.45 }}>
           <span>{progression.text}</span>
           {progression.source && (
-            <button type="button" onClick={() => setShowWhy((v) => !v)} style={{ ...ghostText, display: "inline", marginLeft: 6, minHeight: 32 }}>{showWhy ? "Hide" : "Why?"}</button>
+            <button type="button" onClick={() => setShowWhy((v) => !v)} style={{ ...ghostText, display: "inline-flex", alignItems: "center", justifyContent: "center", margin: "-12px 0 -12px 2px", minHeight: 44, minWidth: 44 }}>{showWhy ? "Hide" : "Why?"}</button>
           )}
           {showWhy && progression.source && (
             <div className="mono" style={{ fontSize: 10.5, marginTop: 4, lineHeight: 1.6 }}>
@@ -496,6 +497,9 @@ export default function ActiveWorkout({
   saveStatus, onRetrySave, onAddCustomExercise, onArchiveCustomExercise, initialMuscleFilter,
 }) {
   const [picker, setPicker] = useState(null); // null | { mode: "add" } | { mode: "swap", exId }
+  const pickerRef = useRef(null);
+  // The picker renders after the last exercise, so on a long workout it would open off-screen.
+  useEffect(() => { if (picker) pickerRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); }, [picker]);
   const [reviewing, setReviewing] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -688,6 +692,7 @@ export default function ActiveWorkout({
           <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add Exercises
         </button>
       ) : (
+        <div ref={pickerRef} style={{ scrollMarginTop: 72 }}>
         <ExercisePicker
           mode={picker.mode} swapFrom={swapTarget} existingNames={session.exercises.map((e) => e.name)}
           customExercises={customExercises} initialMuscleFilter={initialMuscleFilter}
@@ -696,6 +701,7 @@ export default function ActiveWorkout({
           onSwap={doSwap}
           onAddCustomExercise={onAddCustomExercise} onArchiveCustomExercise={onArchiveCustomExercise}
         />
+        </div>
       )}
 
       {session.exercises.length > 0 && (
