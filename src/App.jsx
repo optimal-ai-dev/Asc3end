@@ -2992,7 +2992,8 @@ function FoodScanner({ onAdd, onClose }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
-  const [grams, setGrams] = useState(100);
+  const [grams, setGrams] = useState("100"); // text, so "150." can be typed on the way to "150.5"
+  const gramsNum = Number(String(grams).replace(",", ".")) || 0;
   const [manualBarcode, setManualBarcode] = useState("");
   const [cameraDenied, setCameraDenied] = useState(false);
   const barcodeSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
@@ -3183,7 +3184,7 @@ function FoodScanner({ onAdd, onClose }) {
     reader.readAsDataURL(file);
   };
 
-  const scale = (per100) => (per100 === null || per100 === undefined || per100 === "" || !Number.isFinite(Number(per100)) ? null : Math.round((Number(per100) * grams) / 100));
+  const scale = (per100) => (per100 === null || per100 === undefined || per100 === "" || !Number.isFinite(Number(per100)) ? null : Math.round((Number(per100) * gramsNum) / 100));
   const totals = result ? {
     calories: scale(result.per100g.calories), protein: scale(result.per100g.protein), carbs: scale(result.per100g.carbs), fat: scale(result.per100g.fat),
   } : null;
@@ -3266,7 +3267,7 @@ function FoodScanner({ onAdd, onClose }) {
             </div>
           )}
           <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }} htmlFor="scan-grams">PORTION SIZE — ADJUST IF NEEDED (GRAMS)</label>
-          <input id="scan-grams" type="text" inputMode="decimal" className="atlas-input" value={grams} onChange={(e) => { const n = Number(e.target.value.replace(",", ".")); setGrams(e.target.value === "" || !Number.isFinite(n) || n < 0 ? 0 : n); }} style={{ marginTop: 4, marginBottom: 12, minHeight: 48 }} />
+          <input id="scan-grams" type="text" inputMode="decimal" className="atlas-input" value={grams} onChange={(e) => { const v = e.target.value.replace(",", "."); if (/^\d{0,5}(\.\d{0,2})?$/.test(v)) setGrams(v); }} style={{ marginTop: 4, marginBottom: 12, minHeight: 48 }} />
           <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 4 }}>NUTRITION PER 100 G (EDITABLE)</div>
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
             {[["calories", "kcal"], ["protein", "protein"], ["carbs", "carbs"], ["fat", "fat"]].map(([k, label]) => (
@@ -3279,12 +3280,12 @@ function FoodScanner({ onAdd, onClose }) {
             <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.carbs ?? "—"}{totals.carbs != null ? "g" : ""}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>CARBS</div></div>
             <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.fat ?? "—"}{totals.fat != null ? "g" : ""}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>FAT</div></div>
           </div>
-          <div style={{ marginBottom: 12 }}><MacroConsistencyNote values={totals} onUseSuggested={(kcal) => setResult((r) => ({ ...r, per100g: { ...r.per100g, calories: grams > 0 ? Math.round((kcal * 100) / grams) : r.per100g.calories } }))} /></div>
+          <div style={{ marginBottom: 12 }}><MacroConsistencyNote values={totals} onUseSuggested={(kcal) => setResult((r) => ({ ...r, per100g: { ...r.per100g, calories: gramsNum > 0 ? Math.round((kcal * 100) / gramsNum) : r.per100g.calories } }))} /></div>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="atlas-btn-ghost" style={{ flex: 1, minHeight: 48 }} onClick={() => { setResult(null); setError(null); }}>
               <RefreshCw size={14} style={{ verticalAlign: -2, marginRight: 5 }} /> Scan Again
             </button>
-            <button className="atlas-btn" style={{ flex: 1, minHeight: 48 }} disabled={missingNutrition || !(grams > 0)} onClick={() => { onAdd({ id: uid(), date: todayStr(), name: `${result.name} (${grams}g)`, calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat, source: result.source, ...(result.estimated ? { estimated: true } : {}) }); onClose(); }}>
+            <button className="atlas-btn" style={{ flex: 1, minHeight: 48 }} disabled={missingNutrition || !(gramsNum > 0)} onClick={() => { onAdd({ id: uid(), date: todayStr(), name: `${result.name} (${gramsNum}g)`, calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat, source: result.source, ...(result.estimated ? { estimated: true } : {}) }); onClose(); }}>
               <Plus size={14} style={{ verticalAlign: -2, marginRight: 5 }} /> Add to Log
             </button>
           </div>
@@ -3966,7 +3967,7 @@ export default function App() {
     // Keep the SAME user object while the id is unchanged. Supabase re-emits SIGNED_IN / TOKEN_REFRESHED
     // (e.g. when the tab regains focus) with a fresh object; treating that as a new user re-ran the whole
     // data load, which replaced in-memory state and pulled the athlete back to an active workout.
-    const sameUser = (prev, next) => (prev && next && prev.id === next.id ? prev : (next ?? null));
+    const sameUser = (prev, next) => (prev && next && prev.id === next.id && prev.updated_at === next.updated_at ? prev : (next ?? null));
     supabase.auth.getSession().then(({ data: { session } }) => setAuthUser((prev) => sameUser(prev, session?.user)));
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);

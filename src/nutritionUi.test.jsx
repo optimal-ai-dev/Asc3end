@@ -30,6 +30,11 @@ describe("sanitizeIdeas (AI order suggestions)", () => {
     expect(out["node/1"].portionAssumption).toBe("one regular bowl");
   });
 
+  it("treats null/blank range entries as missing rather than as 0", () => {
+    expect(sanitizeIdeas({ ideas: [{ ...good, calories: [null, null] }] }, ids)).toEqual({});
+    expect(sanitizeIdeas({ ideas: [{ ...good, protein: ["", ""] }] }, ids)).toEqual({});
+  });
+
   it("drops ideas with missing/invalid ranges, blank items or invented venues, and tolerates junk", () => {
     expect(sanitizeIdeas({ ideas: [{ ...good, calories: undefined }] }, ids)).toEqual({});
     expect(sanitizeIdeas({ ideas: [{ ...good, item: "  " }] }, ids)).toEqual({});

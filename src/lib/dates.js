@@ -59,7 +59,11 @@ export function localDateString(instant = Date.now(), timeZone = getTimeZone()) 
 }
 
 export function isDateString(s) {
-  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.UTC(...dateParts(s)));
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = dateParts(s);
+  const dt = new Date(Date.UTC(y, m, d));
+  // Round-trip check: Date.UTC silently rolls "2026-02-31" over to 3 March, which is not a real date.
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m && dt.getUTCDate() === d;
 }
 
 function dateParts(s) {

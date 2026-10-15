@@ -132,4 +132,12 @@ describe("isDateString", () => {
     expect(isDateString("2026-10-09T00:00:00Z")).toBe(false);
     expect(isDateString(null)).toBe(false);
   });
+
+  it("rejects calendar dates that do not exist instead of letting them roll over", () => {
+    expect(isDateString("2026-02-31")).toBe(false);
+    expect(isDateString("2026-13-01")).toBe(false);
+    expect(isDateString("2026-02-28")).toBe(true);
+    expect(isDateString("2028-02-29")).toBe(true);
+    expect(isDateString("2026-02-29")).toBe(false);
+  });
 });

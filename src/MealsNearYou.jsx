@@ -8,7 +8,7 @@ import { getTimeZone } from "./lib/dates.js";
 import FoodLogSheet from "./FoodLogSheet.jsx";
 
 const CATEGORY_FILTERS = [["all", "All"], ["restaurant", "Restaurants"], ["cafe", "Cafés"], ["fast_food", "Fast food"]];
-const clampRange = (r, max) => (Array.isArray(r) && r.length === 2 && r.every((n) => Number.isFinite(Number(n))) ? [Math.max(0, Math.min(max, Number(r[0]))), Math.max(0, Math.min(max, Number(r[1])))].sort((a, b) => a - b) : null);
+const clampRange = (r, max) => (Array.isArray(r) && r.length === 2 && r.every((n) => n !== null && n !== "" && Number.isFinite(Number(n))) ? [Math.max(0, Math.min(max, Number(r[0]))), Math.max(0, Math.min(max, Number(r[1])))].sort((a, b) => a - b) : null);
 
 /** Validates and cleans the model's "order ideas" JSON. Unknown venues and malformed ranges are dropped. */
 const rangeText = (r) => (r[0] === r[1] ? String(r[0]) : `${r[0]}–${r[1]}`);
