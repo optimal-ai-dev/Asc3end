@@ -42,7 +42,7 @@ vi.mock("../lib/supabaseAdmin.js", () => ({ supabaseAdmin: fakeAdmin }));
 vi.mock("../lib/rateLimit.js", () => ({ checkRateLimit: async () => ({ allowed: true }) }));
 vi.mock("../lib/monthlyUsage.js", () => ({ getMonthlyUsage: async () => 0, incrementMonthlyUsage: async () => {} }));
 
-import handler from "./claude.js";
+import handler from "../api/claude.js";
 
 const workout = (date, sets, extra = {}) => ({ id: `w-${date}`, date, timeZone: "Australia/Sydney", unit: "kg", exercises: [{ name: "Barbell Bench Press", trackingType: "weight_reps", sets }], ...extra });
 const set = (weight, reps, type = "normal") => ({ weight, reps, type });

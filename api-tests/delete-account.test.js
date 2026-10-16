@@ -22,7 +22,7 @@ const { fakeAdmin, state } = vi.hoisted(() => {
 vi.mock("../lib/supabaseAdmin.js", () => ({ supabaseAdmin: fakeAdmin }));
 vi.mock("../lib/rateLimit.js", () => ({ checkRateLimit: async () => ({ allowed: true }) }));
 
-const handler = (await import("./delete-account.js")).default;
+const handler = (await import("../api/delete-account.js")).default;
 const res = () => { const r = { statusCode: null, body: null, status(c) { r.statusCode = c; return r; }, json(b) { r.body = b; return r; } }; return r; };
 const req = { method: "POST", headers: { authorization: "Bearer tok" } };
 

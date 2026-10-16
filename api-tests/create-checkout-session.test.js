@@ -41,7 +41,7 @@ vi.mock("../lib/supabaseAdmin.js", () => ({ supabaseAdmin: fakeAdmin }));
 vi.mock("../lib/rateLimit.js", () => ({ checkRateLimit: vi.fn(async () => ({ allowed: true, count: 1, limit: 5 })) }));
 const { checkRateLimit } = await import("../lib/rateLimit.js");
 
-const handler = (await import("./create-checkout-session.js")).default;
+const handler = (await import("../api/create-checkout-session.js")).default;
 
 function fakeReq({ token, body }) {
   return {

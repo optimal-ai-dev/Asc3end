@@ -46,7 +46,7 @@ const { fakeAdmin, state } = vi.hoisted(() => {
 });
 vi.mock("../lib/supabaseAdmin.js", () => ({ supabaseAdmin: fakeAdmin }));
 
-const handler = (await import("./stripe-webhook.js")).default;
+const handler = (await import("../api/stripe-webhook.js")).default;
 
 function fakeReq(rawBody = "{}") {
   return {

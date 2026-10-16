@@ -19,7 +19,7 @@ vi.mock("../lib/places.js", async () => {
   return { ...actual, lookupPlaces: async (args) => { state.lastArgs = args; return state.lookup(args); } };
 });
 
-import handler from "./places.js";
+import handler from "../api/places.js";
 import { PlacesError } from "../lib/places.js";
 
 const res = () => { const r = { statusCode: null, body: null, status(c) { r.statusCode = c; return r; }, json(b) { r.body = b; return r; } }; return r; };
