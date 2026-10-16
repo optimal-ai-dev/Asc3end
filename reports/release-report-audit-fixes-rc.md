@@ -43,6 +43,9 @@ Labels: **FV** Fixed and verified · **INV** Implemented but not verified · **B
 - **Ownership/RLS:** 15 live cross-user tests pass (read/write/delete other user's data, self-grant premium, usage counters, feedback, webhook table).
 - **Secrets:** no keys in the diff; service-role and Stripe keys are server-only; build gate warns locally that `ANTHROPIC_API_KEY` is unset (confirm it is set in Vercel).
 
+## Preview deployment
+The first preview build failed at "Deploying outputs" because API test files sat in `api/` and were counted as serverless functions (14 files vs the 12-function Hobby limit). Tests now live in `api-tests/`; the second preview deployed successfully (`success`). The preview is behind Vercel login and was not browsed.
+
 ## Test and build summary
 - `npx vitest run`: **42 files / 777 tests pass**. `npm run test:integration` (live Supabase + production health): **all pass**.
 - `npx vite build` succeeds. `npm run build` stops at the launch-config gate locally only because `ANTHROPIC_API_KEY` isn't in `.env.local`.
