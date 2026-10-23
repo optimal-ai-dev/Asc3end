@@ -356,7 +356,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
   if (!isPremium && coachRemaining <= 0) {
     return (
       <div style={{ padding: "24px 18px" }}>
-        <h1 className="disp" style={{ fontSize: 26, marginBottom: 16 }}>Coach</h1>
+        <h1 className="disp-title" style={{ fontSize: 26, marginBottom: 16 }}>Coach</h1>
         <Paywall feature="coach" onUpgrade={onUpgrade} />
       </div>
     );
@@ -365,7 +365,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
   return (
     <div style={{ padding: "24px 18px", display: "flex", flexDirection: "column", height: "calc(100vh - 88px)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-        <h1 className="disp" style={{ fontSize: 26 }}>Coach</h1>
+        <h1 className="disp-title" style={{ fontSize: 26 }}>Coach</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {!isPremium && (
             <span className="mono" style={{ fontSize: 11, color: "var(--brass)" }}>{coachRemaining} free {coachRemaining === 1 ? "message" : "messages"} left this month</span>

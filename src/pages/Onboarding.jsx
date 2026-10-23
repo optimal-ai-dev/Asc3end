@@ -125,7 +125,7 @@ export function Onboarding({ onComplete }) {
     <div className="atlas-root" style={{ padding: "40px 20px", paddingBottom: 40 }}>
       <div style={{ marginBottom: 28 }}>
         <div className="mono" style={{ color: "var(--brass)", fontSize: 12, letterSpacing: 2 }}>ASC3END</div>
-        <div className="disp" style={{ fontSize: 30, marginTop: 4 }}>{steps[step].title}</div>
+        <div className="disp-title" style={{ fontSize: 30, marginTop: 4 }}>{steps[step].title}</div>
         <div style={{ display: "flex", gap: 4, marginTop: 14 }}>
           {steps.map((_, i) => (
             <div key={i} style={{ height: 3, flex: 1, borderRadius: 2, background: i <= step ? "var(--brass)" : "var(--line)" }} />
