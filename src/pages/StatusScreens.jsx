@@ -67,7 +67,7 @@ export function NotFoundScreen({ onGoHome }) {
     <div className="atlas-root" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 }}>
       <GlobalStyle />
       <div className="atlas-card" style={{ width: "100%", maxWidth: 360, textAlign: "center", padding: 28 }}>
-        <div className="disp" style={{ fontSize: 40, color: "var(--brass)", marginBottom: 8 }}>404</div>
+        <div className="disp-title" style={{ fontSize: 40, color: "var(--brass)", marginBottom: 8 }}>404</div>
         <div className="disp" style={{ fontSize: 17, marginBottom: 6 }}>Page not found</div>
         <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>
           That link doesn't match anywhere in Asc3end — it may be out of date.

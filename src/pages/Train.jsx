@@ -287,7 +287,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
   if (!session) {
     return (
       <div style={{ padding: "24px 18px" }}>
-        <h1 className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Train</h1>
+        <h1 className="disp-title" style={{ fontSize: 26, marginBottom: 4 }}>Train</h1>
         <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18 }}>Log today's session and let the coach handle progression.</div>
         <button className="atlas-btn" style={{ width: "100%", padding: 16, fontSize: 15 }} onClick={() => onStartWorkout()}>
           <Plus size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Start Workout
@@ -510,7 +510,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
-          <h1 className="disp" style={{ fontSize: 24 }}>{session.planDayName || "Today's Session"}</h1>
+          <h1 className="disp-title" style={{ fontSize: 24 }}>{session.planDayName || "Today's Session"}</h1>
           <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)" }}>⏱ {fmtClock((now - session.startedAt) / 1000)} elapsed</div>
         </div>
         <button className="atlas-btn-ghost" onClick={() => setConfirmDiscard(true)} style={{ padding: "6px 10px" }}>Cancel</button>

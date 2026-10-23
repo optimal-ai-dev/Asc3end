@@ -79,7 +79,7 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
           >
             <Dumbbell size={26} color="#072016" />
           </div>
-          <div className="disp" style={{ fontSize: 24 }}>Asc3end</div>
+          <div className="disp-title" style={{ fontSize: 24 }}>Asc3end</div>
           <div className="mono" style={{ color: "var(--ink-dim)", fontSize: 12, marginTop: 2 }}>
             {mode === "login" && "Log in to keep training"}
             {mode === "signup" && "Create your account"}

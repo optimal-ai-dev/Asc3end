@@ -331,7 +331,7 @@ function MacroRing({ label, value, target, unit, color, size = 74 }) {
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
           style={{ transition: "stroke-dasharray 0.3s ease" }}
         />
-        <text x="50%" y="47%" textAnchor="middle" fontSize="14" fontWeight="600" fill="var(--ink)" fontFamily="'JetBrains Mono', monospace">{Math.round(value)}</text>
+        <text x="50%" y="47%" textAnchor="middle" fontSize="14" fontWeight="600" fill="var(--ink)">{Math.round(value)}</text>
         <text x="50%" y="64%" textAnchor="middle" fontSize="8.5" fill="var(--ink-dim)" fontFamily="'JetBrains Mono', monospace">/{Math.round(target)}{unit}</text>
       </svg>
       <div className="mono" style={{ fontSize: 9, color: over ? "var(--warn)" : "var(--ink-dim)", letterSpacing: 0.5 }}>{label}</div>
@@ -503,7 +503,7 @@ Respond with ONLY this JSON, nothing else:
 
   return (
     <div style={{ padding: "24px 18px" }}>
-      <h1 className="disp" style={{ fontSize: 26, marginBottom: 4 }}>Nutrition</h1>
+      <h1 className="disp-title" style={{ fontSize: 26, marginBottom: 4 }}>Nutrition</h1>
       <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 12 }}>Daily target: {targets.calories} kcal · {targets.protein}g protein</div>
 
       <button className="atlas-btn" style={{ width: "100%", marginBottom: 16, padding: 13 }} onClick={() => setScannerOpen(true)}>

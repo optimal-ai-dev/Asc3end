@@ -319,7 +319,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
 
       {/* Hero */}
       <Section style={{ textAlign: "center", paddingTop: 64, paddingBottom: 40 }}>
-        <div className="disp" style={{ fontSize: 34, lineHeight: 1.15, marginBottom: 14 }}>
+        <div className="disp-title" style={{ fontSize: 34, lineHeight: 1.15, marginBottom: 14 }}>
           Train, eat, and progress — with an AI coach that actually knows your history.
         </div>
         <div style={{ color: "var(--ink-dim)", fontSize: 15, lineHeight: 1.6, marginBottom: 28 }}>
@@ -447,7 +447,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 20 }}>
           <div className="atlas-card" style={{ padding: 22 }}>
             <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Free</div>
-            <div className="disp" style={{ fontSize: 28, marginBottom: 12 }}>$0</div>
+            <div className="disp-title" style={{ fontSize: 28, marginBottom: 12 }}>$0</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.7 }}>
               Unlimited workout logging<br />Unlimited nutrition tracking<br />Progress & strength analytics<br />{FREE_MONTHLY_LIMITS.coach} AI Coach chats & {FREE_MONTHLY_LIMITS.meals} meal searches per month
             </div>
@@ -455,7 +455,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
           </div>
           <div className="atlas-card" style={{ padding: 22, border: "1px solid var(--brass)", background: "var(--brass-soft)" }}>
             <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Asc3end+</div>
-            <div className="disp" style={{ fontSize: 28, marginBottom: 4 }}>AUD ${MONTHLY_PRICE}<span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/mo</span></div>
+            <div className="disp-title" style={{ fontSize: 28, marginBottom: 4 }}>AUD ${MONTHLY_PRICE}<span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/mo</span></div>
             <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 12 }}>or AUD ${ANNUAL_PRICE}/yr — save {ANNUAL_SAVINGS_PCT}%</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.7 }}>
               Everything in Free<br />{PLUS_MONTHLY_LIMITS.coach} AI Coach messages a month<br />{PLUS_MONTHLY_LIMITS.meals} Meals Near You searches a month<br />Food scanner (photo/barcode)

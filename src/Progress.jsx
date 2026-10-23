@@ -569,7 +569,7 @@ export default function Progress({ profile, workouts, weightlog, customExercises
       )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 className="disp" style={{ fontSize: 26 }}>Progress</h1>
+        <h1 className="disp-title" style={{ fontSize: 26 }}>Progress</h1>
         <button onClick={() => setShowMonthlyReport(true)} className="atlas-btn-ghost" style={{ padding: "8px 14px", fontSize: 11, display: "flex", alignItems: "center", gap: 6 }}>
           <FileText size={13} /> Monthly Report
         </button>

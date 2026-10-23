@@ -172,7 +172,7 @@ export function WorkoutCompleteScreen({ workout, streakBefore, streakAfter, athl
           <div style={{ width: 64, height: 64, borderRadius: "50%", background: "linear-gradient(135deg, var(--brass), #2BAE73)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
             <Check size={30} color="#072016" strokeWidth={3} />
           </div>
-          <h1 className="disp" style={{ fontSize: 24 }}>Workout Complete</h1>
+          <h1 className="disp-title" style={{ fontSize: 24 }}>Workout Complete</h1>
           <div style={{ color: "var(--ink-dim)", fontSize: 13, marginTop: 4 }}>{workout.planDayName || "Free Workout"}</div>
         </div>
 
