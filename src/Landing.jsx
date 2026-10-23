@@ -1,5 +1,5 @@
 import React, { useState, useRef, useId } from "react";
-import { Dumbbell, MessageCircle, UtensilsCrossed, TrendingUp, Camera, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Sparkles, Flame, Trophy, Send } from "lucide-react";
+import { Dumbbell, MessageCircle, UtensilsCrossed, TrendingUp, Camera, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Sparkles, Flame, Trophy, Send, Timer } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
 import { FREE_MONTHLY_LIMITS, PLUS_MONTHLY_LIMITS } from "./lib/entitlements";
@@ -68,7 +68,7 @@ function PreviewWorkout() {
   return (
     <PreviewPhoneFrame label="Today's workout preview">
       <div className="disp" style={{ fontSize: 14, marginBottom: 2 }}>Day 2: Pull</div>
-      <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginBottom: 10 }}>⏱ 18:42 elapsed</div>
+      <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginBottom: 10 }}><Timer size={9} style={{ verticalAlign: -1, marginRight: 2 }} aria-hidden="true" />18:42 elapsed</div>
       {[
         { name: "Deadlift (Barbell)", sets: "3 × 72.5kg × 6", done: true },
         { name: "Lat Pulldown", sets: "3 × 37.5kg × 11", done: true },

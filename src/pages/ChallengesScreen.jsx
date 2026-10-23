@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { BadgeIcon } from "../components/BadgeIcon";
 import { Check, X } from "lucide-react";
 import {
   computeGamification, computeWeeklyMissions, computeChallengeProgress, CHALLENGE_TEMPLATES
@@ -40,7 +41,7 @@ function ChallengeCard({ progress, onRemove, onStart, active }) {
       <div className="atlas-card" style={{ marginBottom: 10, borderColor: progress.completed ? "var(--brass)" : "var(--line)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>{template.icon}</span>
+            <BadgeIcon id={template.id} earned={!!active} size={36} />
             <div style={{ minWidth: 0 }}>
               <div className="disp" style={{ fontSize: 13 }}>{template.label}</div>
               <div className="mono" style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>
@@ -60,7 +61,7 @@ function ChallengeCard({ progress, onRemove, onStart, active }) {
   return (
     <div className="atlas-card" style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-        <span style={{ fontSize: 18, flexShrink: 0 }}>{template.icon}</span>
+        <BadgeIcon id={template.id} earned={!!active} size={36} />
         <div style={{ minWidth: 0 }}>
           <div className="disp" style={{ fontSize: 13 }}>{template.label}</div>
           <div style={{ fontSize: 11, color: "var(--ink-dim)" }}>{template.description}</div>
@@ -105,8 +106,8 @@ export function ChallengesScreen({ workouts, nutrition, profile, streak, challen
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {gamification.badges.map((b) => (
               <div key={b.id} title={b.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 68 }}>
-                <div style={{ fontSize: 22, filter: b.earned ? "none" : "grayscale(1)", opacity: b.earned ? 1 : 0.4 }}>{b.icon}</div>
-                <div className="mono" style={{ fontSize: 8, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
+                <BadgeIcon id={b.id} earned={b.earned} size={44} />
+                <div className="mono" style={{ fontSize: 10, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.25 }}>{b.label}</div>
                 {!b.earned && (
                   <div className="bar-track" style={{ width: "100%", height: 4 }}><div className="bar-fill" style={{ width: `${(b.current / b.target) * 100}%`, background: "var(--brass)" }} /></div>
                 )}
