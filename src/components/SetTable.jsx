@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Check, Plus, Trophy } from "lucide-react";
-import { SET_TYPES, SET_TYPE_COLORS, SET_TYPE_LABELS } from "../lib/workoutHelpers";
+import { SET_TYPES, SET_TYPE_COLORS, SET_TYPE_LABELS, fmtWeightReps } from "../lib/workoutHelpers";
 
 // Short set-number labels in the Hevy/Strong convention: normal sets are numbered, the others
 // get a coloured letter so a warm-up never reads as "set 1".
 const TYPE_BADGE = { warmup: "W", drop: "D", failure: "F" };
 
-const fmtPrev = (s) => (s && Number.isFinite(s.weight) && Number.isFinite(s.reps) ? `${s.weight} × ${s.reps}` : "—");
+const fmtPrev = (s) => (s && Number.isFinite(s.weight) && Number.isFinite(s.reps) ? fmtWeightReps(s.weight, s.reps).replace("kg", "") : "—");
 
 /* ------------------------------------------------------------------ */
 /* SetTable — the live-workout logger for weight × reps exercises      */

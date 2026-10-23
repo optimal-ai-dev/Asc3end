@@ -93,10 +93,9 @@ export default function GlobalStyle() {
       .mono { font-family: 'Manrope', sans-serif; font-weight: 600; font-variant-numeric: tabular-nums; }
       .atlas-card {
         background: var(--bg-elev);
-        border: 1px solid var(--line);
+        border: 1px solid rgba(255,255,255,0.04);
         border-radius: 20px;
         padding: 16px;
-        box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 12px 28px -18px rgba(0,0,0,0.55);
       }
       .atlas-btn {
         background: linear-gradient(135deg, var(--brass), #2BAE73);
@@ -117,9 +116,9 @@ export default function GlobalStyle() {
       .atlas-btn:active { transform: translateY(0); }
       .atlas-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
       .atlas-btn-ghost {
-        background: transparent;
+        background: var(--bg-elev2);
         color: var(--ink);
-        border: 1px solid var(--line);
+        border: 1px solid transparent;
         font-family: 'Manrope', sans-serif;
         font-weight: 700;
         font-size: 14px;
@@ -130,7 +129,7 @@ export default function GlobalStyle() {
         cursor: pointer;
         transition: border-color 0.15s ease, color 0.15s ease;
       }
-      .atlas-btn-ghost:hover { border-color: var(--brass); color: var(--brass); }
+      .atlas-btn-ghost:hover { color: var(--brass); }
       .atlas-btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
       .atlas-input {
         background: var(--bg-elev2);

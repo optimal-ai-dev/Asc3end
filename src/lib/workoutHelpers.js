@@ -22,6 +22,12 @@ export const GOAL_LABELS = {
 /** Human-readable summary of one logged set, in whatever unit its tracking type actually uses —
  *  never assumes weight×reps. Used everywhere a set needs to render as a single line (active
  *  workout, workout history, workout detail modal). */
+// "82.5kg × 6", or "BW × 10" when no load was logged — bodyweight lifts (pull-ups, dips) logged as
+// weight × reps were showing as "0kg × 10" in PRs, history and toasts.
+export function fmtWeightReps(weight, reps) {
+  return weight > 0 ? `${weight}kg × ${reps}` : `BW × ${reps}`;
+}
+
 export function formatSet(set, trackingType = "weight_reps") {
   const fmtDur = (s) => { const m = Math.floor(s / 60), sec = s % 60; return m > 0 ? `${m}:${String(sec).padStart(2, "0")}` : `${s}s`; };
   const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)}km` : `${m}m`);
@@ -42,7 +48,7 @@ export function formatSet(set, trackingType = "weight_reps") {
     case "weighted_duration":
       return `${set.weight}kg × ${fmtDur(set.durationSeconds || 0)}`;
     default:
-      return `${set.weight}kg × ${set.reps}`;
+      return fmtWeightReps(set.weight, set.reps);
   }
 }
 
