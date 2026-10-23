@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Trophy, Loader2, Plus, ChevronRight, TrendingUp, Search, AlertTriangle } from "lucide-react";
+import { X, Trophy, Loader2, Plus, ChevronRight, TrendingUp, Search, AlertTriangle, MoreHorizontal } from "lucide-react";
 import { logEvent } from "../lib/analytics";
 import {
-  workoutXpBreakdown, evaluatePR, computeStreak, computeWorkoutXp, suggestNextTarget
+  workoutXpBreakdown, evaluatePR, computeStreak, computeWorkoutXp, suggestNextTarget, previousSets
 } from "../lib/workoutMath";
 import {
   MUSCLE_REGIONS, UNMAPPED_READINESS_REGIONS, MUSCLE_GROUPS, EQUIPMENT_TYPES, EXERCISES,
@@ -14,6 +14,7 @@ import { formatSet, SET_TYPE_COLORS, SET_TYPE_LABELS, SET_TYPES } from "../lib/w
 import { playRestDoneSound, playPRSound } from "../lib/sounds";
 import { ExerciseThumb } from "../components/ExerciseFigure";
 import { ExerciseDetailCard } from "../components/ExerciseDetailCard";
+import { SetTable } from "../components/SetTable";
 
 // Every readiness region (the 18 drawn on the body map plus the 3 filter/search-only ones),
 // grouped by coarse muscle group — used to scope the Train picker's region filter to whichever
@@ -221,6 +222,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
   useEffect(() => { setVisibleExerciseCount(EXERCISE_PAGE_SIZE); }, [search, muscleFilter, equipFilter, regionFilter]);
   const [detailEx, setDetailEx] = useState(null);
   const [openCues, setOpenCues] = useState({});
+  const [openMenu, setOpenMenu] = useState(null);
   const [weightIn, setWeightIn] = useState({});
   const [repsIn, setRepsIn] = useState({});
   const [durationIn, setDurationIn] = useState({});
@@ -388,9 +390,11 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
     setCustomError(null);
   };
 
-  const addSet = (exName) => {
+  // `vals` comes from the set table (weight × reps exercises), which owns its own per-row inputs;
+  // every other tracking type still reads the single input row below via weightIn/repsIn/etc.
+  const addSet = (exName, vals) => {
     const trackingType = (allExercises.find((e) => e.name === exName)?.trackingType) || "weight_reps";
-    const w = +weightIn[exName]; const r = +repsIn[exName];
+    const w = vals ? vals.weight : +weightIn[exName]; const r = vals ? vals.reps : +repsIn[exName];
     const dur = +durationIn[exName]; const dist = +distanceIn[exName]; const assist = +assistIn[exName];
 
     // Each tracking type has its own "what's required to log a set" rule — a plank has no weight
@@ -426,7 +430,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
     }
 
     const isFirstSetEver = workouts.length === 0 && session.exercises.every((e) => e.sets.length === 0);
-    const setType = typeIn[exName] || "normal";
+    const setType = vals?.type || typeIn[exName] || "normal";
     set.type = setType;
     const historySets = [
       ...workouts.flatMap((wk) => wk.exercises.filter((e) => e.name === exName).flatMap((e) => e.sets)),
@@ -557,20 +561,32 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
               {meta && <ExerciseThumb ex={meta} size={40} />}
               <div style={{ flex: 1 }}>
                 <div className="disp" style={{ fontSize: 16 }}>{ex.name}</div>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {meta && (
-                    <button onClick={() => setOpenCues((v) => ({ ...v, [ex.name]: !v[ex.name] }))}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--steel)", fontSize: 11 }} className="mono">
-                      {openCues[ex.name] ? "Hide form cues" : "Show form cues"}
-                    </button>
-                  )}
-                  <button onClick={() => setLinkingEx(linkingEx === ex.name ? null : ex.name)}
-                    style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--warn)", fontSize: 11 }} className="mono">
-                    {ex.supersetWith ? `⚡ Linked with ${ex.supersetWith}` : "⚡ Link as superset"}
-                  </button>
-                </div>
+                {ex.targetSets && ex.targetReps && (
+                  <div className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+                    Target {ex.targetSets} × {ex.targetReps}{ex.sets.length > 0 ? ` · ${ex.sets.length}/${ex.targetSets} done` : ""}
+                  </div>
+                )}
+                {ex.supersetWith && <div className="mono" style={{ fontSize: 12, color: "var(--warn)" }}>⚡ Superset with {ex.supersetWith}</div>}
               </div>
+              <button onClick={() => setOpenMenu(openMenu === ex.name ? null : ex.name)} aria-label={`More options for ${ex.name}`} aria-expanded={openMenu === ex.name}
+                style={{ background: "none", border: "none", cursor: "pointer", minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--ink-dim)" }}>
+                <MoreHorizontal size={20} />
+              </button>
             </div>
+            {openMenu === ex.name && (
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                {meta && (
+                  <button className="atlas-btn-ghost" style={{ flex: 1, minHeight: 38, padding: "6px 0", fontSize: 12 }}
+                    onClick={() => { setOpenCues((v) => ({ ...v, [ex.name]: !v[ex.name] })); setOpenMenu(null); }}>
+                    {openCues[ex.name] ? "Hide form cues" : "Form cues"}
+                  </button>
+                )}
+                <button className="atlas-btn-ghost" style={{ flex: 1, minHeight: 38, padding: "6px 0", fontSize: 12 }}
+                  onClick={() => { setLinkingEx(linkingEx === ex.name ? null : ex.name); setOpenMenu(null); }}>
+                  {ex.supersetWith ? "Change superset" : "Link as superset"}
+                </button>
+              </div>
+            )}
             {linkingEx === ex.name && (
               <div style={{ marginTop: 8, padding: 8, background: "var(--bg-elev2)", borderRadius: 8 }}>
                 <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 6 }}>PAIR WITH:</div>
@@ -591,12 +607,16 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
               <TrendingUp size={13} color="var(--brass)" style={{ marginTop: 2, flexShrink: 0 }} />
               <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>
                 {suggestion.text}
-                {ex.targetSets && ex.targetReps && (
-                  <span style={{ color: "var(--warn)" }}> · Plan target: {ex.targetSets} × {ex.targetReps}{ex.sets.length > 0 ? ` (${ex.sets.length}/${ex.targetSets} done)` : ""}</span>
-                )}
               </div>
             </div>
 
+            {WEIGHT_REPS_TRACKING_TYPES.has(meta?.trackingType || "weight_reps") ? (
+              <SetTable
+                exName={ex.name} sets={ex.sets} targetSets={ex.targetSets} previous={previousSets(workouts, ex.name)}
+                suggestedWeight={suggestion.weight} onLog={(vals) => addSet(ex.name, vals)} onRemove={(i) => removeSet(ex.name, i)}
+                isPR={(w) => isPR(ex.name, w)}
+              />
+            ) : (<>
             {ex.sets.map((s, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: "1px solid var(--line)" }}>
                 <span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)", width: 20 }}>{i + 1}</span>
@@ -673,6 +693,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
                 </div>
               );
             })()}
+            </>)}
           </div>
         );
       })}
