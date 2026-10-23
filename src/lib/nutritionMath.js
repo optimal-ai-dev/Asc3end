@@ -15,12 +15,27 @@ export function computeTargets(p) {
       ? 10 * weightKg + 6.25 * heightCm - 5 * age - 161
       : 10 * weightKg + 6.25 * heightCm - 5 * age + 5;
   const tdee = bmr * 1.55;
-  let calories = tdee;
-  if (p.goal === "fat_loss") calories -= 500;
-  if (p.goal === "muscle_growth") calories += 250;
-  if (p.goal === "strength") calories += 100;
+  const calories = tdee + (GOAL_CALORIE_ADJUSTMENT[p.goal] ?? 0);
+  // An accepted weekly check-in (see adaptiveCalories.js) replaces only the calorie number, and
+  // only while the goal it was computed for is still the goal — switching from a cut to a bulk
+  // must not keep serving last week's cut calories.
+  const adaptive = activeAdaptiveCalories(p);
+  if (adaptive != null) return macrosForCalories(adaptive, weightKg, p.goal);
+  return macrosForCalories(calories, weightKg, p.goal);
+}
 
-  const proteinPerKg = p.goal === "fat_loss" ? 2.0 : p.goal === "general" ? 1.6 : 1.8;
+export function activeAdaptiveCalories(p) {
+  const a = p?.adaptiveCalories;
+  return a && a.goal === p.goal && Number.isFinite(a.calories) && a.calories > 0 ? a.calories : null;
+}
+
+// Calories added to (or removed from) maintenance for each goal. Shared with the adaptive weekly
+// check-in so both paths aim at the same surplus/deficit.
+export const GOAL_CALORIE_ADJUSTMENT = { fat_loss: -500, muscle_growth: 250, strength: 100, general: 0 };
+
+// Splits a calorie number into protein (by bodyweight), fat (25% of calories) and carbs (the rest).
+export function macrosForCalories(calories, weightKg, goal) {
+  const proteinPerKg = goal === "fat_loss" ? 2.0 : goal === "general" ? 1.6 : 1.8;
   const protein = proteinPerKg * weightKg;
   const fat = (calories * 0.25) / 9;
   const carbs = (calories - protein * 4 - fat * 9) / 4;
@@ -45,10 +60,11 @@ export function computeTargets(p) {
 // profile every time — never trusting a stored snapshot for calculated mode — makes that class of
 // bug structurally impossible: there is nothing left to go stale.
 //
-// @returns {{calories:number, protein:number, carbs:number, fat:number, source: "calculated"|"manual"}}
+// @returns {{calories:number, protein:number, carbs:number, fat:number, source: "calculated"|"adaptive"|"manual"}}
 export function getNutritionTargets(profile) {
   const targets = computeTargets(profile);
-  return { ...targets, source: profile?.macroOverride ? "manual" : "calculated" };
+  const source = profile?.macroOverride ? "manual" : activeAdaptiveCalories(profile) != null ? "adaptive" : "calculated";
+  return { ...targets, source };
 }
 
 // The single classification rule behind every adherence view in the app (Home's weekly strip,

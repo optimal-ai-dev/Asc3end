@@ -13,6 +13,8 @@ import {
   weeklyAdherence, ADHERENCE_LABEL, ADHERENCE_COLOR, mealMacroGuidance, scoreBestMeal, QUICK_FOODS
 } from "../lib/nutritionHelpers";
 import { Paywall } from "../components/Paywall";
+import { HomeMealIdeas } from "../components/HomeMealIdeas";
+import { WeeklyCheckIn } from "../components/WeeklyCheckIn";
 
 /* ------------------------------------------------------------------ */
 /* Nutrition                                                            */
@@ -356,7 +358,7 @@ function WeeklyAdherence({ nutrition, targets }) {
   );
 }
 
-export function Nutrition({ profile, nutrition, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, isPremium, onUpgrade, usage, onUsageChange }) {
+export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, isPremium, onUpgrade, usage, onUsageChange }) {
   const mealsRemaining = remainingMonthlyUses(FEATURES.MEALS, usage || {});
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
@@ -529,6 +531,16 @@ Respond with ONLY this JSON, nothing else:
         <div style={{ fontSize: 11.5, color: "var(--ink-dim)", marginBottom: 10 }}>How close you've landed to your targets each day.</div>
         <WeeklyAdherence nutrition={nutrition} targets={targets} />
       </div>
+
+      <HomeMealIdeas
+        targets={targets} totals={totals} onAdd={onAdd}
+        vegetarian={!!profile.vegetarian}
+        onToggleVegetarian={(v) => onUpdateProfile?.({ ...profile, vegetarian: v })}
+      />
+
+      {onUpdateProfile && (
+        <WeeklyCheckIn profile={profile} nutrition={nutrition} weightlog={weightlog} targets={targets} onUpdateProfile={onUpdateProfile} />
+      )}
 
       {!isPremium && mealsRemaining <= 0 ? (
         <div style={{ marginBottom: 16 }}><Paywall feature="meals" onUpgrade={onUpgrade} /></div>
