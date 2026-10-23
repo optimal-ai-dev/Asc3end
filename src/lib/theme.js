@@ -1,16 +1,17 @@
-/* Light / dark appearance. "system" follows the device's prefers-color-scheme; "light" and
-   "dark" pin it. The choice is a per-device preference (like a phone's own display setting), so
-   it lives in localStorage rather than the synced profile. GlobalStyle reads data-theme on <html>. */
+/* Light / dark appearance. Dark is the default; "light" pins light and "system" follows the
+   device's prefers-color-scheme. The choice is a per-device preference (like a phone's own
+   display setting), so it lives in localStorage rather than the synced profile. GlobalStyle reads
+   data-theme on <html>. */
 export const THEME_KEY = "asc3end-theme";
-export const THEME_OPTIONS = ["system", "light", "dark"];
+export const THEME_OPTIONS = ["dark", "light", "system"];
 const THEME_COLOR = { dark: "#0A120E", light: "#F3F6F4" };
 
 export function getThemePref() {
   try {
     const v = localStorage.getItem(THEME_KEY);
-    return THEME_OPTIONS.includes(v) ? v : "system";
+    return THEME_OPTIONS.includes(v) ? v : "dark";
   } catch {
-    return "system";
+    return "dark";
   }
 }
 
@@ -20,10 +21,9 @@ export function resolveTheme(pref, prefersLight = window.matchMedia?.("(prefers-
 }
 
 export function applyTheme(pref) {
-  const root = document.documentElement;
-  if (pref === "light" || pref === "dark") root.dataset.theme = pref;
-  else delete root.dataset.theme;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[resolveTheme(pref)]);
+  const theme = resolveTheme(pref);
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[theme]);
 }
 
 export function setThemePref(pref) {
