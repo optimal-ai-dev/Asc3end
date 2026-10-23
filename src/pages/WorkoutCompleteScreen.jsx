@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 import { Loader2, Share2, Download, Check, Trophy, Flame } from "lucide-react";
 import { logEvent } from "../lib/analytics";
-import { workoutVolume } from "../lib/workoutHelpers";
+import { workoutVolume, fmtWeightReps } from "../lib/workoutHelpers";
 
 /* ------------------------------------------------------------------ */
 /* Workout completion screen + shareable card                          */
@@ -49,7 +49,7 @@ function ShareCard({ workout, athleteName }) {
       ${bestPR ? `
         <rect x="60" y="260" width="480" height="64" rx="12" fill="#3ECF8E22" stroke="#3ECF8E" stroke-width="1.5" />
         <text x="84" y="288" font-family="'JetBrains Mono', monospace" font-size="11" letter-spacing="1" fill="#3ECF8E">NEW PERSONAL RECORD</text>
-        <text x="84" y="312" font-family="Oswald, sans-serif" font-size="19" fill="#F4F8F6">${escapeXml(bestPR.exName)} — ${bestPR.weight}kg × ${bestPR.reps}</text>
+        <text x="84" y="312" font-family="Oswald, sans-serif" font-size="19" fill="#F4F8F6">${escapeXml(bestPR.exName)} — ${fmtWeightReps(bestPR.weight, bestPR.reps)}</text>
       ` : ""}
       ${[
         { label: "VOLUME", value: `${volume.toLocaleString()}kg` },
@@ -199,7 +199,7 @@ export function WorkoutCompleteScreen({ workout, streakBefore, streakAfter, athl
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {workout.prs.map((pr, i) => (
                 <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                  {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
+                  {pr.exName} — {fmtWeightReps(pr.weight, pr.reps)} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
                 </div>
               ))}
             </div>

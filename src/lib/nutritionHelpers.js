@@ -75,3 +75,21 @@ export function weeklyAdherence(nutrition, targets) {
 
 export const ADHERENCE_COLOR = { good: "var(--good)", partial: "var(--warn)", off: "var(--rest)", none: "var(--bg-elev2)" };
 export const ADHERENCE_LABEL = { good: "On target", partial: "Partially on target", off: "Off target", none: "Nothing logged" };
+
+// Diary sections, the MyFitnessPal/Cronometer layout. Entries logged before meals existed have no
+// `meal` and are listed under "other" rather than guessed into a section.
+export const MEALS = ["breakfast", "lunch", "dinner", "snacks"];
+export const MEAL_LABEL = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snacks: "Snacks", other: "Earlier entries" };
+
+export function defaultMealForHour(hour) {
+  if (hour < 11) return "breakfast";
+  if (hour < 15) return "lunch";
+  if (hour >= 17 && hour < 22) return "dinner";
+  return "snacks";
+}
+
+export function groupByMeal(entries) {
+  const groups = { breakfast: [], lunch: [], dinner: [], snacks: [], other: [] };
+  (entries || []).forEach((f) => (groups[MEALS.includes(f.meal) ? f.meal : "other"].push(f)));
+  return groups;
+}

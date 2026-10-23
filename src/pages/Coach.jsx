@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useRef, useEffect } from "react";
-import { X, Pencil, Loader2, Sparkles, Trash2, Plus, Send } from "lucide-react";
+import { X, Pencil, Loader2, Sparkles, Trash2, Plus, Send, AlertTriangle } from "lucide-react";
 import { logEvent } from "../lib/analytics";
 import { loadKey, saveKey } from "../lib/storage";
 import { getNutritionTargets } from "../lib/nutritionMath";
@@ -493,7 +493,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
         )}
         {planError && !genLoading && (
           <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 12, color: "var(--rest)" }}>⚠️ {planError}</div>
+            <div style={{ fontSize: 12, color: "var(--rest)" }}><AlertTriangle size={12} style={{ verticalAlign: -1, marginRight: 4 }} aria-hidden="true" />{planError}</div>
             <button onClick={generatePlan} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brass)", fontSize: 11, padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", marginTop: 4 }}>Retry</button>
           </div>
         )}
