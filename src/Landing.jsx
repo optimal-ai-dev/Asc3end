@@ -2,7 +2,7 @@ import React, { useState, useRef, useId } from "react";
 import { Dumbbell, MessageCircle, UtensilsCrossed, TrendingUp, Camera, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Sparkles, Flame, Trophy, Send } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
 import { MONTHLY_PRICE, ANNUAL_PRICE, ANNUAL_SAVINGS_PCT, FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, PRICING_FAQ } from "./lib/pricingContent";
-import { FREE_MONTHLY_LIMIT } from "./lib/entitlements";
+import { FREE_MONTHLY_LIMITS, PLUS_MONTHLY_LIMITS } from "./lib/entitlements";
 
 // Deliberately NOT imported from App.jsx: that file (and everything it pulls in — Supabase
 // client init, the full exercise library, Stripe-adjacent billing code) would otherwise get
@@ -331,7 +331,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
           <button onClick={onLogIn} className="atlas-btn-ghost" style={{ padding: "12px 24px", fontSize: 14 }}>Log In</button>
         </div>
         <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 14 }}>
-          Free to start — no card required. Asc3end+ unlocks unlimited AI features from AUD ${MONTHLY_PRICE}/mo.
+          Free to start — no card required. Asc3end+ unlocks far more AI coaching from AUD ${MONTHLY_PRICE}/mo.
         </div>
       </Section>
 
@@ -449,7 +449,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
             <div className="disp" style={{ fontSize: 15, marginBottom: 4 }}>Free</div>
             <div className="disp" style={{ fontSize: 28, marginBottom: 12 }}>$0</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.7 }}>
-              Unlimited workout logging<br />Unlimited nutrition tracking<br />Progress & strength analytics<br />{FREE_MONTHLY_LIMIT} AI Coach chats & meal searches per month
+              Unlimited workout logging<br />Unlimited nutrition tracking<br />Progress & strength analytics<br />{FREE_MONTHLY_LIMITS.coach} AI Coach chats & {FREE_MONTHLY_LIMITS.meals} meal searches per month
             </div>
             <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10 }}>No card required. Never expires.</div>
           </div>
@@ -458,7 +458,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
             <div className="disp" style={{ fontSize: 28, marginBottom: 4 }}>AUD ${MONTHLY_PRICE}<span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/mo</span></div>
             <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 12 }}>or AUD ${ANNUAL_PRICE}/yr — save {ANNUAL_SAVINGS_PCT}%</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 12.5, lineHeight: 1.7 }}>
-              Everything in Free<br />Unlimited* AI Coach<br />Unlimited* Meals Near You<br />Food scanner (photo/barcode)
+              Everything in Free<br />{PLUS_MONTHLY_LIMITS.coach} AI Coach messages a month<br />{PLUS_MONTHLY_LIMITS.meals} Meals Near You searches a month<br />Food scanner (photo/barcode)
             </div>
           </div>
         </div>

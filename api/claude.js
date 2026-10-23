@@ -11,45 +11,24 @@
 // where anyone could call this for free. The Stripe paywall is enforced HERE, not just by
 // hiding buttons in the UI, which a direct API call would bypass entirely:
 //   - "scanner" (the food scanner) always requires an active Asc3end+ subscription.
-//   - "coach" and "meals" (Meals Near You) are free on the Free plan up to FREE_MONTHLY_LIMIT
-//     uses each PER CALENDAR MONTH (see lib/monthlyUsage.js) — this is a standing monthly
+//   - "coach" and "meals" (Meals Near You) are free on the Free plan up to FREE_MONTHLY_LIMITS
+//     uses PER CALENDAR MONTH (see lib/monthlyUsage.js) — this is a standing monthly
 //     allowance, not a trial: the Free plan itself never expires and never requires a card.
+//   - Asc3end+ gets coach, meals and the scanner up to the PLUS_MONTHLY_LIMITS fair-use caps.
 //   - "estimate" (manual food entry's macro estimate) is unlimited and free for everyone.
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { getMonthlyUsage, incrementMonthlyUsage } from "../lib/monthlyUsage.js";
 import { computeSubscriptionState, isEntitled } from "../src/lib/subscription.js";
-import { canAccessFeature, isMeteredFeature, FEATURES, FREE_MONTHLY_LIMIT } from "../src/lib/entitlements.js";
+import { canAccessFeature, isMeteredFeature, isUsageTracked, freeMonthlyLimit, plusMonthlyLimit, FEATURES } from "../src/lib/entitlements.js";
+import { buildAnthropicRequest } from "../lib/anthropicRequest.js";
 
 // Vercel's Hobby plan defaults serverless functions to a 10-second execution limit — nowhere
 // near enough for web-search-augmented Claude calls (Meals Near You), which can legitimately
 // take 10-20+ seconds. Without this, Vercel kills the function mid-request regardless of the
 // frontend's own timeout, and the client sees a generic failure that looks like "the app is slow".
 export const config = { maxDuration: 60 };
-
-// This endpoint is reachable directly by anyone with a valid bearer token (not only through the
-// app's own frontend — a modified client or a stolen token can call it with an arbitrary body),
-// so the request forwarded to Anthropic can't just be trusted as-is. Only ever forward a small,
-// validated shape: a fixed model, a capped max_tokens, and (if present) exactly the one tool the
-// app actually uses — never an arbitrary model name or tool the caller supplies.
-const ALLOWED_MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS_CEILING = 4096;
-const MAX_MESSAGES = 60; // generous for a long Coach conversation, bounds worst-case cost/latency
-
-function validateAnthropicBody(body) {
-  if (!body || typeof body !== "object") return "Invalid request.";
-  if (body.model !== ALLOWED_MODEL) return "Invalid model.";
-  if (!Number.isInteger(body.max_tokens) || body.max_tokens <= 0 || body.max_tokens > MAX_TOKENS_CEILING) return "Invalid max_tokens.";
-  if (!Array.isArray(body.messages) || body.messages.length === 0 || body.messages.length > MAX_MESSAGES) return "Invalid messages.";
-  if (body.system !== undefined && typeof body.system !== "string") return "Invalid system prompt.";
-  if (body.tools !== undefined) {
-    if (!Array.isArray(body.tools) || body.tools.length !== 1) return "Invalid tools.";
-    const t = body.tools[0];
-    if (t?.type !== "web_search_20250305" || t?.name !== "web_search" || t?.max_uses !== 1) return "Invalid tools.";
-  }
-  return null;
-}
 
 // Selects the newer cancel_at_period_end/plan columns with a fallback to the original 3-column
 // shape if they don't exist yet on this database (matches the same defensive read App.jsx's
@@ -105,7 +84,7 @@ export default async function handler(req, res) {
     return res.status(413).json({ error: { message: "Request too large." } });
   }
 
-  const validationError = validateAnthropicBody(body);
+  const { request: anthropicRequest, error: validationError } = buildAnthropicRequest(body, feature);
   if (validationError) {
     return res.status(400).json({ error: { message: validationError } });
   }
@@ -115,8 +94,11 @@ export default async function handler(req, res) {
 
   if (feature === FEATURES.SCANNER || meteredFeature) {
     const subscriptionState = await getSubscriptionState(user.id);
+    const entitled = isEntitled(subscriptionState);
+    const tracked = isUsageTracked(subscriptionState, feature);
     let currentUsage = 0;
-    if (meteredFeature && !isEntitled(subscriptionState)) {
+    let usageKnown = tracked;
+    if (tracked) {
       try {
         currentUsage = await getMonthlyUsage(user.id, feature);
       } catch (e) {
@@ -124,19 +106,27 @@ export default async function handler(req, res) {
         // unmetered request — the alternative (defaulting to 0/unlimited) is exactly the bug this
         // replaced, where a missing/unreachable feature_usage_monthly table silently gave every
         // Free user unlimited Coach/Meals access.
-        return res.status(503).json({ error: { message: "Couldn't verify your usage right now — please try again in a moment." } });
+        if (!entitled) {
+          return res.status(503).json({ error: { message: "Couldn't verify your usage right now — please try again in a moment." } });
+        }
+        // A paying user's fair-use cap is only abuse protection, so a usage-table outage shouldn't
+        // lock them out. Serve the request, but don't write a count based on a value we never read
+        // (that would reset their month back to 1).
+        usageKnown = false;
       }
     }
     if (!canAccessFeature(subscriptionState, feature, { [feature]: currentUsage })) {
+      const noun = { coach: "coach messages", meals: "meal searches", scanner: "food scans" }[feature];
+      if (entitled) {
+        // Fair-use cap reached. Not a paywall (they already pay), so no premium_required code.
+        return res.status(429).json({ error: { message: `You've reached this month's fair-use limit of ${plusMonthlyLimit(feature)} ${noun}. It resets on the 1st — contact support if you need more.`, code: "monthly_limit_reached" } });
+      }
       const message = feature === FEATURES.SCANNER
         ? "The food scanner is an Asc3end+ feature."
-        : `You've used all ${FREE_MONTHLY_LIMIT} free ${feature === "coach" ? "coach conversations" : "meal searches"} this month — upgrade to Asc3end+ for unlimited, or check back next month.`;
+        : `You've used all ${freeMonthlyLimit(feature)} free ${noun} this month — upgrade to Asc3end+ for more, or check back next month.`;
       return res.status(402).json({ error: { message, code: "premium_required" } });
     }
-    // Only a non-entitled caller of a metered feature spends one of their monthly free uses — an
-    // entitled (demo/paid) caller's usage is never read or incremented, since Asc3end+ has no
-    // monthly cap on these features to track.
-    if (meteredFeature && !isEntitled(subscriptionState)) {
+    if (usageKnown) {
       usageCountBeforeThisCall = currentUsage;
     }
   }
@@ -149,11 +139,17 @@ export default async function handler(req, res) {
         "x-api-key": process.env.ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(anthropicRequest),
     });
     const data = await response.json();
+    // Token counts only (no content, no user id) — the raw numbers for checking real per-feature
+    // cost and that prompt caching is hitting (cache_read_input_tokens > 0 on later coach turns).
+    if (data?.usage) {
+      const u = data.usage;
+      console.log("claude usage", { feature, input: u.input_tokens, cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0, output: u.output_tokens });
+    }
     // Only spend a monthly free use on an actual successful call — a network hiccup or
-    // Anthropic error shouldn't cost the user one of their 5 free tries for the month. A failure
+    // Anthropic error shouldn't cost the user one of their monthly uses. A failure
     // to RECORD the increment must not cost the user their already-generated (and already
     // Anthropic-billed) answer — unlike a failed usage READ, this can't be exploited into
     // unlimited access, since the next request's own read will reflect whatever's actually

@@ -79,7 +79,7 @@ export default function App() {
   // Never set directly from checkout success — only the Stripe webhook (server-side) is trusted
   // to write this, so a user can't just flip themselves to "active" from the browser.
   const [subscription, setSubscription] = useState(undefined);
-  // Free-trial counters for Coach / Meals Near You ({ coach, meals }, each 0-5). Read-only from
+  // This month's Coach / Meals Near You counters ({ coach, meals }; free limits in lib/entitlements.js). Read-only from
   // here — the real count lives server-side in api/claude.js, this is just for display/local gating.
   const [usage, setUsage] = useState({ coach: 0, meals: 0 });
   // Surfaces a real error instead of silently doing nothing when checkout/billing-portal

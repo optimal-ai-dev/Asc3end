@@ -103,3 +103,32 @@ export const COACH_OUTPUT_RULES = `Formatting rules for every response, no excep
 {"type":"workout","title":"Upper Body — Hypertrophy Focus","muscleGroups":[{"muscle":"Chest","exercises":[{"name":"Barbell Bench Press","sets":4,"reps":"6-10"}]},{"muscle":"Back","exercises":[{"name":"Lat Pulldown","sets":3,"reps":"10-12"}]}]}
   Use "muscle" values from exactly this set: chest, back, shoulders, arms, legs, core. Use exercise names that match this list as closely as possible: ${EXERCISES.map((e) => e.name).join(", ")}
 - For anything else (questions, explanations, nutrition advice, form feedback), answer in tight bullet points, max ~6 bullets, no bullet longer than one short sentence. Only fall back to a couple of plain sentences for a genuinely simple yes/no or one-line answer.`;
+
+// The Coach's system prompt as two blocks for prompt caching. The first block is the same for
+// every athlete with the same coaching style (four variants in total) and holds nearly all of the
+// ~3,800 tokens, including the full exercise list, so it's marked for caching and is billed at a
+// tenth of the normal input price whenever anyone on that style has messaged in the last few
+// minutes. Everything specific to this athlete goes in the second block, after the cached prefix,
+// so it can change freely without invalidating the cache for anyone else. Nothing per-request
+// (dates, ids, timestamps) may go in the first block, or every call would miss the cache.
+export function buildCoachSystem(coachingStyle, athleteContext) {
+  const stylePrompt = (COACHING_STYLES[coachingStyle] || COACHING_STYLES.balanced).prompt;
+  return [
+    {
+      type: "text",
+      text: `You are Asc3end, an encouraging but direct fitness and nutrition coach.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}\n\n${COACH_OUTPUT_RULES}`,
+      cache_control: { type: "ephemeral" },
+    },
+    { type: "text", text: athleteContext },
+  ];
+}
+
+// Chat bubbles to the API turns sent to the coach: drops the synthetic greeting (index 0, never a
+// real API turn) and error bubbles (UI-only, and would otherwise be sent back to Claude as if it
+// had said them), and strips UI-only fields like `workout`.
+export function toCoachApiMessages(chatMessages) {
+  return chatMessages
+    .slice(1)
+    .filter((m) => !m.isError)
+    .map((m) => ({ role: m.role, content: m.content }));
+}

@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { canAccessFeature, remainingMonthlyUses, isMeteredFeature, FEATURES, FREE_MONTHLY_LIMIT } from "./entitlements";
+import { canAccessFeature, remainingMonthlyUses, isMeteredFeature, isUsageTracked, FEATURES, FREE_MONTHLY_LIMITS, PLUS_MONTHLY_LIMITS } from "./entitlements";
+
+const FREE_COACH_LIMIT = FREE_MONTHLY_LIMITS.coach;
 
 const FREE = { type: "free", status: "inactive" };
 const DEMO = { type: "demo", status: "active" };
@@ -17,14 +19,28 @@ describe("canAccessFeature", () => {
     expect(canAccessFeature(PAST_DUE, FEATURES.SCANNER)).toBe(true);
   });
 
-  it("coach/meals are free up to FREE_MONTHLY_LIMIT uses for a free user", () => {
-    expect(canAccessFeature(FREE, FEATURES.COACH, { coach: FREE_MONTHLY_LIMIT - 1 })).toBe(true);
-    expect(canAccessFeature(FREE, FEATURES.COACH, { coach: FREE_MONTHLY_LIMIT })).toBe(false);
+  it("coach/meals are free up to FREE_COACH_LIMIT uses for a free user", () => {
+    expect(canAccessFeature(FREE, FEATURES.COACH, { coach: FREE_COACH_LIMIT - 1 })).toBe(true);
+    expect(canAccessFeature(FREE, FEATURES.COACH, { coach: FREE_COACH_LIMIT })).toBe(false);
     expect(canAccessFeature(FREE, FEATURES.MEALS, { meals: 0 })).toBe(true);
   });
 
-  it("entitled users bypass the monthly-count check entirely — Asc3end+ has no monthly cap to enforce", () => {
-    expect(canAccessFeature(PAID_ACTIVE, FEATURES.COACH, { coach: 999 })).toBe(true);
+  it("meals has its own, smaller free allowance than coach", () => {
+    expect(FREE_MONTHLY_LIMITS.meals).toBeLessThan(FREE_MONTHLY_LIMITS.coach);
+    expect(canAccessFeature(FREE, FEATURES.MEALS, { meals: FREE_MONTHLY_LIMITS.meals - 1 })).toBe(true);
+    expect(canAccessFeature(FREE, FEATURES.MEALS, { meals: FREE_MONTHLY_LIMITS.meals })).toBe(false);
+  });
+
+  it("entitled users get far more than the free allowance, up to the fair-use cap", () => {
+    expect(canAccessFeature(PAID_ACTIVE, FEATURES.COACH, { coach: FREE_COACH_LIMIT + 50 })).toBe(true);
+    expect(canAccessFeature(PAID_ACTIVE, FEATURES.COACH, { coach: PLUS_MONTHLY_LIMITS.coach - 1 })).toBe(true);
+    expect(canAccessFeature(PAID_ACTIVE, FEATURES.COACH, { coach: PLUS_MONTHLY_LIMITS.coach })).toBe(false);
+    expect(canAccessFeature(DEMO, FEATURES.MEALS, { meals: PLUS_MONTHLY_LIMITS.meals })).toBe(false);
+    expect(canAccessFeature(PAID_ACTIVE, FEATURES.SCANNER, { scanner: PLUS_MONTHLY_LIMITS.scanner })).toBe(false);
+  });
+
+  it("the free macro estimate stays uncapped for entitled users too", () => {
+    expect(canAccessFeature(PAID_ACTIVE, FEATURES.ESTIMATE, { estimate: 100000 })).toBe(true);
   });
 
   it("unrecognized/unlimited features (e.g. manual macro estimate) are always allowed", () => {
@@ -46,13 +62,28 @@ describe("isMeteredFeature", () => {
   });
 });
 
+describe("isUsageTracked", () => {
+  it("tracks coach/meals for free users and coach/meals/scanner for entitled users", () => {
+    expect(isUsageTracked(FREE, FEATURES.COACH)).toBe(true);
+    expect(isUsageTracked(FREE, FEATURES.SCANNER)).toBe(false);
+    expect(isUsageTracked(PAID_ACTIVE, FEATURES.COACH)).toBe(true);
+    expect(isUsageTracked(PAID_ACTIVE, FEATURES.SCANNER)).toBe(true);
+    expect(isUsageTracked(PAID_ACTIVE, FEATURES.ESTIMATE)).toBe(false);
+    expect(isUsageTracked(FREE, FEATURES.ESTIMATE)).toBe(false);
+  });
+});
+
 describe("remainingMonthlyUses", () => {
-  it("counts down from FREE_MONTHLY_LIMIT for metered features", () => {
-    expect(remainingMonthlyUses(FEATURES.COACH, { coach: 2 })).toBe(FREE_MONTHLY_LIMIT - 2);
+  it("counts down from FREE_COACH_LIMIT for metered features", () => {
+    expect(remainingMonthlyUses(FEATURES.COACH, { coach: 2 })).toBe(FREE_COACH_LIMIT - 2);
+  });
+
+  it("counts meals down from its own limit", () => {
+    expect(remainingMonthlyUses(FEATURES.MEALS, { meals: 1 })).toBe(FREE_MONTHLY_LIMITS.meals - 1);
   });
 
   it("never goes negative even if usage overshoots", () => {
-    expect(remainingMonthlyUses(FEATURES.COACH, { coach: FREE_MONTHLY_LIMIT + 10 })).toBe(0);
+    expect(remainingMonthlyUses(FEATURES.COACH, { coach: FREE_COACH_LIMIT + 10 })).toBe(0);
   });
 
   it("returns null for non-metered features", () => {

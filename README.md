@@ -240,17 +240,29 @@ convenience, not the security boundary — the server-side email check is.
 
 ## Paywall
 Free (no card required, never expires): unlimited workout logging, unlimited nutrition tracking
-(manual entry + quick add + AI macro estimate), progress analytics, and `FREE_MONTHLY_LIMIT` (5,
-in `src/lib/entitlements.js`) AI Coach messages + 5 Meals Near You searches **per calendar month**.
-Asc3end+ ($9.99/mo or $79.99/yr): everything in Free, plus unlimited* Coach and Meals Near You, and
-the food scanner (photo/barcode) — Free-plan only, no monthly allowance for it at all.
+(manual entry + quick add + AI macro estimate), progress analytics, and `FREE_MONTHLY_LIMITS` (in
+`src/lib/entitlements.js`: 5 AI Coach messages + 2 Meals Near You searches) **per calendar month**.
+Asc3end+ ($9.99/mo or $79.99/yr): everything in Free, plus Coach, Meals Near You and the food
+scanner (photo/barcode) up to the `PLUS_MONTHLY_LIMITS` fair-use caps (300 coach messages, 30 meal
+searches and 300 scans a month). The scanner has no Free-plan allowance at all.
 
 This is a standing monthly allowance, not a trial — never describe it as one. The Free plan itself
 never expires and never asks for a card; only choosing to upgrade to Asc3end+ involves payment. The
 allowance resets automatically every calendar month (see `feature_usage_monthly` above) with no
-cron job or manual reset needed. *"Unlimited" on Asc3end+ means no monthly cap, not literally no
-limit — every account (Free or Plus) is still subject to the same abuse/cost rate limiting in
-`lib/rateLimit.js`.
+cron job or manual reset needed. Don't call the Asc3end+ allowance "unlimited" in copy: it's a hard
+cap, so the numbers are shown instead. Every account is also subject to the per-minute rate limit
+in `lib/rateLimit.js`.
+
+## AI cost controls
+`lib/anthropicRequest.js` rebuilds every request before it goes to Anthropic. Besides validation:
+- The server picks the model (`ALLOWED_MODEL`); clients no longer choose it.
+- The Coach system prompt is sent as two blocks (`buildCoachSystem` in `src/lib/coachPrompts.js`):
+  the shared instructions and exercise list, marked for prompt caching, then the athlete's details.
+  Keep anything per-athlete or per-request out of the first block or the cache stops hitting.
+- Multi-turn Coach chats also cache the conversation so far, and long chats are trimmed to roughly
+  the last 12–19 messages in steps (`trimHistory`) so the cached history stays reusable.
+- `api/claude.js` logs token counts per call (`claude usage` in the Vercel logs, no content). A
+  working cache shows `cacheRead` above 0 on the second and later coach messages.
 
 Gating happens in two places, both required — hiding a button in the UI alone would not stop
 someone from calling the API directly:

@@ -41,8 +41,10 @@ export function extractClaudeText(data) {
 // network-level failures (timeout, offline) and non-2xx server responses; a graceful
 // "exceeded_limit" response is intentionally logged as ok:true since it's an expected product
 // state, not a system failure.
+// `system` is a string, or a list of text blocks when part of it should be prompt-cached (see
+// buildCoachSystem). The server picks the model, so none is sent from here.
 export async function callClaude(messages, maxTokens = 1000, tools = null, system = null, feature = "estimate") {
-  const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages, feature };
+  const body = { max_tokens: maxTokens, messages, feature };
   if (tools) body.tools = tools;
   if (system) body.system = system;
   const controller = new AbortController();
@@ -84,6 +86,12 @@ export async function callClaude(messages, maxTokens = 1000, tools = null, syste
     record(true, response.status); // gated, not a failure
     const err = new Error(data.error.message || "This feature requires Asc3end Premium.");
     err.code = "premium_required";
+    throw err;
+  }
+  if (response.status === 429 && data?.error?.code === "monthly_limit_reached") {
+    record(true, response.status); // fair-use cap, an expected product state
+    const err = new Error(data.error.message);
+    err.code = "monthly_limit_reached";
     throw err;
   }
   if (!response.ok && data?.type !== "exceeded_limit") {

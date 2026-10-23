@@ -10,7 +10,7 @@ import { KEYS } from "../lib/storageKeys";
 import { callClaude, extractJSON } from "../lib/claudeClient";
 import {
   PLAN_PROMPT_VOCABULARY, COACHING_STYLES, TRAINING_PRINCIPLES, COACH_SAFETY_RULES,
-  COACH_OUTPUT_RULES
+  buildCoachSystem, toCoachApiMessages
 } from "../lib/coachPrompts";
 import { lookupExercise, GOAL_LABELS, matchesSearch } from "../lib/workoutHelpers";
 import { ExerciseThumb } from "../components/ExerciseFigure";
@@ -316,19 +316,19 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     logEvent("coach_message_sent", { isRetry: !!safeOverride });
     try {
       const recent = workouts.slice(-3).map((w) => `${w.date}: ${w.exercises.map((e) => e.name).join(", ")}`).join(" | ");
-      const stylePrompt = (COACHING_STYLES[profile.coachingStyle] || COACHING_STYLES.balanced).prompt;
       // Same getNutritionTargets() every other screen uses — so if the Coach ever references "your
       // target," it's the identical number Home/Food/Settings show, not a separately-derived one.
       const targets = getNutritionTargets(profile);
       // profile.name was previously missing from this prompt entirely — Claude had no actual
       // name to address the athlete by (only the client-side synthetic greeting bubble did, and
       // that's stripped before sending), so it would invent a literal "[Name]" placeholder.
-      const system = `You are Asc3end, an encouraging but direct fitness and nutrition coach. Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Daily nutrition target (${targets.source}): ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat. Recent workouts: ${recent || "none logged"}.\n\n${TRAINING_PRINCIPLES}\n\n${stylePrompt}\n\n${COACH_SAFETY_RULES}\n\n${COACH_OUTPUT_RULES}`;
+      // The athlete-specific part goes after the shared, cached instructions — see buildCoachSystem.
+      const system = buildCoachSystem(profile.coachingStyle, `Athlete profile: name=${profile.name || "there"}, goal=${GOAL_LABELS[profile.goal]}, experience=${profile.experience}, weight=${profile.weightKg}kg. Daily nutrition target (${targets.source}): ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat. Recent workouts: ${recent || "none logged"}.`);
       // Strip the synthetic greeting (index 0) — it was never a real API turn, and including it
       // alongside a fake priming pair broke the API's requirement that roles strictly alternate
       // starting with "user", which is why the coach silently failed on every message before.
-      // Also strip any extra UI-only fields (like `workout`) so future turns send clean {role, content} pairs.
-      const apiMessages = newMessages.slice(1).map((m) => ({ role: m.role, content: m.content }));
+      // The server keeps only the most recent part of a long chat (lib/anthropicRequest.js).
+      const apiMessages = toCoachApiMessages(newMessages);
       const reply = await callClaude(apiMessages, 900, null, system, "coach");
       let parsedWorkout = null;
       if (reply.includes('"type"') && reply.includes('"workout"')) {
