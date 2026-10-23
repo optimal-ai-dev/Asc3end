@@ -156,7 +156,7 @@ export function CheckoutResultScreen({ result, subscriptionState, onContinue, on
               <>
                 <Check size={28} color="var(--brass)" style={{ marginBottom: 10 }} />
                 <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>You're in — Asc3end+ is active</div>
-                <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>Unlimited Coach, the food scanner, and Meals Near You are unlocked.</div>
+                <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>More Coach messages, the food scanner, and Meals Near You are unlocked.</div>
               </>
             ) : (
               <>

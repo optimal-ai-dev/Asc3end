@@ -135,7 +135,6 @@ function FoodScanner({ onAdd, onClose }) {
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
           max_tokens: 400,
           feature: "scanner",
           messages: [{
@@ -151,6 +150,11 @@ function FoodScanner({ onAdd, onClose }) {
       if (response.status === 402 && data?.error?.code === "premium_required") {
         throw new Error(data.error.message || "This feature requires Asc3end Premium.");
       }
+      if (response.status === 429 && data?.error?.code === "monthly_limit_reached") {
+        const err = new Error(data.error.message);
+        err.code = "monthly_limit_reached";
+        throw err;
+      }
       const text = extractClaudeText(data);
       const parsed = extractJSON(text);
       setResult({
@@ -161,7 +165,7 @@ function FoodScanner({ onAdd, onClose }) {
       setGrams(parsed.estimatedGrams || 150);
     } catch (e) {
       setError(
-        e.message && (e.message.startsWith("Usage limit") || e.message.includes("Premium"))
+        e.message && (e.code === "monthly_limit_reached" || e.message.startsWith("Usage limit") || e.message.includes("Premium"))
           ? e.message
           : "Couldn't identify that photo — try better lighting, or log it manually."
       );

@@ -7,7 +7,7 @@ import { getNutritionTargets } from "../lib/nutritionMath";
 import { SUPPORT_EMAIL, LEGAL_COPY } from "../lib/legal";
 import { isValidPassword, MIN_PASSWORD_LENGTH } from "../lib/passwordPolicy";
 import { describeSubscriptionState } from "../lib/subscription";
-import { FEATURES, remainingMonthlyUses, FREE_MONTHLY_LIMIT } from "../lib/entitlements";
+import { FEATURES, remainingMonthlyUses, freeMonthlyLimit, PLUS_MONTHLY_LIMITS } from "../lib/entitlements";
 import { submitFeedback, FEEDBACK_TYPES, MAX_MESSAGE_LENGTH } from "../lib/feedback";
 import { todayStr } from "../lib/dateUtils";
 import { GOAL_LABELS } from "../lib/workoutHelpers";
@@ -279,19 +279,20 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <h2 className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Your AI Usage</h2>
         {isPremium ? (
-          <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Unlimited — Asc3end+ (fair-use limits apply)</div>
+          <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Asc3end+ — up to {PLUS_MONTHLY_LIMITS.coach} coach messages and {PLUS_MONTHLY_LIMITS.meals} meal searches a month</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[["AI Coach", FEATURES.COACH], ["Meals Near You", FEATURES.MEALS]].map(([label, key]) => {
               const remaining = remainingMonthlyUses(key, usage || {});
+              const limit = freeMonthlyLimit(key);
               return (
                 <div key={key}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 4 }}>
                     <span>{label}</span>
-                    <span className="mono" style={{ color: remaining === 0 ? "var(--rest)" : "var(--ink-dim)" }}>{FREE_MONTHLY_LIMIT - remaining}/{FREE_MONTHLY_LIMIT} used this month</span>
+                    <span className="mono" style={{ color: remaining === 0 ? "var(--rest)" : "var(--ink-dim)" }}>{limit - remaining}/{limit} used this month</span>
                   </div>
                   <div style={{ height: 4, borderRadius: 2, background: "var(--bg-elev2)", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${((FREE_MONTHLY_LIMIT - remaining) / FREE_MONTHLY_LIMIT) * 100}%`, background: remaining === 0 ? "var(--rest)" : "var(--brass)" }} />
+                    <div style={{ height: "100%", width: `${((limit - remaining) / limit) * 100}%`, background: remaining === 0 ? "var(--rest)" : "var(--brass)" }} />
                   </div>
                 </div>
               );

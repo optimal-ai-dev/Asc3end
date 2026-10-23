@@ -32,7 +32,7 @@ export function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, bi
         <>
           <div className="atlas-card" style={{ textAlign: "center", padding: "24px 20px", marginBottom: 16 }}>
             <Sparkles size={26} color="var(--brass)" style={{ marginBottom: 10 }} />
-            <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>Unlock unlimited Coach, food scanner & Meals Near You</div>
+            <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>Unlock more Coach, the food scanner & Meals Near You</div>
             <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 18 }}>Everything you're already tracking, without the free-tier limits.</div>
 
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
