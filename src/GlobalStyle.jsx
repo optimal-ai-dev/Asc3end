@@ -5,7 +5,7 @@ import React from "react";
 export default function GlobalStyle() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Manrope:wght@400;500;600;700;800&display=swap');
 
       :root {
         --bg: #0A120E;
@@ -82,8 +82,15 @@ export default function GlobalStyle() {
          a semantic <h1>-<h6> — several were converted to real headings for screen-reader
          navigation, and browsers give heading elements a default margin + bold weight that would
          otherwise shift the layout these were designed around. */
-      .disp { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; margin: 0; font-weight: 400; }
-      .mono { font-family: 'JetBrains Mono', monospace; }
+      /* Type system (visual review, item 1): one text face (Manrope) in the case it's written in,
+         ranked by weight and size the way Strong/Hevy/MyFitnessPal do it. Oswald survives only as
+         .disp-title — screen titles and hero numbers — where a condensed display face earns its
+         keep. .mono no longer means a monospace font: it's the "numbers and small labels" style,
+         kept as a class name so the 260-odd call sites didn't all need touching; tabular figures
+         keep columns of weights/reps/macros aligned the way monospace used to. */
+      .disp { font-family: 'Manrope', sans-serif; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+      .disp-title { font-family: 'Oswald', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.01em; margin: 0; }
+      .mono { font-family: 'Manrope', sans-serif; font-weight: 600; font-variant-numeric: tabular-nums; }
       .atlas-card {
         background: var(--bg-elev);
         border: 1px solid var(--line);
@@ -94,10 +101,9 @@ export default function GlobalStyle() {
       .atlas-btn {
         background: linear-gradient(135deg, var(--brass), #2BAE73);
         color: #072016;
-        font-family: 'Oswald', sans-serif;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        font-weight: 600;
+        font-family: 'Manrope', sans-serif;
+        font-weight: 800;
+        font-size: 15px;
         border: none;
         border-radius: 12px;
         padding: 12px 18px;
@@ -114,10 +120,9 @@ export default function GlobalStyle() {
         background: transparent;
         color: var(--ink);
         border: 1px solid var(--line);
-        font-family: 'Oswald', sans-serif;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        font-weight: 500;
+        font-family: 'Manrope', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
         border-radius: 10px;
         padding: 10px 16px;
         min-height: 44px;
@@ -161,8 +166,7 @@ export default function GlobalStyle() {
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
         color: var(--ink-dim);
         background: none; border: none; cursor: pointer;
-        font-family: 'Oswald', sans-serif; font-size: 10px; letter-spacing: 0.03em;
-        text-transform: uppercase;
+        font-family: 'Manrope', sans-serif; font-size: 11px; font-weight: 600;
         /* min-width/min-height: 44px is the WCAG-recommended minimum touch target — the icon+
            label alone (no padding) only shrink-wrapped to ~35-54px in each dimension, found via
            a live scan at 375px width. This expands the tappable area around the same visual
@@ -173,7 +177,7 @@ export default function GlobalStyle() {
       .pill {
         display: inline-flex; align-items: center; gap: 4px;
         padding: 3px 9px; border-radius: 999px; font-size: 11px;
-        font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em;
+        font-family: 'Manrope', sans-serif; font-weight: 700;
       }
       /* Interactive pill buttons (filters, selectors, quick-add chips) need a 44px touch target;
          the many read-only pill BADGES (status dots, equipment tags) must stay visually compact,
@@ -217,7 +221,7 @@ export default function GlobalStyle() {
          charts, challenges, and the monthly report, instead of each screen inventing its own. */
       .empty-state { text-align: center; padding: 32px 20px; color: var(--ink-dim); }
       .empty-state-icon { margin-bottom: 10px; opacity: 0.6; }
-      .empty-state-title { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; font-size: 14px; color: var(--ink); margin-bottom: 6px; }
+      .empty-state-title { font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 15px; color: var(--ink); margin-bottom: 6px; }
       .empty-state-body { font-size: 12.5px; line-height: 1.6; max-width: 320px; margin: 0 auto; }
 
       @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
