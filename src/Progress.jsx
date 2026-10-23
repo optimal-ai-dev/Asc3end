@@ -595,7 +595,7 @@ export default function Progress({ profile, workouts, weightlog, customExercises
                   {transformation.lifts.map((l, i) => (
                     <span key={l.name}>
                       {i > 0 && ", "}
-                      your {l.name} has {l.change >= 0 ? "gone up" : "dropped"} <span className="mono" style={{ color: "var(--steel)" }}>{Math.abs(l.change)}kg</span>
+                      your {l.name} has {l.change >= 0 ? "gone up" : "dropped"} <span className="mono" style={{ color: "var(--ink)", fontWeight: 800 }}>{Math.abs(l.change)}kg</span>
                     </span>
                   ))}
                   .

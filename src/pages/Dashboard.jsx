@@ -107,8 +107,8 @@ export function Dashboard({ profile, workouts, nutrition, weightlog, customExerc
               {planMuscles.map((m) => (
                 <span key={m} className="pill" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)", textTransform: "capitalize" }}>{m}</span>
               ))}
-              <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--steel)" }}>{planExerciseCount} exercise{planExerciseCount === 1 ? "" : "s"}</span>
-              <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--steel)" }}>~{planApproxMins} min</span>
+              <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)" }}>{planExerciseCount} exercise{planExerciseCount === 1 ? "" : "s"}</span>
+              <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--ink-dim)" }}>~{planApproxMins} min</span>
             </div>
             <button className="atlas-btn" style={{ width: "100%" }} onClick={() => onStartWorkout(activePlan.currentDayIndex)}>
               <Dumbbell size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Start Workout
@@ -148,7 +148,7 @@ export function Dashboard({ profile, workouts, nutrition, weightlog, customExerc
 
       <div style={{ display: "flex", gap: 10 }}>
         <div className="atlas-card" style={{ flex: 1, textAlign: "center" }}>
-          <Target size={18} color="var(--steel)" />
+          <Target size={18} color="var(--brass)" />
           <div className="disp" style={{ fontSize: 20 }}>{GOAL_LABELS[profile.goal]}</div>
           <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>PROGRESSION TARGET</div>
         </div>

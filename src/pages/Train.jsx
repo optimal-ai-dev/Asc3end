@@ -311,7 +311,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
                     <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>{w.exercises.length} exercise{w.exercises.length === 1 ? "" : "s"}</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div className="mono" style={{ fontSize: 13, color: "var(--brass)" }}>{Math.round(volume)}kg vol</div>
+                    <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)" }}>{Math.round(volume)}kg vol</div>
                     <ChevronRight size={16} color="var(--ink-dim)" />
                   </div>
                 </button>
@@ -511,7 +511,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
           <h1 className="disp-title" style={{ fontSize: 24 }}>{session.planDayName || "Today's Session"}</h1>
-          <div className="mono" style={{ fontSize: 13, color: "var(--steel)" }}>⏱ {fmtClock((now - session.startedAt) / 1000)} elapsed</div>
+          <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)" }}>⏱ {fmtClock((now - session.startedAt) / 1000)} elapsed</div>
         </div>
         <button className="atlas-btn-ghost" onClick={() => setConfirmDiscard(true)} style={{ padding: "6px 10px" }}>Cancel</button>
       </div>
@@ -530,13 +530,13 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
       )}
 
       {session.restEndAt && now < session.restEndAt && (
-        <div className="atlas-card" style={{ marginBottom: 14, borderColor: "var(--steel)", background: "rgba(47,217,184,0.08)" }}>
+        <div className="atlas-card" style={{ marginBottom: 14, borderColor: "var(--brass)", background: "var(--brass-soft)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <div className="disp" style={{ fontSize: 14, color: "var(--steel)" }}>Resting</div>
+            <div className="disp" style={{ fontSize: 14, color: "var(--brass)" }}>Resting</div>
             <div className="mono" style={{ fontSize: 20 }}>{fmtClock((session.restEndAt - now) / 1000)}</div>
           </div>
           <div className="bar-track" style={{ marginBottom: 10 }}>
-            <div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, ((session.restEndAt - now) / (restDuration * 1000)) * 100))}%`, background: "var(--steel)" }} />
+            <div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, ((session.restEndAt - now) / (restDuration * 1000)) * 100))}%`, background: "var(--brass)" }} />
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button className="atlas-btn-ghost" style={{ flex: 1, padding: "6px 0", fontSize: 11 }} onClick={() => setSession((s) => ({ ...s, restEndAt: Math.max(now, s.restEndAt - 15000) }))}>-15s</button>
@@ -560,12 +560,12 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {meta && (
                     <button onClick={() => setOpenCues((v) => ({ ...v, [ex.name]: !v[ex.name] }))}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--steel)", fontSize: 11 }} className="mono">
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--ink-dim)", fontSize: 11 }} className="mono">
                       {openCues[ex.name] ? "Hide form cues" : "Show form cues"}
                     </button>
                   )}
                   <button onClick={() => setLinkingEx(linkingEx === ex.name ? null : ex.name)}
-                    style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: "var(--warn)", fontSize: 11 }} className="mono">
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", color: ex.supersetWith ? "var(--warn)" : "var(--ink-dim)", fontSize: 11 }} className="mono">
                     {ex.supersetWith ? `⚡ Linked with ${ex.supersetWith}` : "⚡ Link as superset"}
                   </button>
                 </div>
@@ -592,7 +592,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
               <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>
                 {suggestion.text}
                 {ex.targetSets && ex.targetReps && (
-                  <span style={{ color: "var(--warn)" }}> · Plan target: {ex.targetSets} × {ex.targetReps}{ex.sets.length > 0 ? ` (${ex.sets.length}/${ex.targetSets} done)` : ""}</span>
+                  <span style={{ color: "var(--ink)", fontWeight: 600 }}> · Plan target: {ex.targetSets} × {ex.targetReps}{ex.sets.length > 0 ? ` (${ex.sets.length}/${ex.targetSets} done)` : ""}</span>
                 )}
               </div>
             </div>
@@ -766,7 +766,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
           <button
             onClick={() => { setCreatingCustom(true); setCustomName(search); }}
             className="atlas-btn-ghost"
-            style={{ width: "100%", marginBottom: 10, borderColor: "var(--steel)", color: "var(--steel)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            style={{ width: "100%", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
           >
             <Plus size={14} /> Create Custom Exercise
           </button>
@@ -782,7 +782,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13 }}>
                     {ex.name}
-                    {ex.isCustom && <span className="pill" style={{ marginLeft: 6, fontSize: 8, border: "1px solid var(--steel)", color: "var(--steel)" }}>Custom</span>}
+                    {ex.isCustom && <span className="pill" style={{ marginLeft: 6, fontSize: 8, border: "1px solid var(--line)", color: "var(--ink-dim)" }}>Custom</span>}
                   </div>
                   <span className="mono" style={{ fontSize: 10, color: EQUIPMENT_COLORS[ex.equipment] }}>{ex.equipment}</span>
                 </div>

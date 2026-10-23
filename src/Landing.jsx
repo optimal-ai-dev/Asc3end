@@ -68,7 +68,7 @@ function PreviewWorkout() {
   return (
     <PreviewPhoneFrame label="Today's workout preview">
       <div className="disp" style={{ fontSize: 14, marginBottom: 2 }}>Day 2: Pull</div>
-      <div className="mono" style={{ fontSize: 9, color: "var(--steel)", marginBottom: 10 }}>⏱ 18:42 elapsed</div>
+      <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginBottom: 10 }}>⏱ 18:42 elapsed</div>
       {[
         { name: "Deadlift (Barbell)", sets: "3 × 72.5kg × 6", done: true },
         { name: "Lat Pulldown", sets: "3 × 37.5kg × 11", done: true },
