@@ -1,5 +1,5 @@
 import {
-  EXERCISES, MUSCLE_GROUPS, READINESS_MUSCLE_IDS, regionForExercise, SECONDARY_REGIONS_BY_POSE
+  EXERCISES, MUSCLE_GROUPS, MUSCLE_REGIONS, READINESS_MUSCLE_IDS, regionForExercise, SECONDARY_REGIONS_BY_POSE
 } from "../exerciseData";
 
 export const SET_TYPES = ["normal", "warmup", "drop", "failure"];
@@ -170,6 +170,22 @@ export function muscleReadiness(workouts, customExercises = []) {
     s.recoveryPercent = Number.isFinite(h) ? Math.max(0, Math.min(100, Math.round((h / 48) * 100))) : null;
   });
   return status;
+}
+
+// Collapses per-region readiness (muscleReadiness above) into one level per coarse muscle group,
+// for the compact Recovery summary on Home. A group takes its most-fatigued region that has data,
+// so "legs: ready" is never shown while the hamstrings are still fatigued; a group with no data
+// in any region is "unknown".
+const READINESS_RANK = { fatigued: 3, partial: 2, ready: 1 };
+export function readinessByGroup(readiness) {
+  const groups = {};
+  MUSCLE_REGIONS.forEach((r) => {
+    const level = readiness?.[r.id]?.level || "unknown";
+    const cur = groups[r.group] || "unknown";
+    if ((READINESS_RANK[level] || 0) > (READINESS_RANK[cur] || 0)) groups[r.group] = level;
+    else if (!groups[r.group]) groups[r.group] = cur;
+  });
+  return groups;
 }
 
 export function workoutVolume(workout) {
