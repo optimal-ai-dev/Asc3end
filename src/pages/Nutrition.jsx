@@ -597,7 +597,7 @@ Respond with ONLY this JSON, nothing else:
                   </div>
                 </div>
                 <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 1 }}>{p.cuisine}</div>
-                <div style={{ fontSize: 13, color: "var(--steel)", marginTop: 5 }}>{p.item}</div>
+                <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 600, marginTop: 5 }}>{p.item}</div>
                 <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                   <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{p.calories} kcal</span>
                   <span className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>P {p.protein}g</span>

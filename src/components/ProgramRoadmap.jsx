@@ -31,7 +31,7 @@ export function ProgramRoadmap({ days, currentDayIndex = 0 }) {
                 <div style={{
                   width: 38, height: 38, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                   background: state === "done" ? "var(--brass)" : state === "current" ? "var(--brass-soft)" : "var(--bg-elev2)",
-                  border: state === "current" ? "2px solid var(--brass)" : openIdx === i ? "1px solid var(--steel)" : "1px solid var(--line)",
+                  border: state === "current" ? "2px solid var(--brass)" : openIdx === i ? "1px solid var(--ink-dim)" : "1px solid var(--line)",
                 }}>
                   {state === "done" ? <Check size={15} color="#072016" strokeWidth={3} /> : <span className="disp" style={{ fontSize: 13, color: state === "current" ? "var(--brass)" : "var(--ink-dim)" }}>{i + 1}</span>}
                 </div>

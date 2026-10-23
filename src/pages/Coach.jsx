@@ -64,7 +64,7 @@ function MuscleGroupBlock({ muscleGroups, onTapExercise }) {
               return (
                 <button key={j} onClick={() => matched && onTapExercise(matched)}
                   style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: "2px 0", minHeight: 44, cursor: matched ? "pointer" : "default", textAlign: "left", width: "100%" }}>
-                  <span style={{ fontSize: 12.5, color: matched ? "var(--steel)" : "var(--ink)" }}>• {ex.name}</span>
+                  <span style={{ fontSize: 12.5, color: "var(--ink)", fontWeight: matched ? 600 : 400 }}>{ex.name}</span>
                   <span className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", flexShrink: 0, marginLeft: 8 }}>{ex.sets}×{ex.reps}</span>
                 </button>
               );
@@ -476,7 +476,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 12 }}>
             {plan.days.map((d, i) => (
               <div key={i} style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--steel)", marginBottom: 6 }}>{d.day}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", marginBottom: 6 }}>{d.day}</div>
                 <MuscleGroupBlock muscleGroups={d.muscleGroups} onTapExercise={setExDetail} />
               </div>
             ))}

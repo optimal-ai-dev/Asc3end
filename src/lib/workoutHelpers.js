@@ -4,7 +4,7 @@ import {
 
 export const SET_TYPES = ["normal", "warmup", "drop", "failure"];
 export const SET_TYPE_LABELS = { normal: "Normal", warmup: "Warm-up", drop: "Drop Set", failure: "Failure" };
-export const SET_TYPE_COLORS = { normal: "#4F9DFF", warmup: "#3ECF8E", drop: "#FFA53D", failure: "#FF6B81" };
+export const SET_TYPE_COLORS = { normal: "#86A296", warmup: "#FFA53D", drop: "#4F9DFF", failure: "#FF6B81" };
 
 export const GOAL_LABELS = {
   muscle_growth: "Build Muscle",

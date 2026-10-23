@@ -24,7 +24,7 @@ function MissionRow({ mission }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, color: mission.completed ? "var(--ink)" : "var(--ink-dim)" }}>{mission.label}</div>
         {!mission.completed && mission.target > 1 && (
-          <div className="bar-track" style={{ marginTop: 4, height: 5 }}><div className="bar-fill" style={{ width: `${(mission.current / mission.target) * 100}%`, background: "var(--steel)" }} /></div>
+          <div className="bar-track" style={{ marginTop: 4, height: 5 }}><div className="bar-fill" style={{ width: `${(mission.current / mission.target) * 100}%`, background: "var(--brass)" }} /></div>
         )}
       </div>
       {mission.target > 1 && <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", flexShrink: 0 }}>{mission.current}/{mission.target}</span>}
@@ -52,7 +52,7 @@ function ChallengeCard({ progress, onRemove, onStart, active }) {
             {progress.finished ? "Dismiss" : "Quit"}
           </button>
         </div>
-        <div className="bar-track"><div className="bar-fill" style={{ width: `${pct}%`, background: progress.completed ? "var(--brass)" : "var(--steel)" }} /></div>
+        <div className="bar-track"><div className="bar-fill" style={{ width: `${pct}%`, background: "var(--brass)" }} /></div>
         <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginTop: 6 }}>{progress.current} / {progress.target} {template.unit}</div>
       </div>
     );
@@ -108,7 +108,7 @@ export function ChallengesScreen({ workouts, nutrition, profile, streak, challen
                 <div style={{ fontSize: 22, filter: b.earned ? "none" : "grayscale(1)", opacity: b.earned ? 1 : 0.4 }}>{b.icon}</div>
                 <div className="mono" style={{ fontSize: 8, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
                 {!b.earned && (
-                  <div className="bar-track" style={{ width: "100%", height: 4 }}><div className="bar-fill" style={{ width: `${(b.current / b.target) * 100}%`, background: "var(--steel)" }} /></div>
+                  <div className="bar-track" style={{ width: "100%", height: 4 }}><div className="bar-fill" style={{ width: `${(b.current / b.target) * 100}%`, background: "var(--brass)" }} /></div>
                 )}
               </div>
             ))}
