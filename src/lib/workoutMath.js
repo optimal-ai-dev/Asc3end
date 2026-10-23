@@ -27,6 +27,17 @@ export function validSets(exercise) {
   );
 }
 
+// The sets logged for an exercise in its most recent session with real data — the "Previous"
+// column of the live set table, matched row-for-row by index. Returns [] when there's no usable
+// history, so callers can index into it without guarding.
+export function previousSets(workouts, exerciseName) {
+  const last = (workouts || [])
+    .filter((w) => (w.exercises || []).some((e) => e.name === exerciseName && hasValidSets(e)))
+    .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  if (!last) return [];
+  return validSets(last.exercises.find((e) => e.name === exerciseName && hasValidSets(e)));
+}
+
 // Suggests the next weight/rep target for an exercise based on the most recent session that
 // actually has real logged data for it. Never returns Infinity/-Infinity/NaN — an exercise with
 // no valid history at all falls back to a "no history yet" message instead of doing math on an

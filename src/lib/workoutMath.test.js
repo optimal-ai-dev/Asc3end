@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   suggestNextTarget, evaluatePR, computeGamification, hasValidSets, validSets, computeStreak, computeWorkoutXp, workoutXpBreakdown,
-  allTimePrEvents, computeWeeklyMissions, computeChallengeProgress, CHALLENGE_TEMPLATES,
+  allTimePrEvents, previousSets, computeWeeklyMissions, computeChallengeProgress, CHALLENGE_TEMPLATES,
 } from "./workoutMath";
 
 function isoDaysAgo(n) {
@@ -370,5 +370,21 @@ describe("computeChallengeProgress", () => {
   it("returns null for an unknown template id instead of throwing", () => {
     const progress = computeChallengeProgress({ templateId: "not-a-real-template", startDate: isoDaysAgo(1) }, [], [], nutritionTargets);
     expect(progress).toBeNull();
+  });
+});
+
+describe("previousSets", () => {
+  const wk = (id, date, sets) => ({ id, date, exercises: [{ name: "Bench", sets }] });
+  it("returns the most recent session's valid sets, oldest-logged first", () => {
+    const workouts = [wk("a", "2026-10-01", [{ weight: 80, reps: 8 }]), wk("b", "2026-10-08", [{ weight: 85, reps: 6 }, { weight: 85, reps: 5 }])];
+    expect(previousSets(workouts, "Bench")).toEqual([{ weight: 85, reps: 6 }, { weight: 85, reps: 5 }]);
+  });
+  it("skips sessions where the exercise was added but never logged", () => {
+    const workouts = [wk("a", "2026-10-01", [{ weight: 80, reps: 8 }]), wk("b", "2026-10-08", [])];
+    expect(previousSets(workouts, "Bench")).toEqual([{ weight: 80, reps: 8 }]);
+  });
+  it("returns [] with no history", () => {
+    expect(previousSets([], "Bench")).toEqual([]);
+    expect(previousSets(undefined, "Bench")).toEqual([]);
   });
 });
