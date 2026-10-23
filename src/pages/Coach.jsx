@@ -36,7 +36,7 @@ function CoachExercisePopup({ ex, onClose }) {
             <ExerciseThumb ex={ex} size={56} />
             <div>
               <div className="disp" style={{ fontSize: 16 }}>{ex.name}</div>
-              <span className="pill" style={{ background: "rgba(255,255,255,0.06)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>{ex.equipment}</span>
+              <span className="pill" style={{ background: "var(--bg-elev2)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>{ex.equipment}</span>
             </div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="Close"><X size={18} color="var(--ink-dim)" /></button>

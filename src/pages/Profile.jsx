@@ -12,6 +12,7 @@ import { submitFeedback, FEEDBACK_TYPES, MAX_MESSAGE_LENGTH } from "../lib/feedb
 import { todayStr } from "../lib/dateUtils";
 import { GOAL_LABELS } from "../lib/workoutHelpers";
 import { FeatureComparisonTable } from "../components/Paywall";
+import { getThemePref, setThemePref, THEME_OPTIONS } from "../lib/theme";
 
 /* ------------------------------------------------------------------ */
 /* Profile / Settings                                                   */
@@ -24,6 +25,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
     goal: profile.goal, experience: profile.experience, trainingDays: profile.trainingDays,
   });
   const [savedFlash, setSavedFlash] = useState(false);
+  const [theme, setTheme] = useState(getThemePref);
   const [showComparison, setShowComparison] = useState(false);
   const setNumber = (k, raw) => setEdit((f) => ({ ...f, [k]: raw === "" ? 0 : +raw.replace(/^0+(?=\d)/, "") }));
 
@@ -225,6 +227,24 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
       </div>
 
       {savedFlash && <div className="mono" style={{ fontSize: 12, color: "var(--brass)", textAlign: "center", marginBottom: 16 }}>Saved.</div>}
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <h2 className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Appearance</h2>
+        <div style={{ display: "flex", gap: 6 }} role="radiogroup" aria-label="Appearance">
+          {THEME_OPTIONS.map((t) => (
+            <button
+              key={t}
+              role="radio"
+              aria-checked={theme === t}
+              onClick={() => { setTheme(t); setThemePref(t); }}
+              className="pill"
+              style={{ flex: 1, justifyContent: "center", cursor: "pointer", textTransform: "capitalize", border: `1px solid ${theme === t ? "var(--brass)" : "var(--line)"}`, background: theme === t ? "var(--brass-soft)" : "transparent", color: theme === t ? "var(--brass)" : "var(--ink-dim)" }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
         <h2 className="disp" style={{ fontSize: 15, marginBottom: 10 }}>Account</h2>
