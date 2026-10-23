@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- Source for public/og-image.png (1200x630 social preview). Re-render after editing with:
+     node scripts/og-image/render.mjs   (needs Playwright + Chromium available locally) -->
+<html>
+<head>
+<meta charset="utf-8" />
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Manrope:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root { --bg:#0A120E; --bg-elev:#121C17; --bg-elev2:#1B2822; --line:#253830; --ink:#F1F5F3; --ink-dim:#86A296; --brass:#3ECF8E; --warn:#FFA53D; --rest:#FF6B81; --steel:#4F9DFF; }
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 1200px; height: 630px; background: var(--bg); color: var(--ink); font-family: 'Manrope', sans-serif; overflow: hidden; }
+  .frame { position: relative; width: 100%; height: 100%; display: flex; align-items: center; padding: 0 80px; gap: 64px;
+    background: radial-gradient(circle at 85% 20%, rgba(62,207,142,0.18), transparent 45%), radial-gradient(circle at 10% 110%, rgba(62,207,142,0.10), transparent 40%), var(--bg); }
+  .copy { flex: 1; }
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 40px; }
+  .brand img { width: 56px; height: 56px; border-radius: 13px; }
+  .brand span { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 34px; letter-spacing: 0.06em; text-transform: uppercase; }
+  h1 { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 76px; line-height: 1.02; text-transform: uppercase; letter-spacing: 0.01em; }
+  h1 em { font-style: normal; color: var(--brass); }
+  p { margin-top: 26px; font-size: 26px; line-height: 1.4; color: var(--ink-dim); max-width: 560px; }
+  .url { margin-top: 34px; font-family: 'JetBrains Mono', monospace; font-size: 20px; color: var(--brass); }
+  .cards { width: 380px; display: flex; flex-direction: column; gap: 18px; }
+  .card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: 20px; padding: 22px 24px; }
+  .label { font-family: 'Oswald', sans-serif; text-transform: uppercase; font-size: 18px; letter-spacing: 0.03em; margin-bottom: 12px; }
+  .target { display: flex; justify-content: space-between; align-items: baseline; }
+  .target .old { font-family: 'Oswald', sans-serif; font-size: 24px; color: var(--ink-dim); }
+  .target .new { font-family: 'Oswald', sans-serif; font-size: 34px; color: var(--brass); }
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--ink-dim); }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg-elev2); margin: 6px 0 12px; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 5px; }
+  .row { display: flex; justify-content: space-between; }
+  .dots { display: flex; gap: 10px; }
+  .dot { flex: 1; height: 44px; border-radius: 10px; }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="copy">
+      <div class="brand"><img src="../../public/icon-192.png" alt="" /><span>Asc3end</span></div>
+      <h1>Train smarter.<br />Eat to your <em>macros.</em></h1>
+      <p>Track workouts, hit your macros, and get AI coaching to keep climbing toward your goal.</p>
+      <div class="url">asc3end.vercel.app</div>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="label">Bench Press — Next Target</div>
+        <div class="target"><span class="old">80kg × 8</span><span class="new">82.5kg × 6-8</span></div>
+      </div>
+      <div class="card">
+        <div class="label">Today's Fuel</div>
+        <div class="row mono"><span>Protein</span><span>142 / 180g</span></div>
+        <div class="bar"><i style="width:79%;background:var(--brass)"></i></div>
+        <div class="row mono"><span>Carbs</span><span>190 / 260g</span></div>
+        <div class="bar"><i style="width:73%;background:var(--steel)"></i></div>
+        <div class="row mono"><span>Fat</span><span>48 / 70g</span></div>
+        <div class="bar" style="margin-bottom:0"><i style="width:69%;background:var(--warn)"></i></div>
+      </div>
+      <div class="card">
+        <div class="label">Muscle Recovery</div>
+        <div class="dots"><span class="dot" style="background:var(--brass)"></span><span class="dot" style="background:var(--brass)"></span><span class="dot" style="background:var(--warn)"></span><span class="dot" style="background:var(--rest)"></span><span class="dot" style="background:var(--brass)"></span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

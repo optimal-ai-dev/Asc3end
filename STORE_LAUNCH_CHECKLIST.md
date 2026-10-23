@@ -90,7 +90,7 @@ integration for the food scanner instead of a web `<input capture>`, offline sup
 ## Business details every store submission needs
 
 These are the same "requires owner action" items already called out for legal pages
-(`LEGAL_BUSINESS_NAME`, `LEGAL_BUSINESS_ABN`, `LEGAL_BUSINESS_ADDRESS` in `.env.example`) — both
+(`VITE_LEGAL_BUSINESS_NAME`, `VITE_LEGAL_BUSINESS_ABN`, `VITE_LEGAL_BUSINESS_ADDRESS` in `.env.example`) — both
 stores require a real legal entity or individual name, a support contact, and (for paid apps or
 IAP) tax/banking details for payout. None of this can be filled in on the app owner's behalf.
 

@@ -36,8 +36,10 @@ deciding whether to launch.
 3. **Legal pages are good-faith drafts, not lawyer-reviewed.** Every legal page says so on its
    face (see Phase 9). Do not treat them as sufficient legal protection for a paid commercial
    product. **Requires legal review.**
-4. **Billing/business env vars are unset**: `VITE_SUPPORT_EMAIL`, `LEGAL_BUSINESS_NAME`,
-   `LEGAL_BUSINESS_ABN`, `LEGAL_BUSINESS_ADDRESS`, `ADMIN_EMAILS`. The app runs fine without them
+4. **Billing/business env vars are unset**: `VITE_SUPPORT_EMAIL`, `VITE_LEGAL_BUSINESS_NAME`,
+   `VITE_LEGAL_BUSINESS_ABN`, `VITE_LEGAL_BUSINESS_ADDRESS`, `ADMIN_EMAILS`. (The legal-business
+   names need the `VITE_` prefix: `src/lib/legal.js` only reads those, so a bare
+   `LEGAL_BUSINESS_*` var set in Vercel does nothing.) The app runs fine without them
    (each degrades to an honest "not configured" message rather than a fake value), but none of
    these are set. **Requires owner action** — run `npm run check-launch-config` for a live report.
 
