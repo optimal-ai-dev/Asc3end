@@ -8,10 +8,10 @@ beforeEach(() => {
 });
 
 describe("theme", () => {
-  it("defaults to following the system", () => {
-    expect(getThemePref()).toBe("system");
+  it("defaults to dark", () => {
+    expect(getThemePref()).toBe("dark");
     localStorage.setItem(THEME_KEY, "purple");
-    expect(getThemePref()).toBe("system");
+    expect(getThemePref()).toBe("dark");
   });
 
   it("resolves system to the device preference and pins light or dark", () => {
@@ -26,7 +26,8 @@ describe("theme", () => {
     expect(getThemePref()).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(document.querySelector('meta[name="theme-color"]').getAttribute("content")).toBe("#F3F6F4");
-    setThemePref("system");
-    expect(document.documentElement.dataset.theme).toBeUndefined();
+    setThemePref("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.querySelector('meta[name="theme-color"]').getAttribute("content")).toBe("#0A120E");
   });
 });

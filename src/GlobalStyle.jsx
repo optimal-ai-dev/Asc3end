@@ -50,31 +50,9 @@ export default function GlobalStyle() {
 
       /* Light mode (visual review, item 9). Same roles as the dark tokens above, re-picked for a
          white surface: a darker green so it still reads as text on white, and seams/shadows that
-         separate cards instead of relying on a dark-on-darker step. Applied when the device asks
-         for light and the user hasn't pinned dark, or when they pin light in Settings. */
-      @media (prefers-color-scheme: light) {
-        :root:not([data-theme="dark"]) { 
-          --bg: #F3F6F4;
-          --bg-elev: #FFFFFF;
-          --bg-elev2: #E9EFEB;
-          --line: #D5E0DA;
-          --ink: #0E1A14;
-          --ink-dim: #587066;
-          --brass: #17A063;
-          --brass-soft: rgba(23,160,99,0.12);
-          --steel: #2F7FE0;
-          --good: #17A063;
-          --warn: #D9811A;
-          --rest: #E0475F;
-          --readiness-ready: #2FBF7F;
-          --readiness-partial: #EBA42B;
-          --readiness-fatigued: #F05A5A;
-          --readiness-unknown: #CBD7D0;
-          --readiness-outline: #23A86C;
-          --shadow-card: 0 1px 2px rgba(16,40,28,0.06), 0 8px 24px -16px rgba(16,40,28,0.18);
-          --shadow-elevated: 0 2px 4px rgba(16,40,28,0.06), 0 16px 32px -16px rgba(16,40,28,0.25);
-         }
-      }
+         separate cards instead of relying on a dark-on-darker step. Dark is the default look;
+         theme.js sets data-theme="light" when the user picks Light (or System on a light-mode
+         phone) in Settings. */
       :root[data-theme="light"] { 
           --bg: #F3F6F4;
           --bg-elev: #FFFFFF;
@@ -98,7 +76,6 @@ export default function GlobalStyle() {
          }
       :root { color-scheme: dark; }
       :root[data-theme="light"] { color-scheme: light; }
-      @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { color-scheme: light; } }
       html, body, #root { height: 100%; }
       body { background: var(--bg); }
       .atlas-root {
@@ -310,9 +287,6 @@ export default function GlobalStyle() {
         .exercise-detail-info { flex: 1 1 auto; min-width: 0; }
       }
 
-      @media (prefers-color-scheme: light) {
-        :root:not([data-theme="dark"]) .atlas-card { box-shadow: var(--shadow-card); }
-      }
       :root[data-theme="light"] .atlas-card { box-shadow: var(--shadow-card); }
     `}</style>
   );
