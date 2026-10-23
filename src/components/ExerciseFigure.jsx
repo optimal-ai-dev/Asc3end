@@ -280,13 +280,13 @@ export function ExerciseFigure({ pose, muscle, equipment, size = 90, state = "st
         {limb(elbowL, handL, armColor, 5)}
 
         {/* hands and feet as small rounded shapes, so contact with equipment (bar, bench, floor) reads clearly instead of a line just stopping */}
-        <circle cx={handL[0]} cy={handL[1]} r="3" fill="#2A332E" stroke="var(--line)" strokeWidth="0.5" />
-        <circle cx={handR[0]} cy={handR[1]} r="3" fill="#2A332E" stroke="var(--line)" strokeWidth="0.5" />
-        <ellipse cx={ankleL[0]} cy={ankleL[1] + 2} rx="5" ry="2.5" fill="#2A332E" stroke="var(--line)" strokeWidth="0.5" />
-        <ellipse cx={ankleR[0]} cy={ankleR[1] + 2} rx="5" ry="2.5" fill="#2A332E" stroke="var(--line)" strokeWidth="0.5" />
+        <circle cx={handL[0]} cy={handL[1]} r="3" fill="var(--bg-elev2)" stroke="var(--line)" strokeWidth="0.5" />
+        <circle cx={handR[0]} cy={handR[1]} r="3" fill="var(--bg-elev2)" stroke="var(--line)" strokeWidth="0.5" />
+        <ellipse cx={ankleL[0]} cy={ankleL[1] + 2} rx="5" ry="2.5" fill="var(--bg-elev2)" stroke="var(--line)" strokeWidth="0.5" />
+        <ellipse cx={ankleR[0]} cy={ankleR[1] + 2} rx="5" ry="2.5" fill="var(--bg-elev2)" stroke="var(--line)" strokeWidth="0.5" />
 
         {/* head: an oval with a subtle jaw taper instead of a plain circle, plus a small brow shading pass for depth */}
-        <path d={`M ${head[0] - 6.5} ${head[1] - 5} a 6.5 5.5 0 1 1 13 0 a 6.5 7 0 0 1 -13 0 Z`} fill="#2A332E" stroke="var(--brass)" strokeWidth="1" strokeOpacity="0.5" />
+        <path d={`M ${head[0] - 6.5} ${head[1] - 5} a 6.5 5.5 0 1 1 13 0 a 6.5 7 0 0 1 -13 0 Z`} fill="var(--bg-elev2)" stroke="var(--brass)" strokeWidth="1" strokeOpacity="0.5" />
         <ellipse cx={head[0] - 1.8} cy={head[1] - 2.2} rx="2.4" ry="1.8" fill="#3A4640" opacity="0.6" />
         </g>
       </svg>

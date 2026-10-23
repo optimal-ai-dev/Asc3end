@@ -3,8 +3,11 @@ import ReactDOM from "react-dom/client";
 import ErrorBoundary from "./ErrorBoundary.jsx";
 import { initErrorMonitoring, captureException, captureMessage } from "./lib/errorMonitoring";
 import "./index.css";
+import { applyTheme, getThemePref, watchSystemTheme } from "./lib/theme";
 
 initErrorMonitoring();
+applyTheme(getThemePref());
+watchSystemTheme();
 
 // Catches what the React error boundary can't: errors thrown in event handlers or plain async
 // code, and promise rejections nobody attached a .catch to. Neither of these unmounts the React

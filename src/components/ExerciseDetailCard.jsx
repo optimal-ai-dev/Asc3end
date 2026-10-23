@@ -97,7 +97,7 @@ export function ExerciseDetailCard({ ex, onAdd, onBack, onArchive }) {
         <div className="exercise-detail-info">
           <div className="disp" style={{ fontSize: 18, marginBottom: 6 }}>{ex.name}</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-            <span className="pill" style={{ background: "rgba(255,255,255,0.06)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>
+            <span className="pill" style={{ background: "var(--bg-elev2)", color: EQUIPMENT_COLORS[ex.equipment], border: `1px solid ${EQUIPMENT_COLORS[ex.equipment]}` }}>
               {ex.equipment}
             </span>
             <span className="pill" style={{ background: "var(--brass-soft)", color: "var(--brass)", textTransform: "capitalize" }}>
