@@ -4,7 +4,10 @@ A Vite + React fitness/nutrition app with Supabase auth + storage, a Claude-powe
 through a Vercel serverless function, and a Stripe subscription paywall.
 
 ## Stack
-- `src/App.jsx` — the app itself
+- `src/App.jsx` — the app shell: auth, data loading/saving, routing between tabs
+- `src/pages/` — one file per screen (Dashboard, Train, Coach, Nutrition, Profile, Pricing, …)
+- `src/components/` — UI shared across screens (muscle readiness map, exercise figures, paywall)
+- `src/lib/` — non-UI logic (Claude client, coach prompts, workout/nutrition helpers, storage keys)
 - `src/lib/supabase.js` / `src/lib/storage.js` — Supabase client + per-user key/value storage
 - `src/AuthScreen.jsx` — login/signup
 - `api/claude.js` — proxies Claude API calls (keeps the Anthropic key server-side, requires a

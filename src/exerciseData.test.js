@@ -3,7 +3,7 @@ import {
   EXERCISES, MUSCLE_GROUPS, READINESS_MUSCLE_IDS, EQUIPMENT_TYPES, TRACKING_TYPES,
   regionForExercise, matchesExerciseSearch, getExerciseAlternatives, getExerciseGuidance,
 } from "./exerciseData.js";
-import { formatSet } from "./App.jsx";
+import { formatSet } from "./lib/workoutHelpers";
 
 describe("catalogue size and identity", () => {
   it("has between 450 and 600 built-in exercises (the target range) — currently 447, just under target; see final report for why", () => {
