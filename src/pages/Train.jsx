@@ -10,7 +10,7 @@ import {
   POSE_TIPS, EQUIPMENT_COLORS, TRACKING_TYPES, TRACKING_TYPE_LABEL, REGION_LABEL
 } from "../exerciseData";
 import { fmtDate } from "../lib/dateUtils";
-import { formatSet, SET_TYPE_COLORS, SET_TYPE_LABELS, SET_TYPES } from "../lib/workoutHelpers";
+import { formatSet, fmtWeightReps, SET_TYPE_COLORS, SET_TYPE_LABELS, SET_TYPES } from "../lib/workoutHelpers";
 import { playRestDoneSound, playPRSound } from "../lib/sounds";
 import { ExerciseThumb } from "../components/ExerciseFigure";
 import { ExerciseDetailCard } from "../components/ExerciseDetailCard";
@@ -121,7 +121,7 @@ function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {prs.map((pr, i) => (
                 <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                  {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
+                  {pr.exName} — {fmtWeightReps(pr.weight, pr.reps)} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
                 </div>
               ))}
             </div>
@@ -152,7 +152,7 @@ function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }
                       <input type="number" className="atlas-input" style={{ width: 54, padding: "5px 7px" }} value={st.reps} aria-label={`${ex.name} set ${stIdx + 1} reps`} onChange={(e) => updateSet(exIdx, stIdx, "reps", e.target.value)} />
                     </>
                   ) : (
-                    <span>{st.weight}kg × {st.reps}{st.type && st.type !== "normal" ? ` (${st.type})` : ""}</span>
+                    <span>{fmtWeightReps(st.weight, st.reps)}{st.type && st.type !== "normal" ? ` (${st.type})` : ""}</span>
                   )}
                 </div>
               ))}
@@ -306,7 +306,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
                   key={w.id}
                   onClick={() => setDetailWorkout(w)}
                   className="atlas-card"
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid var(--line)", background: "var(--bg-elev)", color: "var(--ink)" }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", cursor: "pointer", padding: "12px 16px", color: "var(--ink)" }}
                 >
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtDate(w.date)}</div>
@@ -507,7 +507,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
           <div>
             <div className="disp" style={{ fontSize: 14, color: "var(--brass)" }}>New Personal Record!</div>
             <div className="mono" style={{ fontSize: 12 }}>
-              {prToast.exName} — {prToast.weight}kg × {prToast.reps} {prToast.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
+              {prToast.exName} — {fmtWeightReps(prToast.weight, prToast.reps)} {prToast.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
             </div>
           </div>
         </div>
@@ -869,7 +869,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {sessionPRs.map((pr, i) => (
                   <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                    {pr.exName} — {pr.weight}kg × {pr.reps} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
+                    {pr.exName} — {fmtWeightReps(pr.weight, pr.reps)} {pr.type === "weight" ? "(heaviest yet)" : "(most reps at this weight)"}
                   </div>
                 ))}
               </div>
@@ -901,7 +901,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     {ex.sets.map((s, i) => (
                       <div key={i} className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                        {s.weight}kg × {s.reps}{s.type && s.type !== "normal" ? ` (${SET_TYPE_LABELS[s.type]})` : ""}
+                        {fmtWeightReps(s.weight, s.reps)}{s.type && s.type !== "normal" ? ` (${SET_TYPE_LABELS[s.type]})` : ""}
                       </div>
                     ))}
                   </div>
