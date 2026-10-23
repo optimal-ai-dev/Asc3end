@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { COACH_SAFETY_RULES } from "./App.jsx";
+import { COACH_SAFETY_RULES } from "./lib/coachPrompts";
 
 // Regression coverage for a real gap found during a launch-readiness audit: a comment claimed
 // "all four [coaching styles] still operate inside the safety guardrails in TRAINING_PRINCIPLES

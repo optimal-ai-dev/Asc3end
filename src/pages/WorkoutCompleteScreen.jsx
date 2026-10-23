@@ -3,6 +3,23 @@ import { Loader2, Share2, Download, Check, Trophy, Flame } from "lucide-react";
 import { logEvent } from "../lib/analytics";
 import { workoutVolume } from "../lib/workoutHelpers";
 
+/* ------------------------------------------------------------------ */
+/* Workout completion screen + shareable card                          */
+/* ------------------------------------------------------------------ */
+// Privacy rules for the shareable card (see ShareCard below), stated once here so both the
+// component and anyone reviewing it can check behavior against the same list:
+//   1. The card only ever contains data from the ONE workout just completed — never lifetime
+//      totals, other sessions, or anything that reveals how long someone's been using the app.
+//   2. Bodyweight, nutrition data, email, and location are never included, full stop — there is
+//      no code path in ShareCard that reads any of those fields.
+//   3. The athlete's name is opt-in (a checkbox, default OFF) — nothing identifying goes on the
+//      card unless the person generating it explicitly turns it on for that one card.
+//   4. Generating a card never sends it anywhere. It produces a local PNG the person can save or
+//      hand to their own device's native share sheet — Asc3end itself never posts, uploads, or
+//      transmits it, and the button that does either is only ever triggered by an explicit click.
+//   5. No invented social content — no fake like/view counts, no leaderboard comparison, nothing
+//      presented as if other people are watching.
+
 function ShareCard({ workout, athleteName }) {
   const canvasRef = useRef(null);
   const [status, setStatus] = useState("idle"); // idle | rendering | ready | error

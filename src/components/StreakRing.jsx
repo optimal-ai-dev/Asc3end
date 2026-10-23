@@ -1,10 +1,6 @@
 import { useId } from "react";
 import { Flame } from "lucide-react";
 
-/* ------------------------------------------------------------------ */
-/* Dashboard                                                           */
-/* ------------------------------------------------------------------ */
-
 /* Signature element: a glowing progress ring that fills toward the next 7-day streak milestone */
 export function StreakRing({ streak, size = 92 }) {
   const gid = useId();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { weeklyAdherence } from "./App.jsx";
+import { weeklyAdherence } from "./lib/nutritionHelpers";
 
 function daysAgoIso(n) {
   const d = new Date();

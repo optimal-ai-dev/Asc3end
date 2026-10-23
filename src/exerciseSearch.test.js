@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchesSearch } from "./App.jsx";
+import { matchesSearch } from "./lib/workoutHelpers";
 
 // Regression coverage for a real reported bug: searching "dumbbell press incline" found nothing
 // even though "Incline Dumbbell Press" exists in the library — a plain contiguous-substring check

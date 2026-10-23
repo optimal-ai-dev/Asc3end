@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { EXERCISES, POSES, POSES_FINISH, POSE_TIPS, SECONDARY_MUSCLES } from "./App.jsx";
+import { EXERCISES, POSE_TIPS } from "./exerciseData";
+import { POSES, POSES_FINISH, SECONDARY_MUSCLES } from "./components/ExerciseFigure";
 
 // The illustration system's core promise is "never show a broken image" — every exercise in the
 // library references a `pose` key, and ExerciseFigure falls back to POSES.squat at runtime if a

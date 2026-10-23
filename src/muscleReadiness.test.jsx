@@ -2,13 +2,12 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { describe, it, expect, afterEach } from "vitest";
 import { act } from "react";
-import {
-  muscleReadiness, regionForExercise, MUSCLE_REGIONS, READINESS_COLORS, READINESS_LABEL,
-  FrontBodyFigure, BackBodyFigure, MuscleRecoveryDetails, EXERCISES,
-} from "./App.jsx";
+import { muscleReadiness, READINESS_COLORS, READINESS_LABEL } from "./lib/workoutHelpers";
+import { regionForExercise, MUSCLE_REGIONS, EXERCISES } from "./exerciseData";
+import { FrontBodyFigure, BackBodyFigure, MuscleRecoveryDetails } from "./components/MuscleReadinessMap";
 import { READINESS_MUSCLE_IDS, UNMAPPED_READINESS_REGIONS } from "./exerciseData.js";
 
-// roundedBlob() (App.jsx) emits every path as one flat "X Y X Y ..." sequence of decimal numbers
+// roundedBlob() (components/MuscleReadinessMap.jsx) emits every path as one flat "X Y X Y ..." sequence of decimal numbers
 // with no other numeric tokens — same fact mirrorX() relies on — so a path's bounding box can be
 // read straight off its `d` string without needing SVGGraphicsElement.getBBox(), which jsdom
 // doesn't implement.

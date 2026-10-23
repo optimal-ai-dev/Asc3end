@@ -39,37 +39,10 @@ import {
   LoadingShell, NotFoundScreen, ResetPasswordScreen, CheckoutResultScreen
 } from "./pages/StatusScreens";
 import { AdminDashboard } from "./pages/AdminDashboard";
-// Re-exported so existing `import { ... } from "./App.jsx"` call sites keep working.
-export {
-  FrontBodyFigure, BackBodyFigure, MuscleReadinessLegend, MuscleReadinessTextList,
-  MuscleRecoveryDetails, MuscleReadinessMap
-} from "./components/MuscleReadinessMap";
-export { POSES, POSES_FINISH, SECONDARY_MUSCLES } from "./components/ExerciseFigure";
-// Re-exported so existing `import { ... } from "./App.jsx"` call sites keep working.
-export {
-  formatSet, matchesSearch, muscleRecovery, READINESS_COLORS, READINESS_LABEL, muscleReadiness,
-  workoutVolume
-} from "./lib/workoutHelpers";
-export { COACH_SAFETY_RULES } from "./lib/coachPrompts";
-export { weeklyAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL } from "./lib/nutritionHelpers";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
 // people who actually open the Progress tab, instead of loading on every page for everyone.
 const Progress = lazy(() => import("./Progress"));
-
-// EXERCISES, POSE_TIPS, MUSCLE_GROUPS, EQUIPMENT_TYPES, MUSCLE_POSITIONS, EQUIPMENT_COLORS and
-// MUSCLE_DEFAULT_POSE now live in ./exerciseData.js (imported above) — extracted so the ~450-entry
-// catalogue can be read, validated and tested independently of this component file. Re-exported
-// below so every existing `import { EXERCISES, ... } from "./App"` elsewhere in the codebase keeps
-// working unchanged.
-export { EXERCISES, MUSCLE_GROUPS, MUSCLE_REGIONS, regionForExercise, POSE_TIPS };
-
-/* One adherence level per day for the last 7 days (today included). A day with nothing logged is
-   its own "none" level, distinct from "off" — silence isn't the same claim as a bad day.
-   classifyDayAdherence itself now lives in lib/nutritionMath.js (imported above) so workoutMath.js
-   can also use it for the nutrition challenge template without creating a circular import back
-   into this file — re-exported here unchanged so nothing else in the app needs to change. */
-export { classifyDayAdherence };
 
 /* ------------------------------------------------------------------ */
 /* App root                                                             */

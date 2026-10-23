@@ -3,18 +3,19 @@ import { Trophy, ChevronLeft, ChevronRight, X, FileText } from "lucide-react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
+import { muscleReadiness, workoutVolume } from "./lib/workoutHelpers";
 import {
-  muscleReadiness, FrontBodyFigure, BackBodyFigure, MuscleReadinessLegend, MuscleRecoveryDetails, MuscleReadinessTextList,
-  EXERCISES, MUSCLE_GROUPS, classifyDayAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL, workoutVolume,
-} from "./App.jsx";
-import { getNutritionTargets } from "./lib/nutritionMath";
+  FrontBodyFigure, BackBodyFigure, MuscleReadinessLegend, MuscleRecoveryDetails, MuscleReadinessTextList,
+} from "./components/MuscleReadinessMap";
+import { EXERCISES, MUSCLE_GROUPS } from "./exerciseData";
+import { classifyDayAdherence, getNutritionTargets } from "./lib/nutritionMath";
+import { ADHERENCE_COLOR, ADHERENCE_LABEL } from "./lib/nutritionHelpers";
 
-/* muscleReadiness/the body figures are imported from App.jsx rather than reimplemented here so
-   the full map on this page can never drift out of sync with the compact one on Home — both read
-   the exact same per-region calculation and the exact same SVG region paths. This doesn't add to
-   Progress's own lazy-loaded bundle weight: App.jsx is already fully loaded and evaluated by the
-   time a user can navigate to this tab, since Progress only ever renders from inside the
-   already-running App tree. */
+/* muscleReadiness/the body figures are imported from the same modules the Home tab uses rather
+   than reimplemented here so the full map on this page can never drift out of sync with the
+   compact one on Home — both read the exact same per-region calculation and the exact same SVG
+   region paths. This doesn't add to Progress's own lazy-loaded bundle weight: those modules are
+   already loaded by the time a user can navigate to this tab. */
 
 // Desktop shows front and back figures side by side; narrow/mobile shows one at a time via a
 // segmented control, since two full-height figures side by side would be unusably small on a
