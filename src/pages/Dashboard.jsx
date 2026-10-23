@@ -71,10 +71,10 @@ export function Dashboard({ profile, workouts, nutrition, weightlog, customExerc
     <div style={{ padding: "24px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
         <div>
-          <div className="mono" style={{ color: "var(--brass)", fontSize: 12, letterSpacing: 2 }}>
+          <div className="mono" style={{ color: "var(--ink-dim)", fontSize: 13 }}>
             {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
           </div>
-          <h1 className="disp" style={{ fontSize: 26 }}>Welcome back, {profile.name || "Athlete"}</h1>
+          <h1 className="disp-title" style={{ fontSize: 26 }}>Welcome back, {profile.name || "Athlete"}</h1>
           <div style={{ color: "var(--ink-dim)", fontSize: 14, marginTop: 4, fontStyle: "italic" }}>"{quote}"</div>
         </div>
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>

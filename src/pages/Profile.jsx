@@ -147,7 +147,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
   return (
     <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 40, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h1 className="disp" style={{ fontSize: 24 }}>Profile & Settings</h1>
+        <h1 className="disp-title" style={{ fontSize: 24 }}>Profile & Settings</h1>
         <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close settings"><X size={16} /></button>
       </div>
 

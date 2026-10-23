@@ -18,7 +18,7 @@ export function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, bi
   return (
     <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 45, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px 60px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h1 className="disp" style={{ fontSize: 24 }}>Asc3end+</h1>
+        <h1 className="disp-title" style={{ fontSize: 24 }}>Asc3end+</h1>
         <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close pricing"><X size={16} /></button>
       </div>
 
@@ -56,7 +56,7 @@ export function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, bi
             </div>
 
             <div style={{ marginBottom: 4 }}>
-              <span className="disp" style={{ fontSize: 32 }}>AUD ${price.toFixed(2)}</span>
+              <span className="disp-title" style={{ fontSize: 32 }}>AUD ${price.toFixed(2)}</span>
               <span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>/{period}</span>
             </div>
             {plan === "annual" && (
