@@ -24,6 +24,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { checkStripeModes } from "../lib/stripeKeyMode.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envLocalPath = path.join(__dirname, "..", ".env.local");
@@ -95,6 +96,21 @@ const recommendedMissing = checkGroup("RECOMMENDED before a real launch:", RECOM
 const optionalMissing = checkGroup("OPTIONAL:", OPTIONAL);
 
 const isProductionBuild = process.env.VERCEL_ENV === "production";
+
+// Warnings only — never fail a build over these. A test-mode production deploy is a deliberate
+// state during beta, but it should never go unnoticed when it's time to take real money.
+const stripe = checkStripeModes(process.env, { isProduction: isProductionBuild });
+console.log("\nSTRIPE MODE:");
+console.log(`  secret key: ${stripe.secretMode ?? "unset"} · publishable key: ${stripe.publishableMode ?? "unset"}`);
+for (const warning of stripe.warnings) console.log(`  ⚠ ${warning}`);
+
+// The bare LEGAL_BUSINESS_* names were once documented by mistake; src/lib/legal.js only reads
+// the VITE_ versions, so a bare one set on its own has no effect on the legal pages.
+for (const field of ["NAME", "ABN", "ADDRESS"]) {
+  if (process.env[`LEGAL_BUSINESS_${field}`] && !process.env[`VITE_LEGAL_BUSINESS_${field}`]) {
+    console.log(`  ⚠ LEGAL_BUSINESS_${field} is set but VITE_LEGAL_BUSINESS_${field} is not — rename it, the legal pages only read the VITE_ name.`);
+  }
+}
 const supportEmailMissing = !(process.env.VITE_SUPPORT_EMAIL && process.env.VITE_SUPPORT_EMAIL.length > 0);
 
 console.log("\n---");
