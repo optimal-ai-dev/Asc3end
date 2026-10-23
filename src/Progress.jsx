@@ -710,9 +710,9 @@ export default function Progress({ profile, workouts, weightlog, customExercises
         ) : (
           <>
             {mapView === "front" ? (
-              <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={300} />
+              <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={240} />
             ) : (
-              <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={300} />
+              <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={240} />
             )}
             <div style={{ marginTop: 10 }}>
               <MuscleReadinessLegend />
