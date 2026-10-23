@@ -12,21 +12,8 @@ deciding whether to launch.
 ## Blockers — read first
 
 1. **`feedback` table migration not run.** Phase 13's feedback form will fail to submit (with a
-   clean error message, not a crash) until this SQL runs in the Supabase SQL editor:
-   ```sql
-   create table feedback (
-     id uuid primary key default gen_random_uuid(),
-     user_id uuid references auth.users not null,
-     type text not null check (type in ('bug', 'feature', 'rating')),
-     message text not null default '',
-     rating int check (rating between 1 and 5),
-     page text,
-     created_at timestamptz default now()
-   );
-   alter table feedback enable row level security;
-   create policy "Users can submit their own feedback" on feedback
-     for insert with check (auth.uid() = user_id);
-   ```
+   clean error message, not a crash) until the migration in
+   [`supabase/migrations/20261023000000_create_feedback_table.sql`](supabase/migrations/20261023000000_create_feedback_table.sql) runs in the Supabase SQL editor (paste the whole file; safe to re-run).
 2. **Supabase's built-in email service is not production-grade.** Discovered live during Phase 20
    testing: creating a handful of throwaway test accounts in this session tripped Supabase's
    default "email rate limit exceeded" — the free built-in SMTP is meant for development, not real

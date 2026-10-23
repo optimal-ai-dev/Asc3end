@@ -193,23 +193,11 @@ Same trust model as `analytics_events`: users can insert their own rows and noth
 select/update/delete policy, so feedback is admin-protected by construction (readable only via
 the Supabase SQL editor or a future admin tool using the service-role key, never by any signed-in
 user, including the one who submitted it).
-```sql
-create table feedback (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users not null,
-  type text not null check (type in ('bug', 'feature', 'rating')),
-  message text not null default '',
-  rating int check (rating between 1 and 5),
-  page text,
-  created_at timestamptz default now()
-);
-alter table feedback enable row level security;
-create policy "Users can submit their own feedback" on feedback
-  for insert with check (auth.uid() = user_id);
-```
+The schema lives in [`supabase/migrations/20261023000000_create_feedback_table.sql`](supabase/migrations/20261023000000_create_feedback_table.sql) — paste the whole file into the Supabase SQL editor
+(it is safe to re-run).
 Submitted from Profile > Send Feedback via `src/lib/feedback.js`'s `submitFeedback()`, which
 validates type/length/rating client-side before writing (defense in depth — the same constraints
-are enforced in the schema via the `check` clauses above). Query from the Supabase SQL editor:
+are enforced in the schema via `check` constraints in the migration). Query from the Supabase SQL editor:
 `select * from feedback order by created_at desc;`.
 
 ## Launch-configuration check
