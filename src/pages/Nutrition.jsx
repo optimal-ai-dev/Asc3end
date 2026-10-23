@@ -10,7 +10,8 @@ import { uid, todayStr, yesterdayStr } from "../lib/dateUtils";
 import { extractClaudeText, extractJSON, callClaude } from "../lib/claudeClient";
 import { GOAL_LABELS } from "../lib/workoutHelpers";
 import {
-  weeklyAdherence, ADHERENCE_LABEL, ADHERENCE_COLOR, mealMacroGuidance, scoreBestMeal, QUICK_FOODS
+  weeklyAdherence, ADHERENCE_LABEL, ADHERENCE_COLOR, mealMacroGuidance, scoreBestMeal, QUICK_FOODS,
+  MEALS, MEAL_LABEL, defaultMealForHour, groupByMeal
 } from "../lib/nutritionHelpers";
 import { Paywall } from "../components/Paywall";
 import { HomeMealIdeas } from "../components/HomeMealIdeas";
@@ -313,32 +314,6 @@ function FoodScanner({ onAdd, onClose }) {
   );
 }
 
-/* Circular progress indicator for one macro — value can exceed target (over-eating a macro is
-   valid, not an error state), so the ring fill itself clamps at a full circle while the printed
-   number keeps showing the real, possibly-over-target value. */
-function MacroRing({ label, value, target, unit, color, size = 74 }) {
-  const pct = target > 0 ? Math.min(1, value / target) : 0;
-  const r = (size - 10) / 2;
-  const c = 2 * Math.PI * r;
-  const over = target > 0 && value > target;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--bg-elev2)" strokeWidth="7" />
-        <circle
-          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round"
-          strokeDasharray={`${c * pct} ${c}`}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: "stroke-dasharray 0.3s ease" }}
-        />
-        <text x="50%" y="47%" textAnchor="middle" fontSize="14" fontWeight="600" fill="var(--ink)">{Math.round(value)}</text>
-        <text x="50%" y="64%" textAnchor="middle" fontSize="8.5" fill="var(--ink-dim)" fontFamily="'JetBrains Mono', monospace">/{Math.round(target)}{unit}</text>
-      </svg>
-      <div className="mono" style={{ fontSize: 9, color: over ? "var(--warn)" : "var(--ink-dim)", letterSpacing: 0.5 }}>{label}</div>
-    </div>
-  );
-}
-
 function WeeklyAdherence({ nutrition, targets }) {
   const days = useMemo(() => weeklyAdherence(nutrition, targets), [nutrition, targets]);
   return (
@@ -381,6 +356,11 @@ export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile,
   const [mealError, setMealError] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
+  // Which diary section new entries go into — defaults from the time of day, changed by tapping a
+  // section's "+ Add food" or the picker above the add tools.
+  const [activeMeal, setActiveMeal] = useState(() => defaultMealForHour(new Date().getHours()));
+  const addSectionRef = useRef(null);
+  const addFood = (f) => onAdd({ ...f, meal: f.meal || activeMeal });
   const targets = getNutritionTargets(profile);
   const today = nutrition.filter((n) => n.date === todayStr());
   const yesterday = nutrition.filter((n) => n.date === yesterdayStr());
@@ -399,7 +379,7 @@ export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile,
 
   const submit = () => {
     if (!form.name || !form.calories) return;
-    onAdd({
+    addFood({
       id: uid(), date: todayStr(), name: form.name,
       calories: +form.calories || 0, protein: +form.protein || 0,
       carbs: +form.carbs || 0, fat: +form.fat || 0,
@@ -408,16 +388,16 @@ export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile,
   };
 
   const copyYesterday = () => {
-    onAddMany(yesterday.map((f) => ({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat })));
+    onAddMany(yesterday.map((f) => ({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal || activeMeal })));
   };
 
   const duplicateFood = (f) => {
-    onAdd({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat });
+    addFood({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal });
   };
 
   const startEdit = (f) => {
     setEditingId(f.id);
-    setEditForm({ name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat });
+    setEditForm({ name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal || "" });
   };
 
   const saveEdit = () => {
@@ -425,6 +405,7 @@ export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile,
     onEdit(editingId, {
       name: editForm.name, calories: +editForm.calories || 0,
       protein: +editForm.protein || 0, carbs: +editForm.carbs || 0, fat: +editForm.fat || 0,
+      ...(editForm.meal ? { meal: editForm.meal } : {}),
     });
     setEditingId(null);
     setEditForm(null);
@@ -510,7 +491,7 @@ Respond with ONLY this JSON, nothing else:
         <Camera size={16} style={{ verticalAlign: -3, marginRight: 7 }} /> Scan Food
       </button>
       {scannerOpen && (isPremium ? (
-        <FoodScanner onAdd={onAdd} onClose={() => setScannerOpen(false)} />
+        <FoodScanner onAdd={addFood} onClose={() => setScannerOpen(false)} />
       ) : (
         <div style={{ marginBottom: 16 }}>
           <Paywall feature="scanner" onUpgrade={onUpgrade} />
@@ -521,13 +502,175 @@ Respond with ONLY this JSON, nothing else:
       {/* Hidden from assistive tech and keyboard focus while the scanner dialog is open, so
           screen readers and Tab navigation can't reach content buried behind it. */}
       <div ref={backgroundRef} aria-hidden={scannerOpen || undefined}>
+      {/* Calories remaining leads, the way MyFitnessPal and Cronometer do it: the number people
+          actually act on is what's left today, not what's been eaten. */}
       <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-around", flexWrap: "wrap", gap: 10 }}>
-          <MacroRing label="CALORIES" value={totals.calories} target={targets.calories} unit="" color="var(--brass)" />
-          <MacroRing label="PROTEIN" value={totals.protein} target={targets.protein} unit="g" color="var(--steel)" />
-          <MacroRing label="CARBS" value={totals.carbs} target={targets.carbs} unit="g" color="var(--good)" />
-          <MacroRing label="FAT" value={totals.fat} target={targets.fat} unit="g" color="var(--warn)" />
+        <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", letterSpacing: 0.5 }}>
+          {totals.calories > targets.calories ? "CALORIES OVER" : "CALORIES REMAINING"}
         </div>
+        <div className="mono" style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.1, color: totals.calories > targets.calories ? "var(--warn)" : "var(--ink)" }}>
+          {Math.abs(Math.round(targets.calories - totals.calories)).toLocaleString()}
+        </div>
+        <div className="bar-track" style={{ marginTop: 8 }}><div className="bar-fill" style={{ width: `${Math.min(100, (totals.calories / targets.calories) * 100)}%`, background: totals.calories > targets.calories ? "var(--warn)" : "var(--brass)" }} /></div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, textAlign: "center" }} className="mono">
+          {[["Goal", targets.calories], ["−"], ["Food", totals.calories], ["="], [totals.calories > targets.calories ? "Over" : "Left", Math.abs(targets.calories - totals.calories)]].map(([label, val], i) => (
+            val === undefined
+              ? <div key={i} style={{ color: "var(--ink-dim)", alignSelf: "center" }}>{label}</div>
+              : <div key={i}><div style={{ fontSize: 16, fontWeight: 800, color: i === 4 ? (totals.calories > targets.calories ? "var(--warn)" : "var(--brass)") : "var(--ink)" }}>{Math.round(val).toLocaleString()}</div><div style={{ fontSize: 11, color: "var(--ink-dim)" }}>{label}</div></div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 14, marginTop: 16 }}>
+          {[["Protein", totals.protein, targets.protein, "var(--steel)"], ["Carbs", totals.carbs, targets.carbs, "var(--good)"], ["Fat", totals.fat, targets.fat, "var(--warn)"]].map(([label, val, target, color]) => (
+            <div key={label} style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: val > target ? "var(--warn)" : "var(--ink-dim)", fontWeight: 600 }}>{label}</div>
+              <div className="mono" style={{ fontSize: 15, fontWeight: 800 }}>{Math.round(val)}<span style={{ fontSize: 11, color: "var(--ink-dim)", fontWeight: 600 }}> / {Math.round(target)}g</span></div>
+              <div className="bar-track" style={{ height: 6, marginTop: 5 }}><div className="bar-fill" style={{ width: `${Math.min(100, target > 0 ? (val / target) * 100 : 0)}%`, background: color }} /></div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Today's diary, grouped by meal. Sections with nothing in them still show (with their
+          "+ Add food"), except "Earlier entries", which only exists for pre-meal-tracking logs. */}
+      {(() => {
+        const groups = groupByMeal(today);
+        return [...MEALS, "other"].filter((m) => m !== "other" || groups.other.length > 0).map((meal) => {
+          const items = groups[meal];
+          const kcal = items.reduce((n, f) => n + f.calories, 0);
+          return (
+            <div key={meal} className="atlas-card" style={{ marginBottom: 10, paddingBottom: meal === "other" ? 6 : 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: items.length ? 8 : 0 }}>
+                <h2 className="disp" style={{ fontSize: 16 }}>{MEAL_LABEL[meal]}</h2>
+                <span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>{Math.round(kcal)} kcal</span>
+              </div>
+            {items.map((f) => {
+              const isFav = favorites.some((fv) => fv.name === f.name);
+              return (
+              <div key={f.id} style={{ padding: "10px 0", borderTop: "1px solid var(--line)" }}>
+                {editingId === f.id ? (
+                  <div>
+                    <input className="atlas-input" style={{ marginBottom: 6 }} value={editForm.name} onChange={(e) => setEditForm((v) => ({ ...v, name: e.target.value }))} aria-label="Edit food name" />
+                    <select className="atlas-input" style={{ marginBottom: 6 }} value={editForm.meal} onChange={(e) => setEditForm((v) => ({ ...v, meal: e.target.value }))} aria-label="Edit meal">
+                      {!editForm.meal && <option value="">{MEAL_LABEL.other}</option>}
+                      {MEALS.map((m) => <option key={m} value={m}>{MEAL_LABEL[m]}</option>)}
+                    </select>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                      <input className="atlas-input" type="number" placeholder="kcal" value={editForm.calories} onChange={(e) => setEditForm((v) => ({ ...v, calories: e.target.value }))} aria-label="Edit calories" />
+                      <input className="atlas-input" type="number" placeholder="protein" value={editForm.protein} onChange={(e) => setEditForm((v) => ({ ...v, protein: e.target.value }))} aria-label="Edit protein" />
+                      <input className="atlas-input" type="number" placeholder="carbs" value={editForm.carbs} onChange={(e) => setEditForm((v) => ({ ...v, carbs: e.target.value }))} aria-label="Edit carbs" />
+                      <input className="atlas-input" type="number" placeholder="fat" value={editForm.fat} onChange={(e) => setEditForm((v) => ({ ...v, fat: e.target.value }))} aria-label="Edit fat" />
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => { setEditingId(null); setEditForm(null); }}>Cancel</button>
+                      <button className="atlas-btn" style={{ flex: 1 }} onClick={saveEdit}>Save</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 14 }}>{f.name}</div>
+                      <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>{f.calories} kcal · P {f.protein} · C {f.carbs} · F {f.fat}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                      <button onClick={() => onToggleFavorite(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={isFav ? `Remove ${f.name} from favorites` : `Add ${f.name} to favorites`}>
+                        <Star size={14} color={isFav ? "var(--brass)" : "var(--ink-dim)"} fill={isFav ? "var(--brass)" : "none"} />
+                      </button>
+                      <button onClick={() => duplicateFood(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Duplicate ${f.name}`}>
+                        <Copy size={14} color="var(--ink-dim)" />
+                      </button>
+                      <button onClick={() => startEdit(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Edit ${f.name}`}>
+                        <Pencil size={14} color="var(--ink-dim)" />
+                      </button>
+                      <button onClick={() => onDelete(f.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Delete ${f.name}`}>
+                        <Trash2 size={14} color="var(--ink-dim)" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              );
+            })}
+              {meal !== "other" && (
+                <button onClick={() => { setActiveMeal(meal); addSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+                  className="mono" style={{ background: "none", border: "none", color: "var(--brass)", fontWeight: 800, fontSize: 13, cursor: "pointer", padding: "6px 0 0", minHeight: 36 }}>
+                  + Add food
+                </button>
+              )}
+            </div>
+          );
+        });
+      })()}
+
+      <h2 ref={addSectionRef} className="disp" style={{ fontSize: 16, margin: "18px 0 8px", scrollMarginTop: 16 }}>Add food to</h2>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {MEALS.map((m) => (
+          <button key={m} onClick={() => setActiveMeal(m)} className="pill" aria-pressed={activeMeal === m}
+            style={{ flex: 1, justifyContent: "center", cursor: "pointer", border: "none", minHeight: 40, padding: "4px 6px", fontSize: 13, background: activeMeal === m ? "var(--brass-soft)" : "var(--bg-elev2)", color: activeMeal === m ? "var(--brass)" : "var(--ink-dim)" }}>
+            {MEAL_LABEL[m]}
+          </button>
+        ))}
+      </div>
+
+      <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Quick Add</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+        {QUICK_FOODS.map((f) => (
+          <button key={f.name} onClick={() => addFood({ id: uid(), date: todayStr(), ...f })}
+            className="pill" style={{ background: "var(--bg-elev2)", border: "1px solid var(--line)", cursor: "pointer", color: "var(--ink)" }}>
+            + {f.name}
+          </button>
+        ))}
+      </div>
+
+      {favorites.length > 0 && (
+        <>
+          <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Favorites</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {favorites.map((f) => (
+              <button key={f.name} onClick={() => addFood({ id: uid(), date: todayStr(), ...f })}
+                className="pill" style={{ background: "var(--brass-soft)", border: "1px solid var(--brass)", cursor: "pointer", color: "var(--brass)" }}>
+                <Star size={10} style={{ verticalAlign: -1 }} /> {f.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {recentFoods.length > 0 && (
+        <>
+          <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Recent</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {recentFoods.map((f) => (
+              <button key={f.id} onClick={() => addFood({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat })}
+                className="pill" style={{ background: "var(--bg-elev2)", border: "1px solid var(--line)", cursor: "pointer", color: "var(--ink)" }}>
+                + {f.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {yesterday.length > 0 && (
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginBottom: 16 }} onClick={copyYesterday}>
+          <Copy size={13} style={{ verticalAlign: -2, marginRight: 6 }} /> Copy Yesterday's Log ({yesterday.length} item{yesterday.length === 1 ? "" : "s"})
+        </button>
+      )}
+
+      <div className="atlas-card" style={{ marginBottom: 16 }}>
+        <div className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Log Custom Food</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+          <input className="atlas-input" placeholder="e.g. chicken rice bowl" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} aria-label="Food description" />
+          <button className="atlas-btn-ghost" style={{ padding: "8px 10px" }} onClick={estimate} disabled={estimating} aria-label="Estimate macros with AI" title="Estimate macros with AI">
+            <Sparkles size={14} color="var(--brass)" />
+          </button>
+        </div>
+        {estimating && <div style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 6 }}>Estimating macros…</div>}
+        <div style={{ display: "flex", gap: 6 }}>
+          <input className="atlas-input" type="number" placeholder="kcal" value={form.calories} onChange={(e) => setForm((f) => ({ ...f, calories: e.target.value }))} aria-label="Calories" />
+          <input className="atlas-input" type="number" placeholder="protein" value={form.protein} onChange={(e) => setForm((f) => ({ ...f, protein: e.target.value }))} aria-label="Protein grams" />
+          <input className="atlas-input" type="number" placeholder="carbs" value={form.carbs} onChange={(e) => setForm((f) => ({ ...f, carbs: e.target.value }))} aria-label="Carbs grams" />
+          <input className="atlas-input" type="number" placeholder="fat" value={form.fat} onChange={(e) => setForm((f) => ({ ...f, fat: e.target.value }))} aria-label="Fat grams" />
+        </div>
+        <button className="atlas-btn" style={{ width: "100%", marginTop: 8 }} onClick={submit}>Add to Log</button>
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
@@ -537,7 +680,7 @@ Respond with ONLY this JSON, nothing else:
       </div>
 
       <HomeMealIdeas
-        targets={targets} totals={totals} onAdd={onAdd}
+        targets={targets} totals={totals} onAdd={addFood}
         vegetarian={!!profile.vegetarian}
         onToggleVegetarian={(v) => onUpdateProfile?.({ ...profile, vegetarian: v })}
       />
@@ -608,7 +751,7 @@ Respond with ONLY this JSON, nothing else:
                 <button
                   className="atlas-btn-ghost"
                   style={{ marginTop: 6, padding: "5px 10px", fontSize: 10 }}
-                  onClick={() => onAdd({ id: uid(), date: todayStr(), name: `${p.item} (${p.name})`, calories: p.calories || 0, protein: p.protein || 0, carbs: p.carbs || 0, fat: p.fat || 0 })}
+                  onClick={() => addFood({ id: uid(), date: todayStr(), name: `${p.item} (${p.name})`, calories: p.calories || 0, protein: p.protein || 0, carbs: p.carbs || 0, fat: p.fat || 0 })}
                 >
                   <Plus size={11} style={{ verticalAlign: -2, marginRight: 4 }} /> Log this meal
                 </button>
@@ -618,116 +761,6 @@ Respond with ONLY this JSON, nothing else:
         )}
       </div>
       )}
-
-      <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Quick Add</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-        {QUICK_FOODS.map((f) => (
-          <button key={f.name} onClick={() => onAdd({ id: uid(), date: todayStr(), ...f })}
-            className="pill" style={{ background: "var(--bg-elev2)", border: "1px solid var(--line)", cursor: "pointer", color: "var(--ink)" }}>
-            + {f.name}
-          </button>
-        ))}
-      </div>
-
-      {favorites.length > 0 && (
-        <>
-          <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Favorites</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {favorites.map((f) => (
-              <button key={f.name} onClick={() => onAdd({ id: uid(), date: todayStr(), ...f })}
-                className="pill" style={{ background: "var(--brass-soft)", border: "1px solid var(--brass)", cursor: "pointer", color: "var(--brass)" }}>
-                <Star size={10} style={{ verticalAlign: -1 }} /> {f.name}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {recentFoods.length > 0 && (
-        <>
-          <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Recent</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {recentFoods.map((f) => (
-              <button key={f.id} onClick={() => onAdd({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat })}
-                className="pill" style={{ background: "var(--bg-elev2)", border: "1px solid var(--line)", cursor: "pointer", color: "var(--ink)" }}>
-                + {f.name}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {yesterday.length > 0 && (
-        <button className="atlas-btn-ghost" style={{ width: "100%", marginBottom: 16 }} onClick={copyYesterday}>
-          <Copy size={13} style={{ verticalAlign: -2, marginRight: 6 }} /> Copy Yesterday's Log ({yesterday.length} item{yesterday.length === 1 ? "" : "s"})
-        </button>
-      )}
-
-      <div className="atlas-card" style={{ marginBottom: 16 }}>
-        <div className="disp" style={{ fontSize: 14, marginBottom: 8 }}>Log Custom Food</div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <input className="atlas-input" placeholder="e.g. chicken rice bowl" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} aria-label="Food description" />
-          <button className="atlas-btn-ghost" style={{ padding: "8px 10px" }} onClick={estimate} disabled={estimating} aria-label="Estimate macros with AI" title="Estimate macros with AI">
-            <Sparkles size={14} color="var(--brass)" />
-          </button>
-        </div>
-        {estimating && <div style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 6 }}>Estimating macros…</div>}
-        <div style={{ display: "flex", gap: 6 }}>
-          <input className="atlas-input" type="number" placeholder="kcal" value={form.calories} onChange={(e) => setForm((f) => ({ ...f, calories: e.target.value }))} aria-label="Calories" />
-          <input className="atlas-input" type="number" placeholder="protein" value={form.protein} onChange={(e) => setForm((f) => ({ ...f, protein: e.target.value }))} aria-label="Protein grams" />
-          <input className="atlas-input" type="number" placeholder="carbs" value={form.carbs} onChange={(e) => setForm((f) => ({ ...f, carbs: e.target.value }))} aria-label="Carbs grams" />
-          <input className="atlas-input" type="number" placeholder="fat" value={form.fat} onChange={(e) => setForm((f) => ({ ...f, fat: e.target.value }))} aria-label="Fat grams" />
-        </div>
-        <button className="atlas-btn" style={{ width: "100%", marginTop: 8 }} onClick={submit}>Add to Log</button>
-      </div>
-
-      <div className="disp" style={{ fontSize: 14, color: "var(--ink-dim)", marginBottom: 8 }}>Today</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {today.length === 0 && <div style={{ fontSize: 12, color: "var(--ink-dim)" }}>Nothing logged yet today.</div>}
-        {today.map((f) => {
-          const isFav = favorites.some((fv) => fv.name === f.name);
-          return (
-          <div key={f.id} className="atlas-card" style={{ padding: 10 }}>
-            {editingId === f.id ? (
-              <div>
-                <input className="atlas-input" style={{ marginBottom: 6 }} value={editForm.name} onChange={(e) => setEditForm((v) => ({ ...v, name: e.target.value }))} aria-label="Edit food name" />
-                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                  <input className="atlas-input" type="number" placeholder="kcal" value={editForm.calories} onChange={(e) => setEditForm((v) => ({ ...v, calories: e.target.value }))} aria-label="Edit calories" />
-                  <input className="atlas-input" type="number" placeholder="protein" value={editForm.protein} onChange={(e) => setEditForm((v) => ({ ...v, protein: e.target.value }))} aria-label="Edit protein" />
-                  <input className="atlas-input" type="number" placeholder="carbs" value={editForm.carbs} onChange={(e) => setEditForm((v) => ({ ...v, carbs: e.target.value }))} aria-label="Edit carbs" />
-                  <input className="atlas-input" type="number" placeholder="fat" value={editForm.fat} onChange={(e) => setEditForm((v) => ({ ...v, fat: e.target.value }))} aria-label="Edit fat" />
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => { setEditingId(null); setEditForm(null); }}>Cancel</button>
-                  <button className="atlas-btn" style={{ flex: 1 }} onClick={saveEdit}>Save</button>
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 13 }}>{f.name}</div>
-                  <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)" }}>{f.calories}kcal · P{f.protein} C{f.carbs} F{f.fat}</div>
-                </div>
-                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                  <button onClick={() => onToggleFavorite(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={isFav ? `Remove ${f.name} from favorites` : `Add ${f.name} to favorites`}>
-                    <Star size={14} color={isFav ? "var(--brass)" : "var(--ink-dim)"} fill={isFav ? "var(--brass)" : "none"} />
-                  </button>
-                  <button onClick={() => duplicateFood(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Duplicate ${f.name}`}>
-                    <Copy size={14} color="var(--ink-dim)" />
-                  </button>
-                  <button onClick={() => startEdit(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Edit ${f.name}`}>
-                    <Pencil size={14} color="var(--ink-dim)" />
-                  </button>
-                  <button onClick={() => onDelete(f.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Delete ${f.name}`}>
-                    <Trash2 size={14} color="var(--ink-dim)" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-          );
-        })}
-      </div>
       </div>
     </div>
   );
