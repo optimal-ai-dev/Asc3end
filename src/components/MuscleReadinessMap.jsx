@@ -46,142 +46,72 @@ const blob = (points) => roundedBlob(points);
 const bilateral = (leftPoints) => { const d = blob(leftPoints); return [d, mirrorX(d)]; };
 
 /* ------------------------------------------------------------------ */
-/* Figure geometry, take two.                                          */
+/* Figure geometry                                                     */
 /* ------------------------------------------------------------------ */
-// The first version drew each muscle as an independent floating capsule near an unrelated
-// skeleton shape, at a tiny render size — the result was a lopsided, disconnected mannequin, not
-// a body. This version is built the way a real anatomical illustration actually is: adjacent
-// regions share EXACT boundary coordinates (the elbow point closing biceps is the same point
-// that opens forearms; the knee point closing quads is the same point that opens calves; the
-// deltoid's inner edge is the torso's own shoulder edge), so there is no gap between them by
-// construction, not by luck. viewBox 0 0 200 620, centerline x=100 — proportioned from actual
-// measured shoulder/waist/hip/limb ratios, not guessed once and left alone.
+// Drawn the way gym apps draw a muscle chart: a neutral body silhouette underneath, with each
+// muscle laid on top as its own anatomical shape (fan-shaped pecs, capped delts, a six-pack, a
+// teardrop quad) and thin seams between muscles, made by stroking every muscle in the card colour.
+// Every shape is authored for the figure's left side (x < 100) and mirrored. viewBox 20 0 160 400,
+// centerline x=100, roughly eight heads tall.
 const CX = 100;
 
-// Torso stations: y, and the half-width of the torso silhouette at that height.
-const TORSO = {
-  shoulderY: 108, shoulderHW: 74,
-  chestY: 148, chestHW: 58,
-  obliqueTopY: 192, obliqueTopHW: 50,
-  waistY: 246, waistHW: 40,
-  hipY: 282, hipHW: 48,
-};
-const absHW = 17; // half-width of the abs strip, independent of the torso's own outer edge
-
-// Arm stations (left side; mirrored for right). Each entry shares its coordinates with the
-// station before/after it, so biceps/triceps and forearms always meet with zero gap.
-const ARM = {
-  shoulder: { y: 114, hw: 19 },
-  bicepMid: { y: 168, hw: 20 },
-  elbow: { y: 224, hw: 13 },
-  forearmMid: { y: 264, hw: 12 },
-  wrist: { y: 326, hw: 8 },
-};
-const armX = { shoulder: 30, bicepMid: 23, elbow: 19, forearmMid: 18, wrist: 22 };
-
-// Leg stations: explicit outer (lateral) and inner (medial) edge X per height, chosen with a
-// generous, constant gap between the two legs' inner edges so they never visually merge into one
-// mass the way the first version's legs did.
-const LEG = [
-  { y: 282, outer: 42, inner: 90 }, // hip / thigh top
-  { y: 368, outer: 36, inner: 84 }, // thigh mid
-  { y: 458, outer: 48, inner: 80 }, // knee
-  { y: 512, outer: 46, inner: 78 }, // calf bulge
-  { y: 580, outer: 56, inner: 72 }, // ankle
+const ABS_ROWS = [[128, 144], [147, 163], [166, 182]];
+const absSegments = [
+  ...ABS_ROWS.flatMap(([top, bottom]) => bilateral([[89.5, top], [98.5, top], [98.5, bottom], [90.5, bottom]])),
+  ...bilateral([[90.5, 185], [98.5, 185], [98.5, 210], [95, 206]]),
 ];
-const ADDUCTOR_INSET = 16; // width of the inner-thigh strip carved out of the leg's medial edge
 
-function legEdge(i, side) { return LEG[i][side]; }
+const SIDE_DELT = [[46, 76], [39, 82], [35.5, 96], [37, 110], [43, 108], [42, 90]];
+const FOREARM = [[38, 156], [33, 170], [30, 190], [31, 205], [37, 206], [44, 190], [51, 166], [50, 155]];
 
 const REGION_SHAPES = {
-  chest: bilateral([
-    [24, TORSO.shoulderY], [42, TORSO.chestY], [CX - absHW, TORSO.chestY], [CX - absHW, TORSO.shoulderY + 6], [58, TORSO.shoulderY],
-  ]),
-  frontDelts: bilateral([
-    [24, TORSO.shoulderY], [58, TORSO.shoulderY], [50, TORSO.shoulderY - 6], [armX.shoulder + ARM.shoulder.hw + 2, ARM.shoulder.y - 4], [armX.shoulder - ARM.shoulder.hw + 4, ARM.shoulder.y + 6], [14, TORSO.shoulderY + 12],
-  ]),
-  sideDelts: bilateral([
-    [armX.shoulder - ARM.shoulder.hw, ARM.shoulder.y - 2], [16, TORSO.shoulderY + 4], [10, TORSO.shoulderY + 22], [armX.shoulder - ARM.shoulder.hw - 4, ARM.shoulder.y + 20],
-  ]),
-  rearDelts: bilateral([
-    [24, TORSO.shoulderY], [58, TORSO.shoulderY], [50, TORSO.shoulderY - 6], [armX.shoulder + ARM.shoulder.hw + 2, ARM.shoulder.y - 4], [armX.shoulder - ARM.shoulder.hw + 4, ARM.shoulder.y + 6], [14, TORSO.shoulderY + 12],
-  ]),
-  biceps: bilateral([
-    [armX.shoulder - ARM.shoulder.hw, ARM.shoulder.y], [armX.bicepMid - ARM.bicepMid.hw, ARM.bicepMid.y], [armX.elbow - ARM.elbow.hw, ARM.elbow.y],
-    [armX.elbow + ARM.elbow.hw, ARM.elbow.y], [armX.bicepMid + ARM.bicepMid.hw, ARM.bicepMid.y], [armX.shoulder + ARM.shoulder.hw, ARM.shoulder.y],
-  ]),
-  // Triceps was previously an exact copy of biceps' hexagon capsule — same points, just a
-  // different fill color — which is why it read as "missing" on the rear figure: nothing about
-  // its shape said "triceps" rather than "generic upper arm." This is a genuinely different
-  // silhouette: it starts as a near-point directly beneath rearDelts' own lower-tip vertices
-  // (15,120) and (14,120) — a shared boundary, not a guess — flares into the classic horseshoe
-  // belly (pushed further outward on the lateral edge than biceps' own bulge, and pulled in
-  // narrower on the medial edge), then tapers back down to the exact elbow vertices forearms and
-  // biceps already share (6,224) and (32,224), so it still meets the forearm with zero gap while
-  // ending, anatomically, right at — not past — the elbow.
-  triceps: bilateral([
-    [15, TORSO.shoulderY + 12], [-3, ARM.bicepMid.y + 14], [armX.elbow - ARM.elbow.hw, ARM.elbow.y],
-    [armX.elbow + ARM.elbow.hw, ARM.elbow.y], [33, ARM.bicepMid.y + 6], [14, TORSO.shoulderY + 12],
-  ]),
-  forearms: bilateral([
-    [armX.elbow - ARM.elbow.hw, ARM.elbow.y], [armX.forearmMid - ARM.forearmMid.hw, ARM.forearmMid.y], [armX.wrist - ARM.wrist.hw, ARM.wrist.y],
-    [armX.wrist + ARM.wrist.hw, ARM.wrist.y], [armX.forearmMid + ARM.forearmMid.hw, ARM.forearmMid.y], [armX.elbow + ARM.elbow.hw, ARM.elbow.y],
-  ]),
-  abs: blob([
-    [CX - absHW, TORSO.chestY + 8], [CX + absHW, TORSO.chestY + 8], [CX + absHW - 3, TORSO.waistY], [CX - absHW + 3, TORSO.waistY],
-  ]),
-  obliques: bilateral([
-    [42, TORSO.chestY], [CX - absHW, TORSO.chestY + 8], [CX - absHW + 3, TORSO.waistY], [58, TORSO.waistY], [50, TORSO.obliqueTopY],
-  ]),
-  traps: blob([
-    [CX - 26, TORSO.shoulderY - 4], [CX + 26, TORSO.shoulderY - 4], [CX + 14, TORSO.shoulderY + 44], [CX, TORSO.shoulderY + 58], [CX - 14, TORSO.shoulderY + 44],
-  ]),
-  upperBack: bilateral([
-    [24, TORSO.shoulderY], [58, TORSO.shoulderY], [CX - absHW, TORSO.shoulderY + 40], [CX - absHW, TORSO.obliqueTopY], [40, TORSO.obliqueTopY + 4], [30, TORSO.chestY],
-  ]),
-  lats: bilateral([
-    [30, TORSO.chestY], [40, TORSO.obliqueTopY + 4], [CX - absHW, TORSO.obliqueTopY], [CX - absHW + 3, TORSO.waistY], [58, TORSO.waistY], [48, TORSO.obliqueTopY + 10],
-  ]),
-  lowerBack: blob([
-    [CX - 20, TORSO.waistY], [CX + 20, TORSO.waistY], [CX + 16, TORSO.hipY], [CX - 16, TORSO.hipY],
-  ]),
-  glutes: bilateral([
-    [legEdge(0, "outer") - 4, LEG[0].y], [legEdge(0, "inner"), LEG[0].y], [legEdge(0, "inner") - 4, LEG[0].y + 38], [legEdge(0, "outer") + 2, LEG[0].y + 42],
-  ]),
-  quads: bilateral([
-    [legEdge(0, "outer"), LEG[0].y], [legEdge(0, "inner") - ADDUCTOR_INSET, LEG[0].y],
-    [legEdge(1, "inner") - ADDUCTOR_INSET, LEG[1].y], [legEdge(2, "inner") - ADDUCTOR_INSET, LEG[2].y],
-    [legEdge(2, "outer"), LEG[2].y], [legEdge(1, "outer"), LEG[1].y],
-  ]),
-  adductors: bilateral([
-    [legEdge(0, "inner") - ADDUCTOR_INSET, LEG[0].y], [legEdge(0, "inner"), LEG[0].y],
-    [legEdge(1, "inner"), LEG[1].y], [legEdge(2, "inner"), LEG[2].y],
-    [legEdge(2, "inner") - ADDUCTOR_INSET, LEG[2].y], [legEdge(1, "inner") - ADDUCTOR_INSET, LEG[1].y],
-  ]),
-  hamstrings: bilateral([
-    [legEdge(0, "outer") + 2, LEG[0].y + 42], [legEdge(0, "inner") - 4, LEG[0].y + 38],
-    [legEdge(1, "inner"), LEG[1].y], [legEdge(2, "inner"), LEG[2].y],
-    [legEdge(2, "outer"), LEG[2].y], [legEdge(1, "outer"), LEG[1].y],
-  ]),
-  calves: bilateral([
-    [legEdge(2, "outer"), LEG[2].y], [legEdge(2, "inner"), LEG[2].y],
-    [legEdge(3, "inner"), LEG[3].y], [legEdge(4, "inner"), LEG[4].y],
-    [legEdge(4, "outer"), LEG[4].y], [legEdge(3, "outer"), LEG[3].y],
-  ]),
+  // Front
+  chest: bilateral([[98.5, 80], [98.5, 122], [86, 128], [70, 124], [60, 112], [60, 90], [70, 80], [86, 77]]),
+  frontDelts: bilateral([[62, 74], [50, 73], [44, 80], [44, 96], [48, 108], [55, 114], [60, 104], [60, 86]]),
+  sideDelts: bilateral(SIDE_DELT),
+  biceps: bilateral([[42, 116], [37, 128], [38, 144], [42, 152], [49, 150], [53, 136], [54, 118], [48, 112]]),
+  forearms: bilateral(FOREARM),
+  abs: absSegments,
+  obliques: bilateral([[87, 130], [72, 126], [64, 136], [66, 160], [70, 184], [80, 200], [87, 198], [87, 160]]),
+  quads: bilateral([[66, 212], [62, 236], [64, 262], [70, 290], [76, 300], [86, 298], [90, 280], [90, 250], [84, 226], [76, 214]]),
+  adductors: bilateral([[86, 222], [98, 226], [97, 248], [92, 272], [89, 250], [86, 234]]),
+  calves: bilateral([[72, 312], [67, 330], [70, 356], [76, 376], [82, 376], [86, 350], [90, 326], [88, 312]]),
+  // Back
+  traps: blob([[100, 62], [90, 66], [74, 74], [64, 78], [78, 84], [90, 100], [96, 124], [100, 132], [104, 124], [110, 100], [122, 84], [136, 78], [126, 74], [110, 66]]),
+  rearDelts: bilateral([[64, 77], [50, 73], [44, 80], [44, 96], [48, 108], [55, 112], [60, 100], [64, 88]]),
+  upperBack: bilateral([[66, 86], [60, 96], [62, 116], [72, 126], [88, 124], [94, 112], [88, 96], [78, 86]]),
+  triceps: bilateral([[44, 112], [37, 124], [36, 140], [40, 152], [48, 152], [53, 140], [55, 120], [50, 112]]),
+  lats: bilateral([[60, 118], [62, 138], [66, 160], [72, 180], [84, 192], [94, 178], [94, 150], [88, 130], [72, 128]]),
+  lowerBack: blob([[94, 158], [96, 178], [89, 192], [95, 201], [105, 201], [111, 192], [104, 178], [106, 158], [100, 154]]),
+  glutes: bilateral([[66, 200], [63, 214], [66, 232], [78, 240], [94, 238], [98.5, 224], [98.5, 206], [86, 198]]),
+  hamstrings: bilateral([[64, 242], [64, 262], [70, 290], [78, 302], [86, 300], [92, 282], [96, 256], [95, 244], [80, 246]]),
+};
+// Calves read from the back too; on the rear figure they get the two-headed gastrocnemius shape.
+const BACK_SHAPES = {
+  calves: bilateral([[70, 310], [66, 328], [70, 350], [78, 366], [86, 358], [92, 334], [92, 312], [82, 306]]),
 };
 
-/* Non-interactive body parts — head, neck, hands, feet. Drawn in a fixed neutral tone (never a
-   readiness color, since they aren't muscles you train) so the figure reads as a complete person
-   even though only the muscle regions above are selectable. */
+const SILHOUETTE = [
+  // torso
+  ...bilateral([[100, 64], [84, 66], [62, 72], [56, 86], [58, 110], [62, 130], [66, 150], [68, 172], [66, 192], [62, 208], [72, 220], [100, 226]]),
+  // arm and hand
+  ...bilateral([[50, 74], [40, 80], [35, 100], [35, 130], [34, 150], [30, 170], [28, 190], [29, 207], [39, 207], [44, 192], [50, 168], [54, 152], [57, 128], [58, 100], [60, 84]]),
+  ...bilateral([[29, 207], [39, 207], [41, 226], [35, 236], [28, 228]]),
+  // leg and foot
+  ...bilateral([[63, 204], [60, 230], [62, 262], [67, 300], [66, 330], [70, 360], [75, 386], [87, 386], [90, 356], [93, 326], [93, 300], [97, 260], [99.5, 224], [84, 214]]),
+  ...bilateral([[75, 384], [87, 384], [90, 397], [71, 397]]),
+  // neck
+  blob([[91, 46], [109, 46], [111, 68], [89, 68]]),
+];
+
+/* Non-interactive body: the silhouette every muscle sits on, plus the head. Drawn in a fixed
+   neutral tone (never a readiness color) so knees, elbows, hands and feet read as body, not as
+   untrained muscle. */
 function BodyCaps() {
-  const handL = blob([[armX.wrist - ARM.wrist.hw, ARM.wrist.y], [armX.wrist + ARM.wrist.hw, ARM.wrist.y], [armX.wrist + 6, ARM.wrist.y + 34], [armX.wrist - 6, ARM.wrist.y + 34]]);
-  const footL = blob([[legEdge(4, "outer") + 2, LEG[4].y], [legEdge(4, "inner") - 2, LEG[4].y], [legEdge(4, "inner") + 6, LEG[4].y + 20], [legEdge(4, "outer") - 8, LEG[4].y + 20]]);
   return (
-    <g fill="var(--bg-elev2)" stroke="var(--readiness-outline)" strokeOpacity="0.5" strokeWidth="1.5">
-      <ellipse cx={CX} cy={54} rx={28} ry={34} />
-      <path d={blob([[CX - 12, 82], [CX + 12, 82], [CX + 16, 104], [CX - 16, 104]])} />
-      <path d={handL} /><path d={mirrorX(handL)} />
-      <path d={footL} /><path d={mirrorX(footL)} />
+    <g fill="var(--bg-elev2)">
+      {SILHOUETTE.map((d, i) => <path key={i} d={d} />)}
+      <ellipse cx={CX} cy={30} rx={17} ry={22} />
     </g>
   );
 }
@@ -208,9 +138,9 @@ function MuscleRegion({ id, label, state, shape, selected, onSelect }) {
   const pathStyle = {
     fill: READINESS_COLORS[state],
     fillOpacity: isSel ? 1 : 0.88,
-    stroke: isSel ? "var(--brass)" : "var(--readiness-outline)",
-    strokeWidth: isSel ? 2 : 1,
-    strokeOpacity: isSel ? 1 : 0.5,
+    stroke: isSel ? "var(--brass)" : "var(--bg-elev)",
+    strokeWidth: isSel ? 2 : 1.6,
+    strokeLinejoin: "round",
     transition: "fill-opacity 0.15s ease",
   };
 
@@ -266,7 +196,7 @@ function BodyFigure({ view, readiness, selected, onSelect, maxWidth }) {
   const ids = view === "front" ? FRONT_REGION_IDS : BACK_REGION_IDS;
   return (
     <svg
-      viewBox="0 0 200 620" style={{ width: "100%", maxWidth, display: "block", margin: "0 auto" }}
+      viewBox="20 0 160 400" style={{ width: "100%", maxWidth, display: "block", margin: "0 auto" }}
       role="group" aria-label={`${view === "front" ? "Front" : "Back"} muscle readiness map`}
     >
       <defs>
@@ -279,7 +209,7 @@ function BodyFigure({ view, readiness, selected, onSelect, maxWidth }) {
         <MuscleRegion
           key={id} id={id} label={REGION_BY_ID[id].label}
           state={readiness[READINESS_DISPLAY_SOURCE[id] || id]?.level || "unknown"}
-          shape={REGION_SHAPES[id]}
+          shape={(view === "back" && BACK_SHAPES[id]) || REGION_SHAPES[id]}
           selected={selected} onSelect={onSelect}
         />
       ))}
