@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef, useMemo, useId, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, useId, lazy, Suspense } from "react";
 // Lazy-loaded: react-markdown (and its remark/micromark dependencies) only ships to people who
 // actually open the Coach tab, instead of adding to the bundle everyone downloads on first load.
 const ReactMarkdown = lazy(() => import("react-markdown"));
 import {
-  Dumbbell, UtensilsCrossed, LayoutDashboard, MessageCircle, TrendingUp,
-  Plus, Trash2, Send, Sparkles, Flame, Target, ChevronRight, Check,
-  X, Scale, Loader2, Trophy, Search, MapPin, Navigation, Camera, RefreshCw, Bell,
-  UserCircle, Pencil, Copy, ArrowUp, ArrowDown, AlertTriangle, Star, ChevronDown, ChevronUp,
-  Share2, Download, Clock
+  Dumbbell, UtensilsCrossed, LayoutDashboard, MessageCircle, TrendingUp, Plus, Trash2, Send,
+  Sparkles, Flame, Target, ChevronRight, Check, X, Loader2, Trophy, Search, MapPin, Navigation,
+  Camera, RefreshCw, Bell, UserCircle, Pencil, Copy, AlertTriangle, Star, ChevronDown, ChevronUp,
+  Share2, Download
 } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
 import AuthScreen from "./AuthScreen";
@@ -16,7 +15,6 @@ import LegalPage from "./LegalPage";
 import SupportPage from "./SupportPage";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
-import { captureMessage } from "./lib/errorMonitoring";
 import { loadKey, saveKey } from "./lib/storage";
 import { suggestNextTarget, evaluatePR, computeGamification, computeStreak, computeWorkoutXp, workoutXpBreakdown, CHALLENGE_TEMPLATES, computeChallengeProgress, computeWeeklyMissions } from "./lib/workoutMath";
 import { getNutritionTargets, classifyDayAdherence } from "./lib/nutritionMath";
@@ -30,32 +28,36 @@ import { isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightE
 import { parseAppPath, buildAppPath } from "./lib/routing";
 import { FEEDBACK_TYPES, MAX_MESSAGE_LENGTH, submitFeedback } from "./lib/feedback";
 import {
-  MUSCLE_GROUPS, MUSCLE_REGIONS, UNMAPPED_READINESS_REGIONS, READINESS_MUSCLE_IDS, REGION_LABEL,
-  READINESS_DISPLAY_SOURCE, EQUIPMENT_TYPES, MUSCLE_POSITIONS, EQUIPMENT_COLORS, MUSCLE_DEFAULT_POSE,
-  TRACKING_TYPES, TRACKING_TYPE_LABEL, WEIGHT_REPS_TRACKING_TYPES,
-  POSE_TIPS, SECONDARY_REGIONS_BY_POSE, POSE_TO_REGION, GROUP_DEFAULT_REGION, regionForExercise,
-  EXERCISES, getExerciseGuidance, matchesExerciseSearch, getExerciseAlternatives,
+  MUSCLE_GROUPS, MUSCLE_REGIONS, UNMAPPED_READINESS_REGIONS, REGION_LABEL,
+  READINESS_DISPLAY_SOURCE, EQUIPMENT_TYPES, MUSCLE_POSITIONS, EQUIPMENT_COLORS,
+  MUSCLE_DEFAULT_POSE, TRACKING_TYPES, TRACKING_TYPE_LABEL, WEIGHT_REPS_TRACKING_TYPES, POSE_TIPS,
+  regionForExercise, EXERCISES, getExerciseGuidance, matchesExerciseSearch
 } from "./exerciseData";
+import { KEYS } from "./lib/storageKeys";
+import { dayOfYear, todayStr, yesterdayStr, fmtDate, uid, fmtRelativeDate } from "./lib/dateUtils";
+import { extractJSON, extractClaudeText, callClaude } from "./lib/claudeClient";
+import {
+  PLAN_PROMPT_VOCABULARY, TRAINING_PRINCIPLES, COACHING_STYLES, COACH_SAFETY_RULES,
+  COACH_OUTPUT_RULES
+} from "./lib/coachPrompts";
+import {
+  SET_TYPES, SET_TYPE_LABELS, SET_TYPE_COLORS, GOAL_LABELS, formatSet, matchesSearch,
+  lookupExercise, READINESS_COLORS, READINESS_LABEL, muscleReadiness, workoutVolume
+} from "./lib/workoutHelpers";
+import {
+  QUICK_FOODS, mealMacroGuidance, scoreBestMeal, weeklyAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL
+} from "./lib/nutritionHelpers";
+// Re-exported so existing `import { ... } from "./App.jsx"` call sites keep working.
+export {
+  formatSet, matchesSearch, muscleRecovery, READINESS_COLORS, READINESS_LABEL, muscleReadiness,
+  workoutVolume
+} from "./lib/workoutHelpers";
+export { COACH_SAFETY_RULES } from "./lib/coachPrompts";
+export { weeklyAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL } from "./lib/nutritionHelpers";
 
 // Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
 // people who actually open the Progress tab, instead of loading on every page for everyone.
 const Progress = lazy(() => import("./Progress"));
-
-/* ------------------------------------------------------------------ */
-/* Constants & helpers                                                 */
-/* ------------------------------------------------------------------ */
-
-const KEYS = {
-  profile: "atlas:profile",
-  workouts: "atlas:workouts",
-  nutrition: "atlas:nutrition",
-  weightlog: "atlas:weightlog",
-  session: "atlas:session",
-  customExercises: "atlas:customExercises",
-  favorites: "atlas:favorites",
-  coachMessages: "atlas:coachMessages",
-  challenges: "atlas:challenges",
-};
 
 // EXERCISES, POSE_TIPS, MUSCLE_GROUPS, EQUIPMENT_TYPES, MUSCLE_POSITIONS, EQUIPMENT_COLORS and
 // MUSCLE_DEFAULT_POSE now live in ./exerciseData.js (imported above) — extracted so the ~450-entry
@@ -74,38 +76,6 @@ const REGIONS_BY_GROUP = MUSCLE_GROUPS.reduce((acc, g) => {
   return acc;
 }, {});
 
-// A representative, bounded sample of exercise names for the AI plan-generation prompt — not the
-// full catalogue. Embedding every exercise name in the prompt used to cost roughly one token per
-// name and scale linearly with catalogue size (223 names at launch, ~450+ after this expansion,
-// more with every future addition); the AI plan generator has never required an exact catalogue
-// match anyway (its output is matched loosely by name, not validated against EXERCISES), so a
-// smaller but genuinely diverse vocabulary — up to 2 exercises per equipment type per muscle group
-// — gives the same practical guidance at a small fraction of the token cost, and stays roughly
-// constant as the catalogue grows rather than growing with it.
-const PLAN_PROMPT_VOCABULARY = (() => {
-  const PLAN_GROUPS = ["chest", "back", "shoulders", "arms", "legs", "core"];
-  const names = [];
-  PLAN_GROUPS.forEach((group) => {
-    const seenEquipment = {};
-    EXERCISES.filter((e) => e.muscle === group).forEach((e) => {
-      seenEquipment[e.equipment] = (seenEquipment[e.equipment] || 0) + 1;
-      if (seenEquipment[e.equipment] <= 2) names.push(e.name);
-    });
-  });
-  return names.join(", ");
-})();
-
-const SET_TYPES = ["normal", "warmup", "drop", "failure"];
-const SET_TYPE_LABELS = { normal: "Normal", warmup: "Warm-up", drop: "Drop Set", failure: "Failure" };
-const SET_TYPE_COLORS = { normal: "#4F9DFF", warmup: "#3ECF8E", drop: "#FFA53D", failure: "#FF6B81" };
-
-const GOAL_LABELS = {
-  muscle_growth: "Build Muscle",
-  strength: "Get Stronger",
-  fat_loss: "Lose Fat",
-  general: "General Fitness",
-};
-
 const QUOTES = [
   "One more rep than yesterday.",
   "Discipline shows up when motivation clocks out.",
@@ -118,340 +88,6 @@ const QUOTES = [
   "The best program is the one you actually finish.",
   "Recovery is training too.",
 ];
-
-const QUICK_FOODS = [
-  { name: "Chicken Breast (150g)", calories: 248, protein: 46, carbs: 0, fat: 5 },
-  { name: "White Rice (1 cup)", calories: 205, protein: 4, carbs: 45, fat: 0 },
-  { name: "Whole Eggs (2)", calories: 156, protein: 12, carbs: 1, fat: 11 },
-  { name: "Greek Yogurt (200g)", calories: 146, protein: 20, carbs: 8, fat: 4 },
-  { name: "Banana", calories: 105, protein: 1, carbs: 27, fat: 0 },
-  { name: "Protein Shake", calories: 130, protein: 25, carbs: 4, fat: 2 },
-  { name: "Oats (80g)", calories: 300, protein: 10, carbs: 54, fat: 5 },
-  { name: "Avocado (half)", calories: 120, protein: 1, carbs: 6, fat: 11 },
-];
-
-function dayOfYear(d) {
-  const start = new Date(d.getFullYear(), 0, 0);
-  const diff = d - start;
-  return Math.floor(diff / 86400000);
-}
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-function yesterdayStr() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-function fmtDate(iso) {
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-function uid() {
-  return Math.random().toString(36).slice(2, 10);
-}
-
-
-/* Per-meal macro targets used to steer the nearby-meals search toward the person's goal */
-function mealMacroGuidance(goal, timing) {
-  const base = {
-    fat_loss: { calories: [350, 500], protein: [35, 50], carbs: [15, 30], fat: [8, 15], rationale: "high protein and lower calorie/fat/carb to support a fat loss goal" },
-    muscle_growth: { calories: [600, 900], protein: [40, 60], carbs: [60, 90], fat: [15, 25], rationale: "higher calorie, carb, and fat to support a muscle gain goal" },
-    strength: { calories: [550, 750], protein: [40, 55], carbs: [50, 70], fat: [15, 20], rationale: "solid protein and carbs to fuel strength training" },
-    general: { calories: [450, 600], protein: [30, 45], carbs: [40, 60], fat: [12, 20], rationale: "balanced macros for general fitness" },
-  };
-  const g = base[goal] || base.general;
-  if (timing === "pre") {
-    return { ...g, carbs: [g.carbs[0], Math.round(g.carbs[1] * 1.1)], fat: [Math.max(5, g.fat[0] - 5), Math.round(g.fat[1] * 0.7)], note: "easy to digest before training" };
-  }
-  return { ...g, protein: [Math.round(g.protein[0] * 1.05), Math.round(g.protein[1] * 1.1)], note: "supports post-training recovery" };
-}
-
-/* Picks the "Best Value" nearby-meal option deterministically rather than trusting the model's own
-   self-assessment — scores macro fit against the person's target range, distance, and price, so the
-   badge means the same thing every time instead of being whatever the AI happened to call out. */
-function scoreBestMeal(places, guidance) {
-  if (!places.length) return -1;
-  const macroFit = (p) => {
-    const ranges = [[p.calories, guidance.calories], [p.protein, guidance.protein], [p.carbs, guidance.carbs], [p.fat, guidance.fat]];
-    const scores = ranges.map(([val, [lo, hi]]) => {
-      if (val == null) return 0.5;
-      if (val >= lo && val <= hi) return 1;
-      const span = hi - lo || 1;
-      const dist = val < lo ? lo - val : val - hi;
-      return Math.max(0, 1 - dist / span);
-    });
-    return scores.reduce((a, b) => a + b, 0) / scores.length;
-  };
-  const normInverted = (values) => {
-    const nums = values.map((v) => (v == null ? null : v));
-    const present = nums.filter((v) => v != null);
-    if (present.length === 0) return nums.map(() => 0.5);
-    const min = Math.min(...present), max = Math.max(...present);
-    return nums.map((v) => (v == null ? 0.5 : max === min ? 1 : 1 - (v - min) / (max - min)));
-  };
-  const distScores = normInverted(places.map((p) => p.distanceKm));
-  const priceScores = normInverted(places.map((p) => p.price));
-  let bestIdx = 0, bestScore = -Infinity;
-  places.forEach((p, i) => {
-    const score = macroFit(p) * 0.5 + distScores[i] * 0.25 + priceScores[i] * 0.25;
-    if (score > bestScore) { bestScore = score; bestIdx = i; }
-  });
-  return bestIdx;
-}
-
-// Order-independent, per-word substring search — every word in the query must appear somewhere
-// in the name, but not necessarily contiguously or in the order typed. A plain single-substring
-// check (name.includes(query)) fails the moment someone searches "dumbbell press incline" against
-// "Incline Dumbbell Press": the words are all there, just not in that exact contiguous order,
-// which is exactly the bug this was written to fix — a real user reported "incline dumbbell
-// press" finding nothing despite that exact exercise existing.
-/** Human-readable summary of one logged set, in whatever unit its tracking type actually uses —
- *  never assumes weight×reps. Used everywhere a set needs to render as a single line (active
- *  workout, workout history, workout detail modal). */
-export function formatSet(set, trackingType = "weight_reps") {
-  const fmtDur = (s) => { const m = Math.floor(s / 60), sec = s % 60; return m > 0 ? `${m}:${String(sec).padStart(2, "0")}` : `${s}s`; };
-  const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)}km` : `${m}m`);
-  switch (trackingType) {
-    case "bodyweight_reps":
-      return set.weight ? `BW+${set.weight}kg × ${set.reps}` : `${set.reps} reps (bodyweight)`;
-    case "assisted_bodyweight":
-      return `${set.reps} reps (${set.assistWeight || 0}kg assist)`;
-    case "reps_only":
-      return `${set.reps} reps`;
-    case "duration":
-    case "isometric_hold":
-      return fmtDur(set.durationSeconds || 0);
-    case "distance_duration":
-      return [set.distanceMeters ? fmtDist(set.distanceMeters) : null, set.durationSeconds ? fmtDur(set.durationSeconds) : null].filter(Boolean).join(" / ") || "—";
-    case "weight_distance":
-      return [`${set.weight}kg`, set.distanceMeters ? fmtDist(set.distanceMeters) : null, set.durationSeconds ? fmtDur(set.durationSeconds) : null].filter(Boolean).join(" · ");
-    case "weighted_duration":
-      return `${set.weight}kg × ${fmtDur(set.durationSeconds || 0)}`;
-    default:
-      return `${set.weight}kg × ${set.reps}`;
-  }
-}
-
-export function matchesSearch(name, query) {
-  const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return true;
-  const lowerName = name.toLowerCase();
-  return terms.every((term) => lowerName.includes(term));
-}
-
-/* Matches an AI-generated exercise name against the real exercise library, exact first then fuzzy,
-   so exercises the coach suggests can link to real form cues and pose demonstrations. */
-function lookupExercise(name) {
-  if (!name) return null;
-  const lower = name.toLowerCase().trim();
-  const exact = EXERCISES.find((e) => e.name.toLowerCase() === lower);
-  if (exact) return exact;
-  const fuzzy = EXERCISES.find((e) => e.name.toLowerCase().includes(lower) || lower.includes(e.name.toLowerCase()));
-  return fuzzy || null;
-}
-
-export function muscleRecovery(workouts, customExercises = []) {
-  const now = Date.now();
-  const status = {};
-  MUSCLE_GROUPS.forEach((m) => (status[m] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
-  const allEx = [...EXERCISES, ...customExercises];
-  workouts.forEach((w) => {
-    const t = new Date(w.date).getTime();
-    const hrs = (now - t) / 3600000;
-    const hitThisWorkout = new Set();
-    w.exercises.forEach((e) => {
-      const ex = allEx.find((x) => x.name === e.name);
-      if (!ex) return;
-      if (hrs < status[ex.muscle].hours) { status[ex.muscle].hours = hrs; status[ex.muscle].lastDate = w.date; }
-      // "Recent" = last 7 days, used to show actual training load rather than just a single last-session snapshot.
-      if (hrs <= 168) { status[ex.muscle].recentSets += e.sets.length; hitThisWorkout.add(ex.muscle); }
-    });
-    hitThisWorkout.forEach((m) => status[m].recentSessions++);
-  });
-  Object.keys(status).forEach((m) => {
-    const h = status[m].hours;
-    status[m].level = h < 24 ? "rest" : h < 48 ? "partial" : "ready";
-    // Rough estimate only — real recovery time varies by muscle, volume, intensity, sleep, and individual factors.
-    status[m].hoursUntilReady = Number.isFinite(h) ? Math.max(0, Math.round(48 - h)) : 0;
-  });
-  return status;
-}
-
-/* Evidence-based technique guidance (Androulakis Korakakis et al., 2023, J Funct Morphol Kinesiol —
-   narrative review on RT technique for hypertrophy) fed to the coach so its advice is grounded rather than generic. */
-const TRAINING_PRINCIPLES = `Ground your training advice in current resistance-training research:
-- Repetition tempo: a total rep duration of roughly 2-8 seconds is sufficient to maximize hypertrophy — there's no strong evidence that a specific eccentric/concentric split matters more than another within that range. Avoid recommending "super slow" reps (very slow tempos show no added benefit and may hurt performance), but the eccentric (lowering) phase should be controlled rather than dropped under gravity.
-- Range of motion: prioritize a range of motion that takes the target muscle through a full stretch — training at long muscle lengths tends to match or outperform training at short muscle lengths for hypertrophy. Full ROM is a safe default; partial ROM performed only at the stretched end of a movement is a reasonable alternative, not partials at the shortened end.
-- Technique strictness: minimizing momentum and involvement of non-target muscles is a sound default for isolation work, since fatigue from assisting muscles that aren't near failure isn't clearly worth the tradeoff. Some controlled momentum on compound lifts is not inherently harmful.
-- Always contextualize with the athlete's actual experience level and current profile rather than giving generic advice.`;
-
-/* Jeff Nippard's publicly stated training and nutrition philosophy (paraphrased from his published
-   program materials, YouTube series, and interviews — he is also a co-author on the hypertrophy
-   review referenced above, so these two sources are already well aligned). */
-const NIPPARD_PRINCIPLES = `Follow Jeff Nippard's evidence-based coaching philosophy:
-- Rep ranges are flexible: meaningful hypertrophy occurs anywhere from roughly 5-30 reps per set, since effort and proximity to failure matter more than the exact number. Still bias compound lifts toward 6-12 reps as a practical default, with isolation/finishing movements able to run higher (12-20+).
-- For strength-focused goals, most work should be heavy (1-5 reps) with some moderate-load (5-10 rep) support work, following the principle of specificity — to get better at lifting heavy, you need to lift heavy.
-- Use most working sets with 1-3 reps in reserve ("early sets"), reserving true failure or near-failure for a final set per exercise — this balances growth stimulus against recovery cost rather than treating every set as maximal.
-- Progressive overload is the central driver of long-term growth: increase weight, reps, or sets over time rather than repeating the same stimulus indefinitely.
-- Favor a mix of compound and isolation exercises, structured into Push/Pull/Legs or Upper/Lower splits depending on training days available (4-6 days/week is typical), balancing enough volume to drive growth without exceeding recovery capacity.
-- Nutrition should be structured but flexible — hit calorie and protein targets consistently, but don't be dogmatic about specific foods; sustainable adherence beats a "perfect" rigid diet.
-- Frame advice realistically for natural (non-enhanced) lifters: no shortcuts, consistent effort and patience over months/years.`;
-
-/* Four distinct, real coaching philosophies (paraphrased from each coach's publicly documented
-   teaching — programs, interviews, and published methodology, never quoted or reproduced verbatim).
-   The athlete picks one as their coach's lens; all four still operate inside the safety guardrails
-   in COACH_SAFETY_RULES below. */
-const COACHING_STYLES = {
-  balanced: {
-    label: "Balanced Evidence-Based",
-    blurb: "Flexible and research-grounded — a mix of rep ranges, moderate volume, sustainable long-term progress.",
-    prompt: NIPPARD_PRINCIPLES,
-  },
-  intensity: {
-    label: "High Intensity, Low Volume",
-    blurb: "Fewer, harder sets taken close to failure, with more recovery time between sessions.",
-    prompt: `Lean toward a high-intensity, low-volume training style:
-- Recovery is treated as the main limiting factor — prescribe fewer total sets per muscle (roughly 1-3 hard working sets per exercise) rather than high volume, reasoning that a smaller number of truly maximal-effort sets can be enough stimulus if recovery is respected.
-- Each working set should be taken to or very near true muscular failure — this is a system built on effort, not volume.
-- Favor strict form and controlled, full range of motion over speed or momentum.
-- Prescribe somewhat lower per-muscle training frequency than typical (allowing more days of recovery between sessions for the same muscle) compared to higher-volume approaches.
-- Note honestly when relevant: modern research suggests very low volume/frequency is not optimal for everyone, and this style suits people who are time-constrained, prone to overtraining, or want a more sustainable minimum-effective-dose approach — not a universal "best" method.`,
-  },
-  volume: {
-    label: "Volume-Focused Periodisation",
-    blurb: "Structured training blocks that progressively build volume across weeks, then deload.",
-    prompt: `Lean toward a volume-and-periodization training style:
-- Think in terms of volume landmarks per muscle group per week — start a training block near a maintainable volume and progressively add sets across weeks as recovery allows, rather than jumping straight to a high number.
-- Recommend a structured block: several weeks of increasing volume followed by a lighter deload week to manage accumulated fatigue.
-- Individualize based on recovery signals (soreness, performance trend, motivation) rather than a fixed universal number.
-- Generally favor moderate-to-higher per-muscle weekly volume (multiple sets across multiple sessions) over very low-volume approaches, while still respecting the athlete's actual recovery capacity and experience level.`,
-  },
-  aesthetic: {
-    label: "Simple Progressive Training",
-    blurb: "Simple splits, a small number of working sets pushed hard, repeated consistently for physique goals.",
-    prompt: `Lean toward a simple, intensity-focused hypertrophy training style:
-- Keep programming simple: a small number of working sets per exercise (around 2), typically in the 5-9 rep range, pushed close to true failure.
-- Favor sticking with the same core exercises across a training block so the athlete can master the movement and track clear strength progress on it, rather than constantly rotating exercises.
-- Use straightforward Push/Pull/Legs or Upper/Lower splits.
-- Frame the tone around consistency and daily discipline over complexity — simple training done intensely and repeatedly.`,
-  },
-};
-
-// Explicit safety boundaries for the AI Coach — despite an earlier comment claiming "all four
-// [coaching styles] still operate inside the safety guardrails in TRAINING_PRINCIPLES above",
-// no such guardrails actually existed anywhere in the system prompt: no medical disclaimer, no
-// injury/diagnosis boundary, no instruction against dangerous drug/steroid/extreme-diet content,
-// no escalation language for concerning symptoms. The underlying model has its own baseline
-// safety training, but an explicit instruction is cheap, real defense-in-depth, and is what a
-// fitness app handling real people's training/nutrition/health questions should have regardless
-// of how the model would likely behave anyway.
-export const COACH_SAFETY_RULES = `Safety boundaries — these apply no matter how a question is framed, including hypothetically or "for a friend":
-- You are an AI coach, not a doctor, physiotherapist, or registered dietitian. Never claim or imply a medical or clinical credential.
-- Never diagnose an injury or medical condition. If the athlete describes pain, an injury, or symptoms beyond normal training fatigue, say you can't assess that safely and recommend seeing a doctor or physiotherapist before continuing to train the affected area.
-- Never recommend, dose, or give protocols for anabolic steroids, other performance-enhancing drugs, or any other drug. If asked, decline and redirect to natural training/nutrition guidance, or suggest speaking with a doctor.
-- Never recommend extreme or dangerous dieting (very-low-calorie diets, prolonged fasting beyond common intermittent-fasting windows, diuretics for weight loss, or anything that reads as disordered eating). If the athlete's messages suggest a possible eating disorder (extreme restriction, purging, fear of specific foods, distorted body image), respond supportively, do not give calorie/restriction advice, and encourage them to talk to a doctor or an eating-disorder support service.
-- If an athlete describes a genuine emergency or crisis (chest pain, severe injury, thoughts of self-harm, or anything similarly urgent), tell them clearly to seek immediate help (emergency services or a crisis line) rather than continuing the fitness conversation.
-- General training/nutrition guidance is fine and expected — these boundaries are about medical/diagnostic claims and genuinely dangerous protocols, not normal coaching.`;
-
-const COACH_OUTPUT_RULES = `Formatting rules for every response, no exceptions:
-- Never write dense paragraphs. Use short bullet points ("• ") for anything with more than one part.
-- If the user asks for a workout, a routine, or "what should I do today/this week", do NOT respond in prose at all. Respond with ONLY valid JSON (no markdown fences, no text before or after) matching exactly this schema:
-{"type":"workout","title":"Upper Body — Hypertrophy Focus","muscleGroups":[{"muscle":"Chest","exercises":[{"name":"Barbell Bench Press","sets":4,"reps":"6-10"}]},{"muscle":"Back","exercises":[{"name":"Lat Pulldown","sets":3,"reps":"10-12"}]}]}
-  Use "muscle" values from exactly this set: chest, back, shoulders, arms, legs, core. Use exercise names that match this list as closely as possible: ${EXERCISES.map((e) => e.name).join(", ")}
-- For anything else (questions, explanations, nutrition advice, form feedback), answer in tight bullet points, max ~6 bullets, no bullet longer than one short sentence. Only fall back to a couple of plain sentences for a genuinely simple yes/no or one-line answer.`;
-
-/* Extracts the first complete, balanced JSON object from a text response — far more reliable than a
-   greedy regex, since AI responses (especially web-search-grounded ones) often include a preamble,
-   citations, or trailing notes around the actual JSON rather than returning it in pure isolation. */
-function extractJSON(text) {
-  const clean = text.replace(/```json|```/g, "").trim();
-  const start = clean.indexOf("{");
-  if (start === -1) throw new Error("No JSON found in response");
-  let depth = 0;
-  for (let i = start; i < clean.length; i++) {
-    if (clean[i] === "{") depth++;
-    else if (clean[i] === "}") {
-      depth--;
-      if (depth === 0) return JSON.parse(clean.slice(start, i + 1));
-    }
-  }
-  throw new Error("Incomplete JSON in response");
-}
-
-/* Shared response parser: detects the exceeded_limit shape and pulls out the text content,
-   used by both callClaude and the food scanner's direct image-upload fetch. */
-function extractClaudeText(data) {
-  if (data?.type === "exceeded_limit") {
-    const resetsAt = data.resetsAt || data.resolved?.limit?.resets_at;
-    const resetText = resetsAt
-      ? new Date(typeof resetsAt === "number" ? resetsAt * 1000 : resetsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-      : "shortly";
-    throw new Error(`Usage limit reached for now — this resets around ${resetText}. Try again after that, or check your Claude plan.`);
-  }
-  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-  if (!text) throw new Error("No response came back — try again.");
-  return text;
-}
-
-// Every /api/claude call (Coach chat, plan generation, food estimate, meals search) funnels
-// through here, which makes it the one place to record latency/failure for ALL AI request
-// traffic instead of instrumenting each of those call sites separately. ok:false covers both
-// network-level failures (timeout, offline) and non-2xx server responses; a graceful
-// "exceeded_limit" response is intentionally logged as ok:true since it's an expected product
-// state, not a system failure.
-async function callClaude(messages, maxTokens = 1000, tools = null, system = null, feature = "estimate") {
-  const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages, feature };
-  if (tools) body.tools = tools;
-  if (system) body.system = system;
-  const controller = new AbortController();
-  const startedAt = performance.now();
-  const record = (ok, statusCode) => logEvent("ai_request_completed", { feature, durationMs: Math.round(performance.now() - startedAt), ok, statusCode: statusCode || 0 });
-  // Matches the server's maxDuration (api/claude.js) minus a safety margin — web-search calls
-  // (Meals Near You) can legitimately take 10-20+ seconds, so this needs real headroom.
-  const timeout = setTimeout(() => controller.abort(), 55000);
-  let response;
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    response = await fetch("/api/claude", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (e) {
-    clearTimeout(timeout);
-    const aborted = e.name === "AbortError";
-    record(false, aborted ? 408 : 0);
-    captureMessage(`AI request failed: ${feature} — ${aborted ? "timeout" : "network error"}`);
-    if (aborted) throw new Error("The coach took too long to respond — try again.");
-    throw new Error("Couldn't reach the coach — check your connection and try again.");
-  }
-  clearTimeout(timeout);
-  let data;
-  try {
-    data = await response.json();
-  } catch (e) {
-    record(false, response.status);
-    captureMessage(`AI request failed: ${feature} — unparseable response (${response.status})`);
-    throw new Error(`The coach hit an unexpected error (${response.status}) — try again.`);
-  }
-  if (response.status === 402 && data?.error?.code === "premium_required") {
-    record(true, response.status); // gated, not a failure
-    const err = new Error(data.error.message || "This feature requires Asc3end Premium.");
-    err.code = "premium_required";
-    throw err;
-  }
-  if (!response.ok && data?.type !== "exceeded_limit") {
-    record(false, response.status);
-    captureMessage(`AI request failed: ${feature} — server error (${response.status})`);
-    throw new Error(data?.error?.message || `The coach hit an error (${response.status}) — try again.`);
-  }
-  record(true, response.status);
-  return extractClaudeText(data);
-}
 
 /* ------------------------------------------------------------------ */
 /* Onboarding                                                          */
@@ -639,90 +275,6 @@ function StreakRing({ streak, size = 92 }) {
       </div>
     </div>
   );
-}
-
-/* ------------------------------------------------------------------ */
-/* Muscle Readiness Map                                                */
-/* ------------------------------------------------------------------ */
-// Replaces the earlier 15-dot MuscleMap15 system with 17 genuine anatomical SVG regions (chest,
-// front/side/rear delts, biceps, triceps, forearms, abs, obliques, traps, upper back, lats,
-// lower back, glutes, quads, hamstrings, calves), each independently selectable and colored by
-// Asc3end's own recovery estimate for that specific region — not a second calculation system,
-// just finer granularity on the same trusted "hours since last set, sets in the last 7 days"
-// algorithm the app has always used (previously only exposed at 6-group granularity).
-//
-// Finer granularity comes from each exercise's existing `pose` field (already used elsewhere —
-// ExerciseFigure illustrations, coaching cues — not new data invented for this feature): a Curl
-// trains biceps, a Lateral Raise trains side delts, a Leg Curl trains hamstrings, etc. See
-// POSE_TO_REGION below. A region with zero matching logged sets ever reports level "unknown" —
-// it is never given a color by silently borrowing its parent group's status.
-
-export const READINESS_COLORS = {
-  ready: "var(--readiness-ready)",
-  partial: "var(--readiness-partial)",
-  fatigued: "var(--readiness-fatigued)",
-  unknown: "var(--readiness-unknown)",
-};
-export const READINESS_LABEL = {
-  ready: "Ready", partial: "Partially recovered", fatigued: "Fatigued", unknown: "Insufficient data",
-};
-
-// MUSCLE_REGIONS, READINESS_DISPLAY_SOURCE, POSE_TO_REGION, GROUP_DEFAULT_REGION and
-// regionForExercise now live in ./exerciseData.js (imported above), extended there to cover every
-// pose this expansion introduces. UNMAPPED_READINESS_REGIONS (abductors, tibialis anterior, hip
-// flexors) are real, independently-computed readiness regions with real exercise data behind them
-// — they're just not drawn on this SVG figure yet (see the final report for why).
-
-/* The same recovery estimate Asc3end has always used, applied per-region instead of per-group.
-   Handles every edge case by construction, not by special-casing: a deleted or edited workout is
-   simply absent from (or different in) the `workouts` array the next time this runs — there is
-   no separate cache to go stale. Multiple sessions on one day both contribute to that day's
-   recentSets normally. A rest day just means no workout matches that date. A brand-new account
-   (or a region nothing has ever trained) reports "unknown", never a fabricated percentage.
-
-   Secondary load: a pressing or dip-pattern exercise genuinely does stimulate the triceps even
-   when its primary region is chest or front delts — SECONDARY_REGIONS_BY_POSE (exerciseData.js)
-   says which regions that is, per movement pattern. Secondary regions get their recency (`hours`/
-   `lastDate`) updated, so triceps correctly shows more fatigued after a heavy bench session — but
-   NOT their `recentSets`/`recentSessions` count, which stays reserved for direct work on that
-   region. This is a deliberate distinction: it answers "when did this muscle last do *something*"
-   honestly for both primary and secondary stimulus, without double-counting training volume that
-   was never actually triceps-focused sets. */
-export function muscleReadiness(workouts, customExercises = []) {
-  const now = Date.now();
-  const status = {};
-  READINESS_MUSCLE_IDS.forEach((id) => (status[id] = { hours: Infinity, lastDate: null, recentSets: 0, recentSessions: 0 }));
-  const allEx = [...EXERCISES, ...customExercises];
-  (workouts || []).forEach((w) => {
-    const t = new Date(w.date).getTime();
-    const hrs = (now - t) / 3600000;
-    const hitThisWorkout = new Set();
-    (w.exercises || []).forEach((e) => {
-      const ex = allEx.find((x) => x.name === e.name);
-      const regionId = regionForExercise(ex);
-      if (!regionId) return;
-      const s = status[regionId];
-      if (hrs < s.hours) { s.hours = hrs; s.lastDate = w.date; }
-      // "Recent" = last 7 days, same window muscleRecovery always used.
-      if (hrs <= 168) { s.recentSets += (e.sets || []).length; hitThisWorkout.add(regionId); }
-      (SECONDARY_REGIONS_BY_POSE[ex?.pose] || []).forEach((secId) => {
-        const secStatus = status[secId];
-        if (secStatus && hrs < secStatus.hours) { secStatus.hours = hrs; secStatus.lastDate = w.date; }
-      });
-    });
-    hitThisWorkout.forEach((r) => status[r].recentSessions++);
-  });
-  Object.keys(status).forEach((r) => {
-    const s = status[r];
-    const h = s.hours;
-    s.level = !Number.isFinite(h) ? "unknown" : h < 24 ? "fatigued" : h < 48 ? "partial" : "ready";
-    // Rough estimate only — real recovery time varies by muscle, volume, intensity, sleep, and
-    // individual factors. Both figures below are two views of the exact same h-vs-48h ratio, so
-    // they can never disagree with each other or with `level`.
-    s.hoursUntilReady = Number.isFinite(h) ? Math.max(0, Math.round(48 - h)) : null;
-    s.recoveryPercent = Number.isFinite(h) ? Math.max(0, Math.min(100, Math.round((h / 48) * 100))) : null;
-  });
-  return status;
 }
 
 /* Turns one polygon (a plain [x,y] point list) into a smooth closed path by rounding every
@@ -1044,15 +596,6 @@ export function MuscleReadinessTextList({ readiness, view }) {
       ))}
     </ul>
   );
-}
-
-function fmtRelativeDate(iso) {
-  if (!iso) return null;
-  const days = Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days} days ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 /* Rationale/action copy is generated from the same computed numbers shown above it, never a
@@ -3493,27 +3036,6 @@ function CoachMessageContent({ content }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Workout completion screen + shareable card                          */
-/* ------------------------------------------------------------------ */
-// Privacy rules for the shareable card (see ShareCard below), stated once here so both the
-// component and anyone reviewing it can check behavior against the same list:
-//   1. The card only ever contains data from the ONE workout just completed — never lifetime
-//      totals, other sessions, or anything that reveals how long someone's been using the app.
-//   2. Bodyweight, nutrition data, email, and location are never included, full stop — there is
-//      no code path in ShareCard that reads any of those fields.
-//   3. The athlete's name is opt-in (a checkbox, default OFF) — nothing identifying goes on the
-//      card unless the person generating it explicitly turns it on for that one card.
-//   4. Generating a card never sends it anywhere. It produces a local PNG the person can save or
-//      hand to their own device's native share sheet — Asc3end itself never posts, uploads, or
-//      transmits it, and the button that does either is only ever triggered by an explicit click.
-//   5. No invented social content — no fake like/view counts, no leaderboard comparison, nothing
-//      presented as if other people are watching.
-
-export function workoutVolume(workout) {
-  return (workout.exercises || []).reduce((s, e) => s + (e.sets || []).reduce((s2, st) => s2 + (Number.isFinite(st.weight) && Number.isFinite(st.reps) ? st.weight * st.reps : 0), 0), 0);
-}
-
 function ShareCard({ workout, athleteName }) {
   const canvasRef = useRef(null);
   const [status, setStatus] = useState("idle"); // idle | rendering | ready | error
@@ -4640,22 +4162,6 @@ function MacroRing({ label, value, target, unit, color, size = 74 }) {
    can also use it for the nutrition challenge template without creating a circular import back
    into this file — re-exported here unchanged so nothing else in the app needs to change. */
 export { classifyDayAdherence };
-
-export function weeklyAdherence(nutrition, targets) {
-  const days = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const iso = d.toISOString().slice(0, 10);
-    const dayFoods = nutrition.filter((n) => n.date === iso);
-    const level = classifyDayAdherence(dayFoods, targets);
-    days.push({ date: iso, level, weekday: d.toLocaleDateString(undefined, { weekday: "narrow" }) });
-  }
-  return days;
-}
-
-export const ADHERENCE_COLOR = { good: "var(--good)", partial: "var(--warn)", off: "var(--rest)", none: "var(--bg-elev2)" };
-export const ADHERENCE_LABEL = { good: "On target", partial: "Partially on target", off: "Off target", none: "Nothing logged" };
 
 function WeeklyAdherence({ nutrition, targets }) {
   const days = useMemo(() => weeklyAdherence(nutrition, targets), [nutrition, targets]);
