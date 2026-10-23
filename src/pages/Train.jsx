@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Trophy, Loader2, Plus, ChevronRight, TrendingUp, Search, AlertTriangle, MoreHorizontal } from "lucide-react";
+import { X, Trophy, Loader2, Plus, ChevronRight, TrendingUp, Search, AlertTriangle, MoreHorizontal, Timer, Zap } from "lucide-react";
 import { logEvent } from "../lib/analytics";
 import {
   workoutXpBreakdown, evaluatePR, computeStreak, computeWorkoutXp, suggestNextTarget, previousSets
@@ -97,7 +97,7 @@ function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <div>
             <div className="disp" style={{ fontSize: 20 }}>{fmtDate(workout.date)}</div>
-            {durationMin != null && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>⏱ {durationMin} min</div>}
+            {durationMin != null && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}><Timer size={12} style={{ verticalAlign: -1, marginRight: 3 }} aria-hidden="true" />{durationMin} min</div>}
           </div>
           <button onClick={onClose} className="atlas-btn-ghost" style={{ padding: "6px 10px" }} aria-label="Close workout detail"><X size={16} /></button>
         </div>
@@ -515,7 +515,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
           <h1 className="disp-title" style={{ fontSize: 24 }}>{session.planDayName || "Today's Session"}</h1>
-          <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)" }}>⏱ {fmtClock((now - session.startedAt) / 1000)} elapsed</div>
+          <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)" }}><Timer size={13} style={{ verticalAlign: -1, marginRight: 3 }} aria-hidden="true" />{fmtClock((now - session.startedAt) / 1000)} elapsed</div>
         </div>
         <button className="atlas-btn-ghost" onClick={() => setConfirmDiscard(true)} style={{ padding: "6px 10px" }}>Cancel</button>
       </div>
@@ -566,7 +566,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
                     Target {ex.targetSets} × {ex.targetReps}{ex.sets.length > 0 ? ` · ${ex.sets.length}/${ex.targetSets} done` : ""}
                   </div>
                 )}
-                {ex.supersetWith && <div className="mono" style={{ fontSize: 12, color: "var(--warn)" }}>⚡ Superset with {ex.supersetWith}</div>}
+                {ex.supersetWith && <div className="mono" style={{ fontSize: 12, color: "var(--warn)" }}><Zap size={12} style={{ verticalAlign: -1, marginRight: 3 }} aria-hidden="true" />Superset with {ex.supersetWith}</div>}
               </div>
               <button onClick={() => setOpenMenu(openMenu === ex.name ? null : ex.name)} aria-label={`More options for ${ex.name}`} aria-expanded={openMenu === ex.name}
                 style={{ background: "none", border: "none", cursor: "pointer", minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--ink-dim)" }}>
@@ -833,7 +833,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
         <div style={{ position: "fixed", inset: 0, background: "var(--bg)", zIndex: 50, overflowY: "auto", padding: "calc(24px + env(safe-area-inset-top)) 18px" }}>
           <h1 className="disp" style={{ fontSize: 22, marginBottom: 4 }}>Workout Summary</h1>
           <div className="mono" style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 10 }}>
-            ⏱ {fmtClock((now - session.startedAt) / 1000)} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} · {totalSets} set{totalSets === 1 ? "" : "s"} · {Math.round(totalVolume)}kg volume
+            <Timer size={12} style={{ verticalAlign: -1, marginRight: 3 }} aria-hidden="true" />{fmtClock((now - session.startedAt) / 1000)} · {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} · {totalSets} set{totalSets === 1 ? "" : "s"} · {Math.round(totalVolume)}kg volume
           </div>
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
