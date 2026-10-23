@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { BadgeIcon } from "../components/BadgeIcon";
 import {
   UserCircle, Dumbbell, MessageCircle, Bell, Flame, Sparkles, Loader2,
   ChevronRight, Check
@@ -250,11 +251,10 @@ export function Dashboard({ profile, workouts, nutrition, weightlog, customExerc
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {gamification.badges.map((b) => (
               <div key={b.id} title={b.label} style={{
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 3, width: 56,
-                opacity: b.earned ? 1 : 0.3,
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 60,
               }}>
-                <div style={{ fontSize: 20, filter: b.earned ? "none" : "grayscale(1)" }}>{b.icon}</div>
-                <div className="mono" style={{ fontSize: 8, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.2 }}>{b.label}</div>
+                <BadgeIcon id={b.id} earned={b.earned} size={40} />
+                <div className="mono" style={{ fontSize: 10, textAlign: "center", color: b.earned ? "var(--ink)" : "var(--ink-dim)", lineHeight: 1.25 }}>{b.label}</div>
               </div>
             ))}
           </div>
