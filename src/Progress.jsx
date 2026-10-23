@@ -3,7 +3,7 @@ import { Trophy, ChevronLeft, ChevronRight, X, FileText } from "lucide-react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
-import { muscleReadiness, workoutVolume } from "./lib/workoutHelpers";
+import { muscleReadiness, workoutVolume, fmtWeightReps } from "./lib/workoutHelpers";
 import {
   FrontBodyFigure, BackBodyFigure, MuscleReadinessLegend, MuscleRecoveryDetails, MuscleReadinessTextList,
 } from "./components/MuscleReadinessMap";
@@ -201,7 +201,7 @@ function prTimeline(workouts) {
   const events = [];
   exerciseNames.forEach((name) => {
     const { weightPR, oneRMPR } = exercisePRs(workouts, name);
-    if (weightPR) events.push({ name, date: weightPR.date, kind: "weight", detail: `${weightPR.weight}kg × ${weightPR.reps}` });
+    if (weightPR) events.push({ name, date: weightPR.date, kind: "weight", detail: `${fmtWeightReps(weightPR.weight, weightPR.reps)}` });
     if (oneRMPR) events.push({ name, date: oneRMPR.date, kind: "1rm", detail: `est. ${Math.round(oneRMPR.oneRM)}kg 1RM` });
   });
   return events.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 12);
@@ -282,7 +282,7 @@ function historicalPrEvents(workouts) {
       const best1RM = Math.max(...validSets.map((s) => estimate1RM(s.weight, s.reps)));
       if (bestSet.weight > maxWeight) {
         maxWeight = bestSet.weight;
-        events.push({ name, date: w.date, kind: "weight", detail: `${bestSet.weight}kg × ${bestSet.reps}` });
+        events.push({ name, date: w.date, kind: "weight", detail: `${fmtWeightReps(bestSet.weight, bestSet.reps)}` });
       }
       if (best1RM > max1RM) {
         max1RM = best1RM;
@@ -710,9 +710,9 @@ export default function Progress({ profile, workouts, weightlog, customExercises
         ) : (
           <>
             {mapView === "front" ? (
-              <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={300} />
+              <FrontBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={240} />
             ) : (
-              <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={300} />
+              <BackBodyFigure readiness={readiness} selected={selectedRegion} onSelect={(k) => setSelectedRegion(selectedRegion === k ? null : k)} maxWidth={240} />
             )}
             <div style={{ marginTop: 10 }}>
               <MuscleReadinessLegend />
@@ -809,7 +809,7 @@ export default function Progress({ profile, workouts, weightlog, customExercises
             </div>
             <div style={{ flex: "1 1 30%", background: "var(--bg-elev2)", borderRadius: 8, padding: "8px 10px" }}>
               <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>BEST SET (REPS)</div>
-              <div className="mono" style={{ fontSize: 14 }}>{selectedStats.repPR.weight}kg × {selectedStats.repPR.reps}</div>
+              <div className="mono" style={{ fontSize: 14 }}>{fmtWeightReps(selectedStats.repPR.weight, selectedStats.repPR.reps)}</div>
             </div>
             <div style={{ flex: "1 1 30%", background: "var(--bg-elev2)", borderRadius: 8, padding: "8px 10px" }}>
               <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>EST. 1RM</div>
@@ -877,13 +877,13 @@ export default function Progress({ profile, workouts, weightlog, customExercises
                           <polyline points={spark} fill="none" stroke="var(--steel)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       )}
-                      <span className="mono">{p.weightPR.weight}kg × {p.weightPR.reps}</span>
+                      <span className="mono">{fmtWeightReps(p.weightPR.weight, p.weightPR.reps)}</span>
                     </span>
                   </button>
                   {prExpanded === p.name && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                      <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--steel)" }}>Weight PR: {p.weightPR.weight}kg × {p.weightPR.reps} · {fmtDate(p.weightPR.date)}</span>
-                      <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--good)" }}>Rep PR: {p.repPR.weight}kg × {p.repPR.reps} · {fmtDate(p.repPR.date)}</span>
+                      <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--steel)" }}>Weight PR: {fmtWeightReps(p.weightPR.weight, p.weightPR.reps)} · {fmtDate(p.weightPR.date)}</span>
+                      <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--good)" }}>Rep PR: {fmtWeightReps(p.repPR.weight, p.repPR.reps)} · {fmtDate(p.repPR.date)}</span>
                       <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--brass)" }}>Est. 1RM PR: {Math.round(p.oneRMPR.oneRM)}kg · {fmtDate(p.oneRMPR.date)}</span>
                       {p.volumePR && <span className="pill mono" style={{ background: "var(--bg-elev2)", color: "var(--warn)" }}>Volume PR: {Math.round(p.volumePR.volume)}kg · {fmtDate(p.volumePR.date)}</span>}
                     </div>
