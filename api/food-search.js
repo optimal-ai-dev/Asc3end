@@ -21,7 +21,7 @@ import { normalizeFdcFood, normalizeOffProduct, isValidBarcode, parseQuery, rank
 const FDC_URL = "https://api.nal.usda.gov/fdc/v1/foods/search";
 const OFF_HOST = "https://world.openfoodfacts.org";
 const OFF_SEARCH = "https://search.openfoodfacts.org/search";
-const OFF_FIELDS = "code,product_name,product_name_en,generic_name,brands,nutriments,serving_size,serving_quantity,serving_quantity_unit,product_quantity";
+const OFF_FIELDS = "code,product_name,product_name_en,generic_name,brands,nutriments,serving_size,serving_quantity,serving_quantity_unit,product_quantity,quantity";
 const USER_AGENT = "Asc3end/0.1 (https://asc3end.vercel.app)";
 const TIMEOUT_MS = 7000;
 
@@ -121,13 +121,27 @@ async function searchFoods(q, country) {
   };
 }
 
+// Returns { food, failed }. `failed` means a source errored (timeout, rate limit) rather than
+// answering "no such product", so the app can say "try again" instead of "not found" — telling
+// someone their product doesn't exist because Open Food Facts was briefly busy is the worst case.
 async function lookupBarcode(code) {
+  let failed = false;
   try {
     const d = await getJson(`${OFF_HOST}/api/v2/product/${code}.json?fields=${OFF_FIELDS}`, { headers: { "User-Agent": USER_AGENT } });
     const food = d.status === 1 ? normalizeOffProduct({ code, ...d.product }) : null;
-    if (food) return food;
+    if (food) return { food, failed: false };
   } catch (e) {
+    // The product endpoint allows 15 reads a minute per IP, shared by everyone on a Vercel
+    // region, so when it's throttled the same product is fetched through Search-a-licious.
     console.error("barcode OFF lookup failed", e.message);
+    try {
+      const hit = (await getJson(`${OFF_SEARCH}?q=${encodeURIComponent(`code:"${code}"`)}&page_size=1&fields=${OFF_FIELDS}`, { headers: { "User-Agent": USER_AGENT } })).hits?.[0];
+      const food = hit?.code === code ? normalizeOffProduct(hit) : null;
+      if (food) return { food, failed: false };
+    } catch (e2) {
+      console.error("barcode OFF search fallback failed", e2.message);
+      failed = true;
+    }
   }
   // Fall back to USDA's branded database, which covers many US products Open Food Facts lacks.
   // GTINs are compared without leading zeros since UPC-A and EAN-13 pad the same code differently.
@@ -135,10 +149,10 @@ async function lookupBarcode(code) {
     const strip = (s) => String(s || "").replace(/^0+/, "");
     const foods = await fdcSearch(code, ["Branded"], 5);
     const match = foods.find((f) => strip(f.gtinUpc) === strip(code));
-    return match ? normalizeFdcFood(match) : null;
+    return { food: match ? normalizeFdcFood(match) : null, failed };
   } catch (e) {
     console.error("barcode FDC lookup failed", e.message);
-    return null;
+    return { food: null, failed: true };
   }
 }
 
@@ -162,8 +176,10 @@ export default async function handler(req, res) {
     const key = `b:${barcode}`;
     let food = cacheGet(key);
     if (food === null) {
-      food = await lookupBarcode(barcode);
+      const found = await lookupBarcode(barcode);
+      food = found.food;
       if (food) cacheSet(key, food);
+      else if (found.failed) return res.status(503).json({ error: "The product database is busy right now — tap Scan again in a few seconds." });
     }
     if (!food) return res.status(404).json({ error: "We couldn't find that barcode. Try searching by name instead." });
     res.setHeader("Cache-Control", "private, max-age=86400");
