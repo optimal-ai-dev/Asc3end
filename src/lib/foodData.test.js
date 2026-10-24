@@ -151,3 +151,50 @@ it("validates barcodes", () => {
   expect(isValidBarcode("12ab")).toBe(false);
   expect(isValidBarcode("")).toBe(false);
 });
+
+import { correctSpelling, parseAmount, amountFromQuery, wordMatches, frequentFoods, searchHistory } from "./foodData";
+
+describe("keyword handling", () => {
+  it("corrects misspelt food words but leaves brands and ambiguous words alone", () => {
+    expect(correctSpelling("chiken brest")).toEqual({ text: "chicken breast", changed: true });
+    expect(correctSpelling("kirkland chiken").text).toBe("kirkland chicken");
+    expect(correctSpelling("greek yogurt").changed).toBe(false);
+    expect(correctSpelling("chobani").changed).toBe(false);
+  });
+
+  it("matches typos, plurals and prefixes without false friends", () => {
+    expect(wordMatches("chiken", "chicken")).toBe(true);
+    expect(wordMatches("eggs", "egg")).toBe(true);
+    expect(wordMatches("chick", "chicken")).toBe(true);
+    expect(wordMatches("rice", "price")).toBe(false);
+    expect(wordMatches("bread", "breast")).toBe(false);
+  });
+
+  it("reads amounts typed with the food", () => {
+    expect(parseAmount("200g chicken breast")).toEqual({ food: "chicken breast", amount: { grams: 200 } });
+    expect(parseAmount("chicken breast 150 g")).toEqual({ food: "chicken breast", amount: { grams: 150 } });
+    expect(parseAmount("2 eggs")).toEqual({ food: "eggs", amount: { servings: 2 } });
+    expect(parseAmount("1 cup rice").amount).toEqual({ servings: 1, hint: "cup" });
+    expect(parseAmount("7up")).toEqual({ food: "7up", amount: null });
+    const rice = { portions: [{ label: "1 cup, cooked", grams: 158 }, { label: "1 tbsp", grams: 10 }] };
+    expect(amountFromQuery(rice, { servings: 2, hint: "cup" })).toEqual({ quantity: 2, unit: rice.portions[0] });
+    expect(amountFromQuery(rice, { grams: 250 }).quantity).toBe(250);
+  });
+});
+
+describe("history", () => {
+  const today = new Date("2026-10-24T12:00:00Z");
+  const e = (name, date, extra = {}) => ({ id: name + date, name, date, calories: 100, protein: 1, carbs: 1, fat: 1, ...extra });
+
+  it("lists foods logged at least twice in the last 60 days, most frequent first", () => {
+    const diary = [e("Coffee", "2026-10-20"), e("Coffee", "2026-10-21"), e("Coffee", "2026-10-22"), e("Toast", "2026-10-21"), e("Toast", "2026-10-22"), e("Cake", "2026-10-22"), e("Old", "2026-01-01"), e("Old", "2026-01-02")];
+    expect(frequentFoods(diary, today).map((f) => f.name)).toEqual(["Coffee", "Toast"]);
+  });
+
+  it("finds past entries with typos and reopens them at the last amount", () => {
+    const diary = [e("Banana, Raw", "2026-10-01", { grams: 100, amount: "100 g", per100g: { calories: 89, protein: 1, carbs: 23, fat: 0 } }),
+      e("Banana, Raw", "2026-10-20", { grams: 150, amount: "150 g", per100g: { calories: 89, protein: 1, carbs: 23, fat: 0 } })];
+    const [hit] = searchHistory(diary, "bananna");
+    expect(hit).toMatchObject({ history: true, lastGrams: 150, portions: [] });
+  });
+});

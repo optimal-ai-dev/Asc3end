@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Search, ScanBarcode, ChevronLeft, Loader2, Plus, Star, History, Camera, Pencil } from "lucide-react";
+import { X, Search, ScanBarcode, ChevronLeft, Loader2, Plus, Star, History, Camera, Pencil, Repeat, ScanText } from "lucide-react";
 import { uid, todayStr } from "../lib/dateUtils";
 import { MEALS, MEAL_LABEL } from "../lib/nutritionHelpers";
-import { unitOptions, defaultAmount, gramsFor, nutrientsFor, toDiaryEntry, isValidBarcode, myFoodToResult, myFoodFromLabel, searchMyFoods } from "../lib/foodData";
+import {
+  unitOptions, defaultAmount, gramsFor, nutrientsFor, toDiaryEntry, isValidBarcode, myFoodToResult, myFoodFromLabel, searchMyFoods,
+  parseAmount, correctSpelling, amountFromQuery, searchHistory, frequentFoods, GRAM_UNIT,
+} from "../lib/foodData";
+import { readNutritionLabel } from "../lib/labelReader";
 import { searchFoods, lookupBarcode } from "../lib/foodSearchClient";
 
 /* ------------------------------------------------------------------ */
@@ -55,9 +59,17 @@ function MealPicker({ meal, onChange }) {
 
 // Amount picker for one food: a quantity plus a unit (its servings/household measures, grams or
 // ounces). Switching unit keeps the same weight where it can, so "150 g" becomes "1.5 × 100 g".
-function FoodDetail({ food, meal, onMealChange, onBack, onAdd }) {
+function startingAmount(food, queryAmount) {
+  if (queryAmount) return amountFromQuery(food, queryAmount);
+  if (food.lastGrams && !food.portions.length) return { quantity: food.lastGrams, unit: GRAM_UNIT };
+  return defaultAmount(food);
+}
+
+// `queryAmount` is an amount typed with the search ("200g chicken"); a food from the person's
+// history otherwise opens at the weight they logged last time.
+function FoodDetail({ food, meal, onMealChange, onBack, onAdd, queryAmount }) {
   const units = unitOptions(food);
-  const initial = defaultAmount(food);
+  const initial = startingAmount(food, queryAmount);
   const [quantity, setQuantity] = useState(String(initial.quantity));
   const [unitIdx, setUnitIdx] = useState(units.findIndex((u) => u.label === initial.unit.label));
   const unit = units[unitIdx];
@@ -204,9 +216,30 @@ function BarcodePanel({ onFound, onNotFound, myFoods }) {
 // Custom entry, laid out like a nutrition panel: values per serving plus the serving weight.
 // Saved to My foods by default, so it shows up in search (and, with a barcode, in the scanner)
 // next time. This is also where an unrecognised barcode lands, with the code filled in.
-function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode }) {
-  const [form, setForm] = useState({ name: "", brand: "", servingGrams: "", calories: "", protein: "", carbs: "", fat: "" });
+function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode, initialName = "" }) {
+  const [form, setForm] = useState({ name: initialName, brand: "", servingGrams: "", calories: "", protein: "", carbs: "", fat: "" });
   const [save, setSave] = useState(true);
+  const [reading, setReading] = useState(false);
+  const [readError, setReadError] = useState(null);
+  const [readDone, setReadDone] = useState(false);
+  const photoRef = useRef(null);
+
+  const onPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setReading(true);
+    setReadError(null);
+    try {
+      const read = await readNutritionLabel(file);
+      // Keep whatever the person already typed for the name/brand if the label didn't show one.
+      setForm((f) => ({ ...read, name: read.name || f.name, brand: read.brand || f.brand }));
+      setReadDone(true);
+    } catch (err) {
+      setReadError(err.message);
+    }
+    setReading(false);
+  };
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const valid = form.name.trim() && form.calories !== "";
 
@@ -224,6 +257,15 @@ function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode }) {
           Barcode <span className="mono" style={{ color: "var(--ink)" }}>{barcode}</span> isn't in the food databases yet. Copy the nutrition panel from the pack once and it'll scan straight away next time.
         </div>
       )}
+      <input ref={photoRef} type="file" accept="image/*" capture="environment" onChange={onPhoto} hidden aria-hidden="true" tabIndex={-1} />
+      <button className="atlas-btn" style={{ width: "100%", padding: 13, marginBottom: 6 }} onClick={() => photoRef.current?.click()} disabled={reading}>
+        {reading
+          ? <><Loader2 size={15} style={{ verticalAlign: -3, marginRight: 6, animation: "spin 1s linear infinite" }} /> Reading the label…</>
+          : <><ScanText size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Snap the nutrition label</>}
+      </button>
+      <div style={{ fontSize: 11.5, color: readError ? "var(--rest)" : readDone ? "var(--good)" : "var(--ink-dim)", textAlign: "center", marginBottom: 12 }}>
+        {readError || (readDone ? "Filled in from the label — check it matches the pack, then add." : "Fills everything in from a photo of the nutrition panel, or type it below.")}
+      </div>
       <input className="atlas-input" placeholder={barcode ? "Product name" : "Food name, e.g. Mum's lasagne"} value={form.name} onChange={set("name")} aria-label="Food name" style={{ marginBottom: 8 }} />
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <input className="atlas-input" placeholder="Brand (optional)" value={form.brand} onChange={set("brand")} aria-label="Brand" />
@@ -231,7 +273,7 @@ function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode }) {
       </div>
       <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 6 }}>PER SERVING{form.servingGrams ? ` (${form.servingGrams} G)` : " (100 G IF BLANK)"}</div>
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        {[["calories", "kcal", "kcal"], ["protein", "protein", "protein g"], ["carbs", "carbs", "carbs g"], ["fat", "fat", "fat g"]].map(([k, ph, label]) => (
+        {[["calories", "kcal", "kcal"], ["protein", "P (g)", "protein g"], ["carbs", "C (g)", "carbs g"], ["fat", "F (g)", "fat g"]].map(([k, ph, label]) => (
           <input key={k} className="atlas-input" type="number" inputMode="decimal" placeholder={ph} value={form[k]} onChange={set(k)} aria-label={label} />
         ))}
       </div>
@@ -250,13 +292,14 @@ function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode }) {
   );
 }
 
-export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], favorites = [], myFoods = [], onSaveMyFood, onOpenPhotoScan }) {
+export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], favorites = [], myFoods = [], diary = [], onSaveMyFood, onOpenPhotoScan }) {
   const [meal, setMeal] = useState(initialMeal);
   const [tab, setTab] = useState("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState(null);
   const [partial, setPartial] = useState(false);
   const [unknownBarcode, setUnknownBarcode] = useState(null);
+  const [customName, setCustomName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -291,8 +334,14 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
 
   // Debounced search: waits for a pause in typing, and cancels the previous request so a slow
   // response for "chick" can't overwrite the results for "chicken breast".
+  // What's actually searched: an amount typed with the food ("200g chicken") is split off, and
+  // misspelt food words are corrected ("chiken brest" → "chicken breast").
+  const { food: foodText, amount: queryAmount } = parseAmount(query.trim());
+  const corrected = correctSpelling(foodText);
+  const searchText = corrected.text;
+
   useEffect(() => {
-    const q = query.trim();
+    const q = searchText;
     abortRef.current?.abort();
     if (q.length < 2) { setResults(null); setLoading(false); setError(null); setPartial(false); return; }
     const ctrl = new AbortController();
@@ -308,12 +357,20 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
       if (!ctrl.signal.aborted) setLoading(false);
     }, 500);
     return () => { clearTimeout(t); ctrl.abort(); };
-  }, [query]);
+  }, [searchText]);
 
   const add = (entry) => { onAdd(entry); onClose(); };
-  // My foods are matched locally, so they show up instantly and even when the databases are down.
-  const mine = query.trim().length >= 2 ? searchMyFoods(myFoods, query) : [];
-  const shown = results || mine.length ? [...mine, ...(results || []).filter((r) => !mine.some((m) => m.barcode && m.barcode === r.barcode))] : null;
+  // The person's own foods are matched on the device, so they appear instantly (and still work
+  // when the databases are down): what they've logged before first, then My foods.
+  const typed = searchText.length >= 2;
+  const past = typed ? searchHistory(diary, searchText) : [];
+  const mine = typed ? searchMyFoods(myFoods, searchText).filter((m) => !past.some((p) => p.name.toLowerCase() === m.name.toLowerCase())) : [];
+  const own = [...past, ...mine];
+  const sameAsOwn = (r) => own.some((o) => (o.barcode && o.barcode === r.barcode) || o.name.toLowerCase() === (r.brand ? `${r.name} (${r.brand})` : r.name).toLowerCase());
+  const shown = results || own.length ? [...own, ...(results || []).filter((r) => !sameAsOwn(r))] : null;
+  const frequent = frequentFoods(diary);
+  const recentOnly = recentFoods.filter((r) => !frequent.some((f) => f.name === r.name));
+  const goCustom = () => { setCustomName(searchText); setUnknownBarcode(null); setTab("custom"); };
   const addSaved = (f) => add({ id: uid(), date: todayStr(), meal, name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, ...(f.grams ? { grams: f.grams, amount: f.amount, per100g: f.per100g } : {}) });
 
   const tabs = [["search", "Search", Search], ["barcode", "Barcode", ScanBarcode], ["custom", "Custom", Pencil]];
@@ -344,7 +401,7 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
         {!selected && (
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }} role="tablist">
             {tabs.map(([id, label, Icon]) => (
-              <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setError(null); if (id !== "custom") setUnknownBarcode(null); }} className="pill"
+              <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setError(null); setUnknownBarcode(null); setCustomName(""); }} className="pill"
                 style={{ flex: 1, justifyContent: "center", cursor: "pointer", border: "1px solid var(--line)", minHeight: 40, gap: 5, background: tab === id ? "var(--brass-soft)" : "transparent", color: tab === id ? "var(--brass)" : "var(--ink-dim)" }}>
                 <Icon size={14} /> {label}
               </button>
@@ -355,7 +412,7 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
 
       <div style={{ flex: 1, overflowY: "auto", padding: "3px 18px calc(18px + env(safe-area-inset-bottom))" }}>
         {selected ? (
-          <FoodDetail food={selected} meal={meal} onMealChange={setMeal} onBack={() => setSelected(null)} onAdd={add} />
+          <FoodDetail food={selected} meal={meal} onMealChange={setMeal} onBack={() => setSelected(null)} onAdd={add} queryAmount={tab === "search" ? queryAmount : null} />
         ) : tab === "search" ? (
           <>
             <div style={{ position: "relative", marginBottom: 12 }}>
@@ -363,6 +420,16 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
               <input className="atlas-input" autoFocus placeholder="Search foods, brands, restaurants…" value={query}
                 onChange={(e) => setQuery(e.target.value)} style={{ paddingLeft: 36, fontSize: 16 }} aria-label="Search foods" enterKeyHint="search" />
             </div>
+            {corrected.changed && (
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 8 }}>
+                Showing results for <b style={{ color: "var(--ink)" }}>{searchText}</b>
+              </div>
+            )}
+            {queryAmount && typed && (
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 8 }}>
+                Tap a food to add it with {queryAmount.grams ? `${queryAmount.grams} g` : queryAmount.ounces ? `${queryAmount.ounces} oz` : `${queryAmount.servings} × ${queryAmount.hint || "serving"}`} filled in.
+              </div>
+            )}
             {loading && <div className="mono" style={{ fontSize: 12, color: "var(--ink-dim)", display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}><Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> Searching…</div>}
             {error && <div style={{ fontSize: 12, color: "var(--rest)", marginBottom: 10 }}>{error}</div>}
             {partial && !loading && (
@@ -370,28 +437,46 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
             )}
             {shown && !loading && shown.length === 0 && (
               <div style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 12 }}>
-                No matches for “{query.trim()}”. Try fewer words (“kirkland chicken” rather than the full pack name), scan the barcode, or add it from the label under Custom.
+                No matches for “{searchText}”. Try fewer words (“kirkland chicken” rather than the full pack name), or add it below.
               </div>
             )}
             {shown && shown.map((f) => {
-              const d = defaultAmount(f);
+              const d = startingAmount(f);
               const kcal = nutrientsFor(f.per100g, gramsFor(d.quantity, d.unit)).calories;
               return (
                 <button key={f.id} onClick={() => setSelected(f)} style={rowStyle}>
                   <span style={{ minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
                     <span className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {[f.mine ? "My foods" : null, f.brand, d.unit.label === "g" ? "100 g" : d.unit.label, `${kcal} kcal`].filter(Boolean).join(" · ")}
+                      {[f.history ? "Logged before" : f.mine ? "My foods" : null, f.brand, d.unit.label === "g" ? `${d.quantity} g` : d.unit.label, `${kcal} kcal`].filter(Boolean).join(" · ")}
                     </span>
                   </span>
                   <Plus size={18} color="var(--brass)" style={{ flexShrink: 0 }} aria-hidden="true" />
                 </button>
               );
             })}
+            {/* The way out when a product isn't there — always one tap away, under every search. */}
+            {typed && (
+              <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12, marginTop: shown && shown.length ? 4 : 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Can't find it?</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button className="atlas-btn-ghost" style={{ flex: 1, padding: "10px 4px", fontSize: 12 }} onClick={() => { setUnknownBarcode(null); setTab("barcode"); }}>
+                    <ScanBarcode size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Scan barcode
+                  </button>
+                  <button className="atlas-btn-ghost" style={{ flex: 1, padding: "10px 4px", fontSize: 12 }} onClick={goCustom}>
+                    <ScanText size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Snap the label
+                  </button>
+                  <button className="atlas-btn-ghost" style={{ flex: 1, padding: "10px 4px", fontSize: 12 }} onClick={goCustom}>
+                    <Pencil size={14} style={{ verticalAlign: -2, marginRight: 4 }} /> Type it in
+                  </button>
+                </div>
+              </div>
+            )}
             {!shown && !loading && (
               <>
+                {savedList("FREQUENT", Repeat, frequent)}
                 {savedList("FAVORITES", Star, favorites)}
-                {savedList("RECENT", History, recentFoods)}
+                {savedList("RECENT", History, recentOnly)}
                 {onOpenPhotoScan && (
                   <button className="atlas-btn-ghost" style={{ width: "100%", marginBottom: 12 }} onClick={onOpenPhotoScan}>
                     <Camera size={14} style={{ verticalAlign: -2, marginRight: 6 }} /> Snap a photo of your meal instead
@@ -406,7 +491,7 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
         ) : tab === "barcode" ? (
           <BarcodePanel onFound={setSelected} myFoods={myFoods} onNotFound={(code) => { setUnknownBarcode(code); setTab("custom"); }} />
         ) : (
-          <LabelPanel key={unknownBarcode || "custom"} meal={meal} onMealChange={setMeal} onAdd={add} onSaveMyFood={onSaveMyFood} barcode={unknownBarcode} />
+          <LabelPanel key={unknownBarcode || `custom:${customName}`} meal={meal} onMealChange={setMeal} onAdd={add} onSaveMyFood={onSaveMyFood} barcode={unknownBarcode} initialName={unknownBarcode ? "" : customName} />
         )}
       </div>
     </div>
