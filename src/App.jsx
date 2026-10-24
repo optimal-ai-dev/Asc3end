@@ -13,7 +13,7 @@ import { classifyDayAdherence } from "./lib/nutritionMath";
 import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE } from "./lib/subscription";
 import { isStaleSession, isValidSession } from "./lib/session";
 import {
-  isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidWaterEntry, isValidFavorite,
+  isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidWaterEntry, isValidMyFood, isValidFavorite,
   isValidChallenge, sanitizeList
 } from "./lib/validation";
 import { parseAppPath, buildAppPath } from "./lib/routing";
@@ -60,6 +60,7 @@ export default function App() {
   const [customExercises, setCustomExercises] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [water, setWater] = useState([]);
+  const [myFoods, setMyFoods] = useState([]);
   const [challenges, setChallenges] = useState([]);
   const [tab, setTab] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
@@ -136,8 +137,8 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return;
     (async () => {
-      const [p, w, n, wl, sess, ce, fav, chal, wat] = await Promise.all([
-        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises), loadKey(KEYS.favorites), loadKey(KEYS.challenges), loadKey(KEYS.water),
+      const [p, w, n, wl, sess, ce, fav, chal, wat, mine] = await Promise.all([
+        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises), loadKey(KEYS.favorites), loadKey(KEYS.challenges), loadKey(KEYS.water), loadKey(KEYS.myFoods),
       ]);
       // Each array-shaped key is validated item-by-item before being trusted — a corrupted or
       // partially-written row (or a schema left over from an old app version) degrades to
@@ -168,6 +169,7 @@ export default function App() {
       setFavorites(favorites);
       setChallenges(challenges);
       setWater(sanitizeList(wat, isValidWaterEntry));
+      setMyFoods(sanitizeList(mine, isValidMyFood));
       setLoaded(true);
     })();
   }, [authUser]);
@@ -359,6 +361,7 @@ export default function App() {
     setCustomExercises([]);
     setFavorites([]);
     setWater([]);
+    setMyFoods([]);
     setSession(null);
     setSubscription(undefined);
     setTab("dashboard");
@@ -513,6 +516,14 @@ export default function App() {
     setWater(next);
     await saveKey(KEYS.water, next);
   };
+  // Saving a product with the same barcode (or name and brand) again replaces the old copy, so
+  // correcting a label typo doesn't leave two versions in search.
+  const saveMyFood = async (food) => {
+    const same = (m) => (food.barcode && m.barcode === food.barcode) || (m.name.toLowerCase() === food.name.toLowerCase() && (m.brand || "") === (food.brand || ""));
+    const next = [food, ...myFoods.filter((m) => !same(m))];
+    setMyFoods(next);
+    await saveKey(KEYS.myFoods, next);
+  };
   const toggleFavorite = async (food) => {
     const exists = favorites.some((f) => f.name === food.name);
     const next = exists ? favorites.filter((f) => f.name !== food.name) : [...favorites, { name: food.name, calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat }];
@@ -588,6 +599,7 @@ export default function App() {
       setCustomExercises([]);
       setFavorites([]);
       setWater([]);
+      setMyFoods([]);
       setSession(null);
       setSubscription(undefined);
       setTab("dashboard");
@@ -726,7 +738,7 @@ export default function App() {
           {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} onOpenChallenges={() => setShowChallenges(true)} onViewExercises={onViewExercises} />}
           {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onArchiveCustomExercise={archiveCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} initialMuscleFilter={trainMuscleFilter} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
-          {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} weightlog={weightlog} onUpdateProfile={updateProfile} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} water={water} onAddWater={addWater} onDeleteWater={deleteWater} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
+          {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} weightlog={weightlog} onUpdateProfile={updateProfile} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} water={water} myFoods={myFoods} onSaveMyFood={saveMyFood} onAddWater={addWater} onDeleteWater={deleteWater} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "progress" && (
             <Suspense fallback={<div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}><Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} /></div>}>
               <Progress profile={profile} workouts={workouts} weightlog={weightlog} customExercises={customExercises} nutrition={nutrition} />

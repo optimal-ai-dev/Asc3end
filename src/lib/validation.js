@@ -34,6 +34,12 @@ export function isValidWaterEntry(w) {
   return !!w && typeof w === "object" && isNonEmptyString(w.id) && isNonEmptyString(w.date) && isFiniteNumber(w.ml) && w.ml > 0;
 }
 
+export function isValidMyFood(m) {
+  const p = m?.per100g;
+  return !!m && typeof m === "object" && isNonEmptyString(m.id) && isNonEmptyString(m.name) && !!p && typeof p === "object"
+    && ["calories", "protein", "carbs", "fat"].every((k) => isFiniteNumber(p[k]));
+}
+
 export function isValidWeightEntry(w) {
   return !!w && typeof w === "object" && isNonEmptyString(w.date) && isFiniteNumber(w.weight);
 }

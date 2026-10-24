@@ -340,7 +340,7 @@ function WeeklyAdherence({ nutrition, targets }) {
   );
 }
 
-export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, water, onAddWater, onDeleteWater, isPremium, onUpgrade, usage, onUsageChange }) {
+export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, water, myFoods, onSaveMyFood, onAddWater, onDeleteWater, isPremium, onUpgrade, usage, onUsageChange }) {
   const mealsRemaining = remainingMonthlyUses(FEATURES.MEALS, usage || {});
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
@@ -520,7 +520,7 @@ Respond with ONLY this JSON, nothing else:
       {addSheetMeal && (
         <AddFoodSheet
           initialMeal={addSheetMeal} onAdd={addFood} onClose={() => setAddSheetMeal(null)}
-          favorites={favorites} recentFoods={historyFoods}
+          favorites={favorites} recentFoods={historyFoods} myFoods={myFoods} onSaveMyFood={onSaveMyFood}
           onOpenPhotoScan={() => { setAddSheetMeal(null); setScannerOpen(true); }}
         />
       )}

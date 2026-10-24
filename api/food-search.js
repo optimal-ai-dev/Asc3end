@@ -5,6 +5,9 @@
 //     USDA_FDC_API_KEY in Vercel. Without it this falls back to DEMO_KEY, which works but is
 //     limited to a few dozen requests an hour per IP, so set the real key before launch.
 //   - Open Food Facts (ODbL, no key) for packaged foods worldwide, searched by name or barcode.
+//     Name search goes through Search-a-licious (search.openfoodfacts.org), OFF's Elasticsearch
+//     service. The older /cgi/search.pl is capped at 10 searches a minute per IP — shared by
+//     every user on a Vercel region — which is why searches used to come back empty.
 // No proprietary database (MyFitnessPal, Cronometer) is scraped or copied.
 //
 // Proxied rather than called from the browser so the USDA key stays server-side, results can be
@@ -13,13 +16,14 @@
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
-import { normalizeFdcFood, normalizeOffProduct, mergeResults, isValidBarcode } from "../src/lib/foodData.js";
+import { normalizeFdcFood, normalizeOffProduct, isValidBarcode, parseQuery, rankResults, usdaQuery, OFF_COUNTRY } from "../src/lib/foodData.js";
 
 const FDC_URL = "https://api.nal.usda.gov/fdc/v1/foods/search";
 const OFF_HOST = "https://world.openfoodfacts.org";
+const OFF_SEARCH = "https://search.openfoodfacts.org/search";
 const OFF_FIELDS = "code,product_name,product_name_en,generic_name,brands,nutriments,serving_size,serving_quantity,serving_quantity_unit,product_quantity";
 const USER_AGENT = "Asc3end/0.1 (https://asc3end.vercel.app)";
-const TIMEOUT_MS = 6000;
+const TIMEOUT_MS = 7000;
 
 // Per-instance cache. Not shared across Vercel instances, but a warm instance serves most of a
 // burst of identical searches ("chicken", "rice") without calling either upstream again.
@@ -39,7 +43,13 @@ function cacheSet(key, value) {
 
 async function getJson(url, init = {}) {
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`${new URL(url).host} ${res.status}`);
+  if (!res.ok) {
+    const host = new URL(url).host;
+    if (res.status === 429 && host.includes("nal.usda.gov") && !process.env.USDA_FDC_API_KEY) {
+      throw new Error("USDA DEMO_KEY rate limit hit — set USDA_FDC_API_KEY in Vercel");
+    }
+    throw new Error(`${host} ${res.status}`);
+  }
   return res.json();
 }
 
@@ -52,19 +62,45 @@ function fdcSearch(query, dataType, pageSize) {
   }).then((d) => d.foods || []);
 }
 
-async function searchFoods(q) {
-  const offUrl = `${OFF_HOST}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=${OFF_FIELDS}`;
-  const [generic, branded, off] = await Promise.allSettled([
-    fdcSearch(q, ["Survey (FNDDS)", "Foundation", "SR Legacy"], 20),
-    fdcSearch(q, ["Branded"], 15),
-    getJson(offUrl, { headers: { "User-Agent": USER_AGENT } }).then((d) => d.products || []),
-  ]);
-  const usda = [...(generic.value || []), ...(branded.value || [])].map(normalizeFdcFood).filter(Boolean);
-  const offFoods = (off.value || []).map(normalizeOffProduct).filter(Boolean);
-  for (const r of [generic, branded, off]) if (r.status === "rejected") console.error("food-search upstream failed", r.reason?.message);
+// Lucene special characters are escaped so a query like "m&m's (peanut)" can't break the syntax.
+const lucene = (text) => text.replace(/([+\-!(){}[\]^"~*?:\\/&|])/g, "\\$1");
+
+function offSearch(text, countryTag) {
+  const q = countryTag ? `${lucene(text)} countries_tags:"${countryTag}"` : lucene(text);
+  const url = `${OFF_SEARCH}?q=${encodeURIComponent(q)}&langs=en&page_size=24&fields=${OFF_FIELDS}`;
+  return getJson(url, { headers: { "User-Agent": USER_AGENT } }).then((d) => d.hits || []);
+}
+
+async function searchFoods(q, country) {
+  const parsed = parseQuery(q);
+  const countryTag = OFF_COUNTRY[country] || null;
+  const jobs = {
+    // Generic foods never carry a brand, so the brand words are left out of that query.
+    generic: parsed.food ? fdcSearch(usdaQuery(parsed.food), ["Survey (FNDDS)", "Foundation", "SR Legacy"], 20) : Promise.resolve([]),
+    branded: fdcSearch(usdaQuery(parsed.branded), ["Branded"], 20),
+    offWorld: offSearch(parsed.branded),
+    ...(countryTag ? { offLocal: offSearch(parsed.branded, countryTag) } : {}),
+  };
+  const names = Object.keys(jobs);
+  const settled = await Promise.allSettled(Object.values(jobs));
+  const out = Object.fromEntries(names.map((n, i) => [n, settled[i]]));
+  for (const n of names) if (out[n].status === "rejected") console.error("food-search upstream failed", n, out[n].reason?.message);
+
+  const val = (n) => (out[n]?.status === "fulfilled" ? out[n].value : []);
+  const localCodes = new Set(val("offLocal").map((p) => p.code));
+  const foods = [
+    ...[...val("generic"), ...val("branded")].map(normalizeFdcFood),
+    ...[...val("offLocal"), ...val("offWorld")].map((p) => {
+      const f = normalizeOffProduct(p);
+      return f && localCodes.has(p.code) ? { ...f, local: true } : f;
+    }),
+  ].filter(Boolean);
+
+  const failed = names.filter((n) => out[n].status === "rejected");
   return {
-    results: mergeResults(usda, offFoods),
-    partial: [generic, branded, off].some((r) => r.status === "rejected"),
+    results: rankResults(foods, parsed),
+    partial: failed.length > 0,
+    allFailed: failed.length === names.length,
   };
 }
 
@@ -101,6 +137,7 @@ export default async function handler(req, res) {
   if (!rl.allowed) return res.status(429).json({ error: "Too many searches — wait a moment and try again." });
 
   const q = String(req.query.q || "").trim().slice(0, 80);
+  const country = String(req.query.country || "").toLowerCase().slice(0, 2);
   const barcode = String(req.query.barcode || "").trim();
 
   if (barcode) {
@@ -117,10 +154,13 @@ export default async function handler(req, res) {
   }
 
   if (q.length < 2) return res.status(400).json({ error: "Type at least 2 letters to search." });
-  const key = `q:${q.toLowerCase()}`;
+  const key = `q:${country}:${q.toLowerCase()}`;
   let body = cacheGet(key);
   if (!body) {
-    body = await searchFoods(q);
+    body = await searchFoods(q, country);
+    if (body.allFailed) {
+      return res.status(502).json({ error: "The food databases aren't responding right now — try again in a minute, or scan the barcode." });
+    }
     // A search where an upstream timed out isn't cached, so the next try can get the full list.
     if (!body.partial && body.results.length) cacheSet(key, body);
   }
