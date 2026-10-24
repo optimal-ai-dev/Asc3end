@@ -8,4 +8,5 @@ export const KEYS = {
   favorites: "atlas:favorites",
   coachMessages: "atlas:coachMessages",
   challenges: "atlas:challenges",
+  water: "atlas:water",
 };

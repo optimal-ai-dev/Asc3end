@@ -16,6 +16,9 @@ import {
 import { Paywall } from "../components/Paywall";
 import { HomeMealIdeas } from "../components/HomeMealIdeas";
 import { WeeklyCheckIn } from "../components/WeeklyCheckIn";
+import { AddFoodSheet } from "../components/AddFoodSheet";
+import { WaterTracker } from "../components/WaterTracker";
+import { nutrientsFor } from "../lib/foodData";
 
 /* ------------------------------------------------------------------ */
 /* Nutrition                                                            */
@@ -337,18 +340,20 @@ function WeeklyAdherence({ nutrition, targets }) {
   );
 }
 
-export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, isPremium, onUpgrade, usage, onUsageChange }) {
+export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, water, onAddWater, onDeleteWater, isPremium, onUpgrade, usage, onUsageChange }) {
   const mealsRemaining = remainingMonthlyUses(FEATURES.MEALS, usage || {});
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // The meal the Add Food sheet is open for, or null when it's closed.
+  const [addSheetMeal, setAddSheetMeal] = useState(null);
   const backgroundRef = useRef(null);
   // React 18 doesn't recognize `inert` as a boolean HTML attribute (that's new in React 19), so
   // passing it as a JSX prop silently renders nothing — set the DOM property directly instead,
   // which every modern browser reflects to the real attribute regardless of React's version.
   useEffect(() => {
-    if (backgroundRef.current) backgroundRef.current.inert = scannerOpen;
-  }, [scannerOpen]);
+    if (backgroundRef.current) backgroundRef.current.inert = scannerOpen || !!addSheetMeal;
+  }, [scannerOpen, addSheetMeal]);
   const [locationInput, setLocationInput] = useState("");
   const [mealTiming, setMealTiming] = useState("post");
   const [findingMeals, setFindingMeals] = useState(false);
@@ -376,6 +381,13 @@ export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile,
     .sort((a, b) => (b.date > a.date ? 1 : -1))
     .reduce((acc, f) => (acc.some((x) => x.name === f.name) ? acc : [...acc, f]), [])
     .slice(0, 8);
+  // The Add Food sheet's history list does include today, the way MyFitnessPal's does — logging
+  // the same coffee at breakfast and again in the afternoon is the common case there.
+  const historyFoods = [...nutrition]
+    .sort((a, b) => (b.date > a.date ? 1 : -1))
+    .reduce((acc, f) => (acc.some((x) => x.name === f.name) ? acc : [...acc, f]), [])
+    .slice(0, 15);
+  const portionFields = (f) => (f.grams && f.per100g ? { grams: f.grams, amount: f.amount, per100g: f.per100g } : {});
 
   const submit = () => {
     if (!form.name || !form.calories) return;
@@ -388,24 +400,34 @@ export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile,
   };
 
   const copyYesterday = () => {
-    onAddMany(yesterday.map((f) => ({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal || activeMeal })));
+    onAddMany(yesterday.map((f) => ({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal || activeMeal, ...portionFields(f) })));
   };
 
   const duplicateFood = (f) => {
-    addFood({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal });
+    addFood({ id: uid(), date: todayStr(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal, ...portionFields(f) });
   };
 
   const startEdit = (f) => {
     setEditingId(f.id);
-    setEditForm({ name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal || "" });
+    setEditForm({ name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal || "", grams: f.grams ?? "", per100g: f.per100g || null });
   };
 
+  // Entries added from the food database remember their per-100 g values, so changing the grams
+  // rescales every macro instead of making the person redo the maths.
+  const setEditGrams = (value) => setEditForm((v) => {
+    const g = +value;
+    if (!v.per100g || !(g > 0)) return { ...v, grams: value };
+    return { ...v, grams: value, ...nutrientsFor(v.per100g, g) };
+  });
+
+  const entryGrams = (id) => nutrition.find((n) => n.id === id)?.grams;
   const saveEdit = () => {
     if (!editForm.name || editForm.calories === "") return;
     onEdit(editingId, {
       name: editForm.name, calories: +editForm.calories || 0,
       protein: +editForm.protein || 0, carbs: +editForm.carbs || 0, fat: +editForm.fat || 0,
       ...(editForm.meal ? { meal: editForm.meal } : {}),
+      ...(editForm.per100g && +editForm.grams > 0 && +editForm.grams !== entryGrams(editingId) ? { grams: +editForm.grams, amount: `${+editForm.grams} g` } : {}),
     });
     setEditingId(null);
     setEditForm(null);
@@ -487,9 +509,21 @@ Respond with ONLY this JSON, nothing else:
       <h1 className="disp-title" style={{ fontSize: 26, marginBottom: 4 }}>Nutrition</h1>
       <div style={{ color: "var(--ink-dim)", fontSize: 13, marginBottom: 12 }}>Daily target: {targets.calories} kcal · {targets.protein}g protein</div>
 
-      <button className="atlas-btn" style={{ width: "100%", marginBottom: 16, padding: 13 }} onClick={() => setScannerOpen(true)}>
-        <Camera size={16} style={{ verticalAlign: -3, marginRight: 7 }} /> Scan Food
-      </button>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button className="atlas-btn" style={{ flex: 3, padding: 13 }} onClick={() => setAddSheetMeal(activeMeal)}>
+          <Plus size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Add Food
+        </button>
+        <button className="atlas-btn-ghost" style={{ flex: 2, padding: 13 }} onClick={() => setScannerOpen(true)}>
+          <Camera size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Photo Scan
+        </button>
+      </div>
+      {addSheetMeal && (
+        <AddFoodSheet
+          initialMeal={addSheetMeal} onAdd={addFood} onClose={() => setAddSheetMeal(null)}
+          favorites={favorites} recentFoods={historyFoods}
+          onOpenPhotoScan={() => { setAddSheetMeal(null); setScannerOpen(true); }}
+        />
+      )}
       {scannerOpen && (isPremium ? (
         <FoodScanner onAdd={addFood} onClose={() => setScannerOpen(false)} />
       ) : (
@@ -501,7 +535,7 @@ Respond with ONLY this JSON, nothing else:
 
       {/* Hidden from assistive tech and keyboard focus while the scanner dialog is open, so
           screen readers and Tab navigation can't reach content buried behind it. */}
-      <div ref={backgroundRef} aria-hidden={scannerOpen || undefined}>
+      <div ref={backgroundRef} aria-hidden={scannerOpen || !!addSheetMeal || undefined}>
       {/* Calories remaining leads, the way MyFitnessPal and Cronometer do it: the number people
           actually act on is what's left today, not what's been eaten. */}
       <div className="atlas-card" style={{ marginBottom: 16 }}>
@@ -530,6 +564,8 @@ Respond with ONLY this JSON, nothing else:
         </div>
       </div>
 
+      <WaterTracker profile={profile} water={water} onAdd={onAddWater} onDelete={onDeleteWater} onUpdateProfile={onUpdateProfile} />
+
       {/* Today's diary, grouped by meal. Sections with nothing in them still show (with their
           "+ Add food"), except "Earlier entries", which only exists for pre-meal-tracking logs. */}
       {(() => {
@@ -554,6 +590,12 @@ Respond with ONLY this JSON, nothing else:
                       {!editForm.meal && <option value="">{MEAL_LABEL.other}</option>}
                       {MEALS.map((m) => <option key={m} value={m}>{MEAL_LABEL[m]}</option>)}
                     </select>
+                    {editForm.per100g && (
+                      <label className="mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-dim)", marginBottom: 6 }}>
+                        AMOUNT (G)
+                        <input className="atlas-input" type="number" inputMode="decimal" value={editForm.grams} onChange={(e) => setEditGrams(e.target.value)} aria-label="Edit amount in grams" style={{ flex: 1 }} />
+                      </label>
+                    )}
                     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                       <input className="atlas-input" type="number" placeholder="kcal" value={editForm.calories} onChange={(e) => setEditForm((v) => ({ ...v, calories: e.target.value }))} aria-label="Edit calories" />
                       <input className="atlas-input" type="number" placeholder="protein" value={editForm.protein} onChange={(e) => setEditForm((v) => ({ ...v, protein: e.target.value }))} aria-label="Edit protein" />
@@ -569,7 +611,7 @@ Respond with ONLY this JSON, nothing else:
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
                       <div style={{ fontSize: 14 }}>{f.name}</div>
-                      <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>{f.calories} kcal · P {f.protein} · C {f.carbs} · F {f.fat}</div>
+                      <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>{f.amount ? `${f.amount} · ` : ""}{f.calories} kcal · P {f.protein} · C {f.carbs} · F {f.fat}</div>
                     </div>
                     <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                       <button onClick={() => onToggleFavorite(f)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={isFav ? `Remove ${f.name} from favorites` : `Add ${f.name} to favorites`}>
@@ -591,9 +633,9 @@ Respond with ONLY this JSON, nothing else:
               );
             })}
               {meal !== "other" && (
-                <button onClick={() => { setActiveMeal(meal); addSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
-                  className="mono" style={{ background: "none", border: "none", color: "var(--brass)", fontWeight: 800, fontSize: 13, cursor: "pointer", padding: "6px 0 0", minHeight: 36 }}>
-                  + Add food
+                <button onClick={() => { setActiveMeal(meal); setAddSheetMeal(meal); }} aria-label={`Add food to ${MEAL_LABEL[meal]}`}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", marginTop: items.length ? 8 : 10, minHeight: 42, borderRadius: 10, border: "1px dashed var(--brass)", background: "var(--brass-soft)", color: "var(--brass)", fontWeight: 800, fontSize: 13.5, cursor: "pointer" }}>
+                  <Plus size={16} /> Add food
                 </button>
               )}
             </div>
@@ -601,7 +643,7 @@ Respond with ONLY this JSON, nothing else:
         });
       })()}
 
-      <h2 ref={addSectionRef} className="disp" style={{ fontSize: 16, margin: "18px 0 8px", scrollMarginTop: 16 }}>Add food to</h2>
+      <h2 ref={addSectionRef} className="disp" style={{ fontSize: 16, margin: "18px 0 8px", scrollMarginTop: 16 }}>Quick add to</h2>
       <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
         {MEALS.map((m) => (
           <button key={m} onClick={() => setActiveMeal(m)} className="pill" aria-pressed={activeMeal === m}
