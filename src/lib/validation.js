@@ -30,6 +30,10 @@ export function isValidFoodEntry(f) {
   return !!f && typeof f === "object" && isNonEmptyString(f.id) && isNonEmptyString(f.date) && isNonEmptyString(f.name) && isFiniteNumber(f.calories);
 }
 
+export function isValidWaterEntry(w) {
+  return !!w && typeof w === "object" && isNonEmptyString(w.id) && isNonEmptyString(w.date) && isFiniteNumber(w.ml) && w.ml > 0;
+}
+
 export function isValidWeightEntry(w) {
   return !!w && typeof w === "object" && isNonEmptyString(w.date) && isFiniteNumber(w.weight);
 }
