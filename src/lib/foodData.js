@@ -54,8 +54,10 @@ export function normalizeFdcFood(food) {
   return {
     id: `fdc:${food.fdcId}`,
     source: "usda",
-    name: branded ? food.description.trim() : titleCase(food.description.trim()),
+    // USDA stores most names in capitals ("PEANUT BUTTER"); those read better title-cased.
+    name: branded && /[a-z]/.test(food.description) ? food.description.trim() : titleCase(food.description.trim()),
     brand: branded ? (food.brandName || food.brandOwner || "").trim() || null : null,
+    packSize: branded ? (food.packageWeight || "").trim() || null : null,
     generic: !branded,
     per100g: {
       calories: round1(calories), protein: round1(protein), carbs: round1(carbs), fat: round1(fat),
@@ -90,6 +92,9 @@ export function normalizeOffProduct(p) {
     source: "off",
     name,
     brand: (Array.isArray(p.brands) ? p.brands[0] || "" : String(p.brands || "").split(",")[0]).trim() || null,
+    // The pack size printed on the front ("1 L", "500 g") — with the brand, how people tell
+    // apart near-identical products on a shelf.
+    packSize: String(p.quantity || "").trim().slice(0, 24) || null,
     generic: false,
     barcode: p.code || null,
     per100g: {
@@ -157,6 +162,7 @@ export function toDiaryEntry(food, quantity, unit, extra) {
   return {
     ...extra,
     name: food.brand ? `${food.name} (${food.brand})` : food.name,
+    ...(food.brand ? { brand: food.brand } : {}),
     ...totals,
     grams,
     amount: amountLabel(quantity, unit),
@@ -292,18 +298,20 @@ export function myFoodToResult(m) {
     id: `mine:${m.id}`, source: "mine", mine: true, generic: false,
     name: m.name, brand: m.brand || null, barcode: m.barcode || null,
     per100g: m.per100g,
-    portions: m.servingGrams ? [{ label: `1 serving (${m.servingGrams} g)`, grams: m.servingGrams }] : [],
+    portions: m.servingGrams ? [{ label: `1 serving (${m.servingGrams} ${m.servingUnit === "ml" ? "ml" : "g"})`, grams: m.servingGrams }] : [],
   };
 }
 
 // Builds a My foods entry from what's printed on a pack: values per serving plus the serving
 // weight, which is how Australian and most other nutrition panels list them.
-export function myFoodFromLabel({ id, name, brand, barcode, servingGrams, calories, protein, carbs, fat }) {
+// Drinks are measured in ml; 1 ml is treated as 1 g, which is what "per 100 mL" panels assume.
+export function myFoodFromLabel({ id, name, brand, barcode, servingGrams, servingUnit, calories, protein, carbs, fat }) {
   const g = num(servingGrams) && num(servingGrams) > 0 ? num(servingGrams) : 100;
   const per = (v) => round1(((num(v) || 0) * 100) / g);
   return {
     id, name: String(name).trim(), brand: (brand || "").trim() || null, barcode: barcode || null,
     servingGrams: g,
+    ...(servingUnit === "ml" ? { servingUnit: "ml" } : {}),
     per100g: { calories: per(calories), protein: per(protein), carbs: per(carbs), fat: per(fat) },
   };
 }
@@ -409,8 +417,11 @@ export function historyToResults(entries) {
     if (seen.has(k)) continue;
     seen.add(k);
     const portioned = e.per100g && e.grams > 0;
+    // Entries since the brand was stored separately show it the same way search results do.
+    const branded = e.brand && e.name.endsWith(` (${e.brand})`);
     out.push({
-      id: `hist:${k}`, source: "history", history: true, generic: false, name: e.name, brand: null,
+      id: `hist:${k}`, source: "history", history: true, generic: false,
+      name: branded ? e.name.slice(0, -(e.brand.length + 3)) : e.name, brand: branded ? e.brand : null,
       per100g: portioned ? e.per100g : { calories: e.calories, protein: e.protein, carbs: e.carbs, fat: e.fat },
       portions: portioned
         ? (e.amount && !/ (g|oz)$/.test(e.amount) && !/×/.test(e.amount) ? [{ label: e.amount, grams: e.grams }] : [])
@@ -425,7 +436,7 @@ export function searchHistory(entries, query) {
   const want = tokens(parseQuery(query).food);
   if (!want.length) return [];
   return historyToResults(entries).filter((f) => {
-    const have = tokens(f.name);
+    const have = tokens(`${f.name} ${f.brand || ""}`);
     return want.every((t) => have.some((h) => wordMatches(t, h)));
   }).slice(0, 5);
 }

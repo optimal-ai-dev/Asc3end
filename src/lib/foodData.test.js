@@ -152,7 +152,7 @@ it("validates barcodes", () => {
   expect(isValidBarcode("")).toBe(false);
 });
 
-import { correctSpelling, parseAmount, amountFromQuery, wordMatches, frequentFoods, searchHistory } from "./foodData";
+import { correctSpelling, parseAmount, amountFromQuery, wordMatches, frequentFoods, searchHistory, historyToResults, GRAM_UNIT } from "./foodData";
 
 describe("keyword handling", () => {
   it("corrects misspelt food words but leaves brands and ambiguous words alone", () => {
@@ -196,5 +196,33 @@ describe("history", () => {
       e("Banana, Raw", "2026-10-20", { grams: 150, amount: "150 g", per100g: { calories: 89, protein: 1, carbs: 23, fat: 0 } })];
     const [hit] = searchHistory(diary, "bananna");
     expect(hit).toMatchObject({ history: true, lastGrams: 150, portions: [] });
+  });
+});
+
+describe("brand and pack size", () => {
+  it("keeps the pack size and title-cases capitalised USDA names", () => {
+    const off = normalizeOffProduct({ code: "1", product_name: "Orange Juice", brands: "Nudie", quantity: "1 L", nutriments: { "energy-kcal_100g": 45 } });
+    expect(off.packSize).toBe("1 L");
+    const fdc = normalizeFdcFood({ fdcId: 2, description: "PEANUT BUTTER", dataType: "Branded", brandName: "JIF", packageWeight: "16 oz/454 g", foodNutrients: [] });
+    expect(fdc.name).toBe("Peanut Butter");
+    expect(fdc.packSize).toBe("16 oz/454 g");
+  });
+
+  it("splits the brand back out of logged entries and finds them by brand", () => {
+    const food = { id: "off:1", name: "Orange Juice", brand: "Nudie", per100g: { calories: 45, protein: 0.5, carbs: 10, fat: 0 }, portions: [] };
+    const entry = { ...toDiaryEntry(food, 250, GRAM_UNIT, { id: "e1", meal: "breakfast" }), date: "2026-10-20" };
+    expect(entry.name).toBe("Orange Juice (Nudie)");
+    const [h] = historyToResults([entry]);
+    expect(h.name).toBe("Orange Juice");
+    expect(h.brand).toBe("Nudie");
+    expect(searchHistory([entry], "nudie juice")).toHaveLength(1);
+  });
+});
+
+describe("My foods in ml", () => {
+  it("labels a drink's serving in ml", () => {
+    const m = myFoodFromLabel({ id: "j", name: "Juice", servingGrams: "250", servingUnit: "ml", calories: "109", protein: "1.8", carbs: "24.3", fat: "0.5" });
+    expect(myFoodToResult(m).portions[0].label).toBe("1 serving (250 ml)");
+    expect(m.per100g.carbs).toBe(9.7);
   });
 });

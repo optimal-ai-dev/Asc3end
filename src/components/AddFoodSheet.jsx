@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Search, ScanBarcode, ChevronLeft, Loader2, Plus, Star, History, Camera, Pencil, Repeat, ScanText } from "lucide-react";
+import { X, Search, ScanBarcode, ChevronLeft, Loader2, Plus, Star, History, Camera, Pencil, Repeat, ScanText, Check } from "lucide-react";
 import { uid, todayStr } from "../lib/dateUtils";
 import { MEALS, MEAL_LABEL } from "../lib/nutritionHelpers";
 import {
@@ -15,17 +15,60 @@ import { searchFoods, lookupBarcode } from "../lib/foodSearchClient";
 
 const BARCODE_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e"];
 
-// Chrome/Android ship BarcodeDetector natively; Safari (every iPhone) doesn't, so there the
-// ZXing-based ponyfill is loaded on demand — it only downloads when someone opens the scanner.
-async function createBarcodeDetector() {
-  if (typeof window !== "undefined" && "BarcodeDetector" in window) {
-    try {
-      const supported = await window.BarcodeDetector.getSupportedFormats?.();
-      if (!supported || BARCODE_FORMATS.some((f) => supported.includes(f))) return new window.BarcodeDetector({ formats: BARCODE_FORMATS });
-    } catch (e) { /* fall through to the ponyfill */ }
-  }
-  const { BarcodeDetector } = await import("barcode-detector/ponyfill");
-  return new BarcodeDetector({ formats: BARCODE_FORMATS });
+// Chrome on Android ships BarcodeDetector natively; Safari (every iPhone) and desktop Chrome
+// don't, so there the ZXing-based ponyfill is loaded on demand. Its .wasm engine is bundled
+// with the app instead of fetched from the jsDelivr CDN at scan time, so scanning doesn't
+// depend on a third-party host being reachable (or allowed by a network filter).
+let detectorPromise = null;
+function getBarcodeDetector() {
+  detectorPromise ??= (async () => {
+    if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+      try {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        const formats = BARCODE_FORMATS.filter((f) => supported.includes(f));
+        if (formats.length) return new window.BarcodeDetector({ formats });
+      } catch (e) { /* fall through to the ponyfill */ }
+    }
+    const [{ BarcodeDetector, prepareZXingModule }, { default: wasmUrl }] = await Promise.all([
+      import("barcode-detector/ponyfill"),
+      import("zxing-wasm/reader/zxing_reader.wasm?url"),
+    ]);
+    prepareZXingModule({
+      overrides: { locateFile: (path, prefix) => (path.endsWith(".wasm") ? wasmUrl : prefix + path) },
+      fireImmediately: true,
+    });
+    return new BarcodeDetector({ formats: BARCODE_FORMATS });
+  })();
+  detectorPromise.catch(() => { detectorPromise = null; });
+  return detectorPromise;
+}
+
+// EAN/UPC check digit. The decoders already verify it, but checking again means a misread
+// can never be looked up as some other product.
+export function hasValidCheckDigit(code) {
+  if (!/^\d{8}$|^\d{12,13}$/.test(code)) return false;
+  const digits = code.split("").map(Number);
+  const check = digits.pop();
+  const sum = digits.reverse().reduce((acc, d, i) => acc + d * (i % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === check;
+}
+
+// Brand first and unmistakable — on a supermarket search the brand is what tells "Nudie Orange
+// Juice" from five other orange juices, so it gets its own bold line above the product name.
+function BrandLine({ brand, packSize, size = 11 }) {
+  if (!brand && !packSize) return null;
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      {brand && (
+        <span style={{ fontSize: size, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--brass)",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{brand}</span>
+      )}
+      {packSize && (
+        <span className="mono" style={{ fontSize: size - 1, fontWeight: 700, color: "var(--ink)", border: "1px solid var(--line)",
+          borderRadius: 6, padding: "0 5px", whiteSpace: "nowrap", flexShrink: 0 }}>{packSize}</span>
+      )}
+    </span>
+  );
 }
 
 const fmt = (n) => (Math.round(n * 10) / 10).toLocaleString();
@@ -93,9 +136,10 @@ function FoodDetail({ food, meal, onMealChange, onBack, onAdd, queryAmount }) {
       <button onClick={onBack} className="mono" style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", padding: "4px 0", fontSize: 12, display: "flex", alignItems: "center", gap: 2 }}>
         <ChevronLeft size={14} /> Back
       </button>
-      <div className="disp" style={{ fontSize: 18, marginTop: 6 }}>{food.name}</div>
+      <div style={{ marginTop: 8 }}><BrandLine brand={food.brand} packSize={food.packSize} size={13} /></div>
+      <div className="disp" style={{ fontSize: 18, marginTop: 2 }}>{food.name}</div>
       <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 2 }}>
-        {[food.brand, SOURCE_LABEL[food.source], `${fmt(food.per100g.calories)} kcal / 100 g`].filter(Boolean).join(" · ")}
+        {[SOURCE_LABEL[food.source], food.barcode && `Barcode ${food.barcode}`, `${fmt(food.per100g.calories)} kcal / 100 g`].filter(Boolean).join(" · ")}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
@@ -134,81 +178,144 @@ function FoodDetail({ food, meal, onMealChange, onBack, onAdd, queryAmount }) {
   );
 }
 
-function BarcodePanel({ onFound, onNotFound, myFoods }) {
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [manual, setManual] = useState("");
-  const [cameraOff, setCameraOff] = useState(false);
-  const videoRef = useRef(null);
+// Fields the label reader filled are outlined so it's obvious what to compare with the pack.
+const filledStyle = { borderColor: "var(--brass)", boxShadow: "0 0 0 1px var(--brass)" };
 
-  const lookup = async (code) => {
-    if (!isValidBarcode(code)) { setError("Barcodes are 6 to 14 digits — check the number."); return; }
-    // Products the person saved themselves win, so a pack they added once scans instantly.
-    const mine = myFoods.find((m) => m.barcode === code);
-    if (mine) { onFound(myFoodToResult(mine)); return; }
-    setLoading(true);
+const SCAN_RED = "#FF3B30";
+const SCAN_GREEN = "#34C759";
+
+// Live barcode scanner. The frame is red while it's looking and turns green (with a buzz on
+// phones that support it) the moment a valid code is read, then the product is looked up.
+function BarcodePanel({ onFound, onNotFound, myFoods }) {
+  const [status, setStatus] = useState("starting"); // starting | scanning | found | looking | error | nocamera
+  const [code, setCode] = useState(null);
+  const [error, setError] = useState(null);
+  const [manual, setManual] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const videoRef = useRef(null);
+  const onFoundRef = useRef(onFound);
+  const onNotFoundRef = useRef(onNotFound);
+  onFoundRef.current = onFound;
+  onNotFoundRef.current = onNotFound;
+
+  const lookup = async (raw) => {
+    const c = String(raw).trim();
+    if (!isValidBarcode(c)) { setError("Barcodes are 6 to 14 digits — check the number."); return; }
+    setCode(c);
     setError(null);
+    const mine = myFoods.find((m) => m.barcode === c);
+    if (mine) { onFoundRef.current(myFoodToResult(mine)); return; }
+    setStatus("looking");
     try {
-      onFound(await lookupBarcode(code));
+      onFoundRef.current(await lookupBarcode(c));
     } catch (e) {
-      if (e.status === 404) { onNotFound(code); return; }
+      if (e.status === 404) { onNotFoundRef.current(c); return; }
+      videoRef.current?.srcObject?.getTracks?.().forEach((t) => t.stop());
       setError(e.message);
-      setLoading(false);
+      setStatus("error");
     }
   };
 
   useEffect(() => {
-    if (cameraOff) return;
     let stream, timer, cancelled = false;
+    setStatus("starting");
     (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
-        const detector = await createBarcodeDetector();
+        // Continuous autofocus where the camera supports it — a barcode held close is unreadable
+        // if the lens stays focused at arm's length.
+        const track = stream.getVideoTracks()[0];
+        if (track?.getCapabilities?.().focusMode?.includes("continuous")) {
+          track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+        }
+        const video = videoRef.current;
+        video.srcObject = stream;
+        await video.play().catch(() => {});
+        const detector = await getBarcodeDetector();
         if (cancelled) return;
+        setStatus("scanning");
         let busy = false;
         timer = setInterval(async () => {
-          if (busy || !videoRef.current || videoRef.current.readyState < 2) return;
+          if (busy || cancelled || video.readyState < 2) return;
           busy = true;
           try {
-            const codes = await detector.detect(videoRef.current);
-            if (codes.length > 0 && !cancelled) {
+            const codes = await detector.detect(video);
+            // UPC-E's check digit is computed on the expanded UPC-A form, so it's left to the decoder.
+            const hit = codes.find((c) => (c.format === "upc_e" ? /^\d{8}$/.test(c.rawValue) : hasValidCheckDigit(c.rawValue)))?.rawValue;
+            if (hit && !cancelled) {
               clearInterval(timer);
-              stream.getTracks().forEach((t) => t.stop());
-              lookup(codes[0].rawValue);
+              navigator.vibrate?.(60);
+              setCode(hit);
+              setStatus("found");
+              // Freeze on the frame that scanned rather than going black; the camera itself is
+              // released when the panel closes or the lookup fails.
+              video.pause();
+              // A brief beat on green so the person sees the scan landed before the screen changes.
+              setTimeout(() => !cancelled && lookup(hit), 450);
             }
-          } catch (e) { /* keep trying */ }
+          } catch (e) { /* frame not decodable yet — keep trying */ }
           busy = false;
-        }, 350);
+        }, 200);
       } catch (e) {
-        if (!cancelled) { setCameraOff(true); setError("Camera unavailable — type the barcode number instead."); }
+        if (cancelled) return;
+        setStatus("nocamera");
+        setError(e?.name === "NotAllowedError"
+          ? "Camera permission is off for this site. Allow it in your browser settings, or type the number below."
+          : "Couldn't start the camera. Type the barcode number below instead.");
       }
     })();
     return () => { cancelled = true; clearInterval(timer); stream?.getTracks().forEach((t) => t.stop()); };
-  }, [cameraOff]);
+  }, [attempt]);
+
+  const green = status === "found" || status === "looking";
+  const frameColor = green ? SCAN_GREEN : SCAN_RED;
+  const caption = {
+    starting: "Starting camera…",
+    scanning: "Line the barcode up inside the box",
+    found: `Scanned ${code}`,
+    looking: `Scanned ${code} — finding the product…`,
+    error: "Scan stopped",
+  }[status];
 
   return (
     <div>
-      {!cameraOff && (
-        <div style={{ position: "relative", background: "#000", borderRadius: 12, overflow: "hidden", height: 240 }}>
-          <video ref={videoRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          <div style={{ position: "absolute", left: "12%", right: "12%", top: "38%", height: 64, border: "2px solid var(--brass)", borderRadius: 8 }} />
-          {loading && (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
-              <Loader2 size={26} color="#fff" style={{ animation: "spin 1s linear infinite" }} />
-            </div>
-          )}
+      {status !== "nocamera" && (
+        <div style={{ position: "relative", background: "#000", borderRadius: 14, overflow: "hidden", aspectRatio: "4 / 3.4", width: "100%" }}>
+          <video ref={videoRef} playsInline muted autoPlay style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          {/* Dim everything outside the scan window so the box is unmistakable. */}
+          <div data-testid="scan-frame" data-state={green ? "found" : "scanning"} style={{
+            position: "absolute", left: "7%", right: "7%", top: "24%", bottom: "24%", borderRadius: 14,
+            border: `4px solid ${frameColor}`, boxShadow: `0 0 0 9999px rgba(0,0,0,0.45), 0 0 18px ${frameColor}`,
+            transition: "border-color 120ms, box-shadow 120ms", display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            {status === "scanning" && <div style={{ position: "absolute", left: 10, right: 10, top: "50%", height: 2, background: SCAN_RED, opacity: 0.8, animation: "scanline 1.6s ease-in-out infinite" }} />}
+            {green && (
+              <div style={{ width: 54, height: 54, borderRadius: "50%", background: SCAN_GREEN, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {status === "looking" ? <Loader2 size={28} color="#fff" style={{ animation: "spin 1s linear infinite" }} /> : <Check size={32} color="#fff" strokeWidth={3} />}
+              </div>
+            )}
+          </div>
+          <div style={{ position: "absolute", left: 0, right: 0, bottom: 10, textAlign: "center" }}>
+            <span className="mono" style={{ fontSize: 12.5, color: "#fff", background: green ? SCAN_GREEN : "rgba(0,0,0,0.6)", padding: "5px 10px", borderRadius: 999 }}>{caption}</span>
+          </div>
         </div>
       )}
-      {!cameraOff && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Point the camera at the barcode on the pack</div>}
+      {status === "error" && (
+        <button className="atlas-btn-ghost" style={{ width: "100%", marginTop: 10 }} onClick={() => { setError(null); setAttempt((n) => n + 1); }}>
+          <ScanBarcode size={14} style={{ verticalAlign: -2, marginRight: 6 }} /> Scan again
+        </button>
+      )}
       <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
         <input className="atlas-input" inputMode="numeric" placeholder="Or type the barcode number" value={manual}
           onChange={(e) => setManual(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && lookup(manual)} aria-label="Barcode number" />
-        <button className="atlas-btn" onClick={() => lookup(manual)} disabled={loading || !manual}>{loading ? "…" : "Find"}</button>
+        <button className="atlas-btn" onClick={() => lookup(manual)} disabled={status === "looking" || !manual}>{status === "looking" ? "…" : "Find"}</button>
       </div>
       {error && <div style={{ fontSize: 12, color: "var(--rest)", marginTop: 10 }}>{error}</div>}
+      <style>{"@keyframes scanline { 0%,100% { transform: translateY(-38px); } 50% { transform: translateY(38px); } }"}</style>
     </div>
   );
 }
@@ -217,7 +324,8 @@ function BarcodePanel({ onFound, onNotFound, myFoods }) {
 // Saved to My foods by default, so it shows up in search (and, with a barcode, in the scanner)
 // next time. This is also where an unrecognised barcode lands, with the code filled in.
 function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode, initialName = "" }) {
-  const [form, setForm] = useState({ name: initialName, brand: "", servingGrams: "", calories: "", protein: "", carbs: "", fat: "" });
+  const [form, setForm] = useState({ name: initialName, brand: "", servingGrams: "", servingUnit: "g", calories: "", protein: "", carbs: "", fat: "" });
+  const [review, setReview] = useState(null); // what the label reader saw, shown for checking
   const [save, setSave] = useState(true);
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState(null);
@@ -231,9 +339,10 @@ function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode, initialN
     setReading(true);
     setReadError(null);
     try {
-      const read = await readNutritionLabel(file);
+      const { basis, energyKj, checks, ...read } = await readNutritionLabel(file);
       // Keep whatever the person already typed for the name/brand if the label didn't show one.
       setForm((f) => ({ ...read, name: read.name || f.name, brand: read.brand || f.brand }));
+      setReview({ basis, energyKj, checks });
       setReadDone(true);
     } catch (err) {
       setReadError(err.message);
@@ -263,18 +372,41 @@ function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode, initialN
           ? <><Loader2 size={15} style={{ verticalAlign: -3, marginRight: 6, animation: "spin 1s linear infinite" }} /> Reading the label…</>
           : <><ScanText size={16} style={{ verticalAlign: -3, marginRight: 6 }} /> Snap the nutrition label</>}
       </button>
-      <div style={{ fontSize: 11.5, color: readError ? "var(--rest)" : readDone ? "var(--good)" : "var(--ink-dim)", textAlign: "center", marginBottom: 12 }}>
-        {readError || (readDone ? "Filled in from the label — check it matches the pack, then add." : "Fills everything in from a photo of the nutrition panel, or type it below.")}
-      </div>
+      {readDone && review && !readError ? (
+        <div data-testid="label-review" style={{ fontSize: 12.5, lineHeight: 1.45, marginBottom: 12, borderRadius: 10, padding: "10px 12px",
+          border: `1px solid ${review.checks.length ? "var(--warn)" : "var(--good)"}`, background: "var(--bg-elev2)" }}>
+          <div style={{ fontWeight: 700, color: review.checks.length ? "var(--warn)" : "var(--good)" }}>
+            {review.checks.length ? "Read the label — please check before adding" : "Read the label"}
+          </div>
+          <div style={{ color: "var(--ink-dim)", marginTop: 2 }}>
+            Copied {review.basis} ({form.servingGrams} {form.servingUnit})
+            {review.energyKj != null && <> · {Math.round(review.energyKj)} kJ = {form.calories} kcal</>}.
+            {" "}Tap any number to fix it.
+          </div>
+          {review.checks.map((c) => <div key={c} style={{ color: "var(--warn)", marginTop: 6 }}>⚠ {c}</div>)}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11.5, color: readError ? "var(--rest)" : "var(--ink-dim)", textAlign: "center", marginBottom: 12 }}>
+          {readError || "Fills everything in from a photo of the nutrition panel, or type it below."}
+        </div>
+      )}
       <input className="atlas-input" placeholder={barcode ? "Product name" : "Food name, e.g. Mum's lasagne"} value={form.name} onChange={set("name")} aria-label="Food name" style={{ marginBottom: 8 }} />
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <input className="atlas-input" placeholder="Brand (optional)" value={form.brand} onChange={set("brand")} aria-label="Brand" />
-        <input className="atlas-input" type="number" inputMode="decimal" placeholder="Serving (g)" value={form.servingGrams} onChange={set("servingGrams")} aria-label="Serving size in grams" style={{ flex: "0 0 120px" }} />
+        <div style={{ flex: "0 0 132px", display: "flex", gap: 4 }}>
+          <input className="atlas-input" type="number" inputMode="decimal" placeholder="Serving" value={form.servingGrams} onChange={set("servingGrams")} aria-label="Serving size in grams" style={readDone ? filledStyle : undefined} />
+          <select className="atlas-input" value={form.servingUnit} onChange={set("servingUnit")} aria-label="Serving unit" style={{ flex: "0 0 52px", padding: "0 4px" }}>
+            <option value="g">g</option><option value="ml">ml</option>
+          </select>
+        </div>
       </div>
-      <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 6 }}>PER SERVING{form.servingGrams ? ` (${form.servingGrams} G)` : " (100 G IF BLANK)"}</div>
+      <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 6 }}>PER SERVING{form.servingGrams ? ` (${form.servingGrams} ${form.servingUnit.toUpperCase()})` : ` (100 ${form.servingUnit.toUpperCase()} IF BLANK)`}</div>
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        {[["calories", "kcal", "kcal"], ["protein", "P (g)", "protein g"], ["carbs", "C (g)", "carbs g"], ["fat", "F (g)", "fat g"]].map(([k, ph, label]) => (
-          <input key={k} className="atlas-input" type="number" inputMode="decimal" placeholder={ph} value={form[k]} onChange={set(k)} aria-label={label} />
+        {[["calories", "kcal", "kcal", "kcal"], ["protein", "P (g)", "protein g", "Protein"], ["carbs", "C (g)", "carbs g", "Carbs"], ["fat", "F (g)", "fat g", "Fat"]].map(([k, ph, label, title]) => (
+          <div key={k} style={{ flex: 1, minWidth: 0 }}>
+            <input className="atlas-input" type="number" inputMode="decimal" placeholder={ph} value={form[k]} onChange={set(k)} aria-label={label} style={readDone ? filledStyle : undefined} />
+            {readDone && <div className="mono" style={{ fontSize: 9.5, color: "var(--ink-dim)", textAlign: "center", marginTop: 3 }}>{title}</div>}
+          </div>
         ))}
       </div>
       {onSaveMyFood && (
@@ -366,7 +498,8 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
   const past = typed ? searchHistory(diary, searchText) : [];
   const mine = typed ? searchMyFoods(myFoods, searchText).filter((m) => !past.some((p) => p.name.toLowerCase() === m.name.toLowerCase())) : [];
   const own = [...past, ...mine];
-  const sameAsOwn = (r) => own.some((o) => (o.barcode && o.barcode === r.barcode) || o.name.toLowerCase() === (r.brand ? `${r.name} (${r.brand})` : r.name).toLowerCase());
+  const fullName = (x) => (x.brand ? `${x.name} (${x.brand})` : x.name).toLowerCase();
+  const sameAsOwn = (r) => own.some((o) => (o.barcode && o.barcode === r.barcode) || fullName(o) === fullName(r));
   const shown = results || own.length ? [...own, ...(results || []).filter((r) => !sameAsOwn(r))] : null;
   const frequent = frequentFoods(diary);
   const recentOnly = recentFoods.filter((r) => !frequent.some((f) => f.name === r.name));
@@ -446,9 +579,10 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
               return (
                 <button key={f.id} onClick={() => setSelected(f)} style={rowStyle}>
                   <span style={{ minWidth: 0 }}>
-                    <span style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                    <BrandLine brand={f.brand} packSize={f.packSize} />
+                    <span style={{ display: "block", fontSize: 14, fontWeight: f.brand ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
                     <span className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {[f.history ? "Logged before" : f.mine ? "My foods" : null, f.brand, d.unit.label === "g" ? `${d.quantity} g` : d.unit.label, `${kcal} kcal`].filter(Boolean).join(" · ")}
+                      {[f.history ? "Logged before" : f.mine ? "My foods" : null, d.unit.label === "g" ? `${d.quantity} g` : d.unit.label, `${kcal} kcal`].filter(Boolean).join(" · ")}
                     </span>
                   </span>
                   <Plus size={18} color="var(--brass)" style={{ flexShrink: 0 }} aria-hidden="true" />

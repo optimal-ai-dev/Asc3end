@@ -13,10 +13,10 @@ vi.mock("../lib/foodSearchClient", () => ({
 }));
 
 vi.mock("../lib/labelReader", () => ({
-  readNutritionLabel: vi.fn(async () => ({ name: "Greek Yoghurt", brand: "Chobani", servingGrams: "170", calories: "100", protein: "17", carbs: "6", fat: "0.7" })),
+  readNutritionLabel: vi.fn(async () => ({ name: "Greek Yoghurt", brand: "Chobani", servingGrams: "170", calories: "100", protein: "17", carbs: "6", fat: "0.7", servingUnit: "g", basis: "per serving", energyKj: 418, checks: [] })),
 }));
 
-import { AddFoodSheet } from "./AddFoodSheet";
+import { AddFoodSheet, hasValidCheckDigit } from "./AddFoodSheet";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -78,7 +78,7 @@ describe("AddFoodSheet My foods", () => {
     act(() => root.render(<AddFoodSheet initialMeal="dinner" onAdd={() => {}} onClose={() => {}} myFoods={myFoods} />));
     act(() => setValue(container.querySelector('input[aria-label="Search foods"]'), "costco chicken"));
     expect(container.textContent).toContain("Rotisserie Chicken");
-    expect(container.textContent).toContain("My foods · Kirkland Signature");
+    expect(container.textContent).toContain("Kirkland SignatureRotisserie ChickenMy foods · ");
   });
 
   it("saves a custom food to My foods", () => {
@@ -124,6 +124,17 @@ describe("AddFoodSheet keyword handling", () => {
     await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
     expect(container.querySelector('input[aria-label="Food name"]').value).toBe("Greek Yoghurt");
     expect(container.querySelector('input[aria-label="Serving size in grams"]').value).toBe("170");
-    expect(container.textContent).toContain("Filled in from the label");
+    expect(container.querySelector("[data-testid=label-review]").textContent).toContain("418 kJ = 100 kcal");
+  });
+});
+
+describe("hasValidCheckDigit", () => {
+  it("accepts real EAN-13, UPC-A and EAN-8 codes and rejects misreads", () => {
+    expect(hasValidCheckDigit("3017620422003")).toBe(true); // Nutella EAN-13
+    expect(hasValidCheckDigit("9300633603649")).toBe(true);
+    expect(hasValidCheckDigit("051500255162")).toBe(true); // UPC-A
+    expect(hasValidCheckDigit("96385074")).toBe(true); // EAN-8
+    expect(hasValidCheckDigit("3017620422004")).toBe(false);
+    expect(hasValidCheckDigit("12345")).toBe(false);
   });
 });
