@@ -205,6 +205,14 @@ export default function App() {
     if (!authUser) { setSubscription(undefined); setUsage({ coach: 0, meals: 0 }); return; }
     refreshSubscription();
     refreshUsage();
+    // Re-check when the app comes back to the foreground, so a plan change made elsewhere (a
+    // subscription bought on another device, or ADMIN_EMAILS updated in Vercel) shows up without
+    // signing out and back in.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") { refreshSubscription(); refreshUsage(); }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [authUser]);
 
   // Reads the ?checkout=success|cancelled Stripe redirect param exactly once, turns it into a
