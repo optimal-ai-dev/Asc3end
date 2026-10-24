@@ -225,10 +225,43 @@ export const usdaQuery = (food) => String(food || "").toLowerCase().split(/\s+/)
 // How well a result matches: the share of the query's food words found in its name, a bonus
 // when the brand the person asked for is on it, and a smaller one for products sold locally.
 // Prefix matches count ("chick" finds "chicken"), so half-typed queries still rank sensibly.
+// Whether a typed word matches a word in a food's name: exact, a prefix ("chick" → "chicken"),
+// the plural/singular ("eggs" → "egg"), or one typo away for longer words ("chiken" →
+// "chicken"), two for long ones ("worchestershire").
+export function wordMatches(t, h) {
+  if (h === t || h.startsWith(t)) return true;
+  if (t.replace(/e?s$/, "") === h.replace(/e?s$/, "")) return true;
+  if (t.length > 4 && h.length >= 4 && t.startsWith(h)) return true;
+  // Typos only on words of 5+ letters that start with the same letter, so "rice" never
+  // matches "price" and "ham" never matches "jam".
+  if (t.length < 5 || t[0] !== h[0]) return false;
+  const max = t.length >= 8 ? 2 : 1;
+  return editDistance(t, h, max) <= max;
+}
+
+// Damerau–Levenshtein (adjacent swaps count as one edit, so "cikhen" is close to "chicken"),
+// giving up early once the distance passes `max`.
+export function editDistance(a, b, max = 2) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let rowMin = Infinity;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      rowMin = Math.min(rowMin, d[i][j]);
+    }
+    if (rowMin > max) return max + 1;
+  }
+  return d[a.length][b.length];
+}
+
 export function relevance(food, parsed) {
   const want = tokens(parsed.food);
   const have = tokens(`${food.name} ${food.brand || ""}`);
-  const hit = (t) => have.some((h) => h === t || h.startsWith(t) || (t.length > 4 && t.startsWith(h) && h.length >= 4));
+  const hit = (t) => have.some((h) => wordMatches(t, h));
   const wordScore = want.length ? want.filter(hit).length / want.length : 1;
   const brandScore = parsed.brand ? (tokens(food.brand || food.name).join(" ").includes(tokens(parsed.brand)[0]) ? 1 : 0) : 0;
   return wordScore * 2 + brandScore * 1.5 + (food.local ? 0.5 : 0) + (food.mine ? 3 : 0);
@@ -280,9 +313,140 @@ export function searchMyFoods(myFoods, query) {
   const want = tokens(`${parsed.brand || ""} ${parsed.food}`);
   return (myFoods || []).map(myFoodToResult).filter((f) => {
     const have = tokens(`${f.name} ${f.brand || ""}`);
-    return want.length && want.every((t) => have.some((h) => h.startsWith(t)));
+    return want.length && want.every((t) => have.some((h) => wordMatches(t, h)));
   });
 }
+
+// Spelling correction before a query leaves the device. USDA's search has no typo tolerance,
+// so "chiken brest" would find nothing there; each word that isn't a known food word but is
+// one or two edits from exactly one is swapped for it. Brand names and anything unfamiliar
+// are left alone rather than "corrected" into something else.
+export const FOOD_WORDS = `apple apricot avocado bacon bagel banana barley basil bean beans beef beer beetroot berries
+biscuit blackberries blueberries bok bologna bran bread breakfast breast brisket broccoli brown brownie brussels
+burger burrito butter buttermilk cabbage cake calamari candy cantaloupe capsicum caramel carrot cashew cashews
+casserole cauliflower celery cereal cheddar cheese cheesecake cherry cherries chestnut chicken chickpea chickpeas
+chilli chips chive chocolate chop chowder cinnamon coconut cod coffee coleslaw cookie cookies corn cottage couscous
+crab cracker crackers cranberry cream croissant crumpet cucumber cupcake curry custard danish date dates dinner
+donut doughnut dressing drumstick duck dumpling dumplings edamame egg eggplant eggs fajita feta fettuccine fig
+fillet fish flatbread flour fries frittata fruit garlic ginger gnocchi granola grape grapefruit grapes gravy greek
+grilled ground guacamole ham hamburger hash hazelnut hazelnuts honey hummus icecream jam jelly juice jerky kale
+kebab kidney kiwi lamb lasagne lasagna lemon lentil lentils lettuce lime lobster macadamia macaroni mango
+margarine marinara mayonnaise meatball meatballs melon milk minced mince mint mozzarella muesli muffin mushroom
+mushrooms mussels mustard noodle noodles nugget nuggets nutella nuts oat oatmeal oats olive olives omelette onion
+orange oyster pancake pancakes papaya parmesan pasta pastry pavlova peach peanut peanuts pear peas pecan pepper
+pepperoni pesto pickle pie pineapple pistachio pita pizza plum popcorn pork porridge potato potatoes prawn prawns
+pretzel protein pudding pumpkin quiche quinoa raisin raisins ramen raspberries raspberry ravioli rice ricotta
+risotto roast roasted rockmelon roll rotisserie rump salad salami salmon salsa sandwich sardines sauce sausage
+sausages scallop scone scrambled seeds sesame shake shrimp sirloin skim smoothie snapper soup sourdough soy soya
+spaghetti spinach spread sprouts squash steak stew stir strawberries strawberry sugar sultanas sushi sweet
+sweetcorn taco tahini tea tempeh teriyaki thigh toast tofu tomato tomatoes tortilla trout tuna turkey vanilla
+veal vegemite vegetable vegetables vinegar waffle walnut walnuts water watermelon weetbix wholemeal wrap yoghurt
+yogurt zucchini`.split(/\s+/);
+const FOOD_WORD_SET = new Set(FOOD_WORDS);
+
+export function correctSpelling(query) {
+  let changed = false;
+  const out = String(query || "").split(/(\s+)/).map((w) => {
+    const t = w.toLowerCase();
+    if (!/^[a-z]{4,}$/.test(t) || FOOD_WORD_SET.has(t) || STORE_BRANDS[t]) return w;
+    const max = t.length >= 8 ? 2 : 1;
+    const close = FOOD_WORDS.filter((f) => editDistance(t, f, max) <= max);
+    if (close.length === 0) return w;
+    const best = close.map((f) => [f, editDistance(t, f, max)]).sort((a, b) => a[1] - b[1]);
+    if (best.length > 1 && best[0][1] === best[1][1]) return w; // ambiguous — leave it
+    changed = true;
+    return best[0][0];
+  }).join("");
+  return { text: out, changed };
+}
+
+// Pulls an amount out of the query, so "200g chicken breast" or "2 eggs" searches for the food
+// and opens it with that amount filled in.
+export function parseAmount(query) {
+  const q = String(query || "").trim();
+  const unitRe = "(kg|g|grams?|gm|ml|l|oz|ounces?|cups?|tbsp|tsp|serves?|servings?|slices?|pieces?|x)?";
+  const lead = q.match(new RegExp(`^(\\d+(?:[.,]\\d+)?|½|¼|¾)\\s*${unitRe}\\s+(?:of\\s+)?(.+)$`, "i"));
+  const trail = q.match(new RegExp(`^(.+?)\\s+(\\d+(?:[.,]\\d+)?)\\s*${unitRe}$`, "i"));
+  const m = lead ? { n: lead[1], unit: lead[2], food: lead[3] } : trail ? { n: trail[2], unit: trail[3], food: trail[1] } : null;
+  if (!m || !m.food.trim() || /^\d/.test(m.food)) return { food: q, amount: null };
+  const n = { "½": 0.5, "¼": 0.25, "¾": 0.75 }[m.n] ?? +m.n.replace(",", ".");
+  if (!(n > 0) || n > 5000) return { food: q, amount: null };
+  const u = (m.unit || "").toLowerCase();
+  const amount = /^(kg)$/.test(u) ? { grams: n * 1000 }
+    : /^(g|grams?|gm|ml)$/.test(u) ? { grams: n }
+    : u === "l" ? { grams: n * 1000 }
+    : /^(oz|ounces?)$/.test(u) ? { ounces: n }
+    : /^cups?$/.test(u) ? { servings: n, hint: "cup" }
+    : /^(tbsp)$/.test(u) ? { servings: n, hint: "tbsp" }
+    : /^(tsp)$/.test(u) ? { servings: n, hint: "tsp" }
+    : /^slices?$/.test(u) ? { servings: n, hint: "slice" }
+    : { servings: n };
+  return { food: m.food.trim(), amount };
+}
+
+// The starting amount for a food when the query named one. Grams and ounces map directly; a
+// count picks the matching household measure where there is one ("2 cups" → "1 cup" × 2),
+// otherwise the food's first serving.
+export function amountFromQuery(food, amount) {
+  if (!amount) return defaultAmount(food);
+  if (amount.grams) return { quantity: Math.round(amount.grams * 10) / 10, unit: GRAM_UNIT };
+  if (amount.ounces) return { quantity: amount.ounces, unit: OUNCE_UNIT };
+  const portions = food.portions || [];
+  const hinted = amount.hint && portions.find((p) => p.label.toLowerCase().includes(amount.hint));
+  const unit = hinted || portions[0];
+  return unit ? { quantity: amount.servings, unit } : { quantity: amount.servings * 100, unit: GRAM_UNIT };
+}
+
+// The person's diary history as search results, so anything they've logged before comes up
+// first and instantly. Entries logged from the database keep their per-100 g values and
+// portion; older or hand-typed ones are offered as the same single serving.
+export function historyToResults(entries) {
+  const out = [];
+  const seen = new Set();
+  // Newest first, so a food re-portioned last week opens at last week's amount.
+  for (const e of [...(entries || [])].sort((x, y) => (y.date > x.date ? 1 : y.date < x.date ? -1 : 0))) {
+    const k = e.name.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const portioned = e.per100g && e.grams > 0;
+    out.push({
+      id: `hist:${k}`, source: "history", history: true, generic: false, name: e.name, brand: null,
+      per100g: portioned ? e.per100g : { calories: e.calories, protein: e.protein, carbs: e.carbs, fat: e.fat },
+      portions: portioned
+        ? (e.amount && !/ (g|oz)$/.test(e.amount) && !/×/.test(e.amount) ? [{ label: e.amount, grams: e.grams }] : [])
+        : [{ label: "1 serving", grams: 100 }],
+      lastGrams: portioned ? e.grams : null,
+    });
+  }
+  return out;
+}
+
+export function searchHistory(entries, query) {
+  const want = tokens(parseQuery(query).food);
+  if (!want.length) return [];
+  return historyToResults(entries).filter((f) => {
+    const have = tokens(f.name);
+    return want.every((t) => have.some((h) => wordMatches(t, h)));
+  }).slice(0, 5);
+}
+
+// Foods logged most often over the last 60 days, most frequent first — the "Frequent" list.
+export function frequentFoods(entries, today = new Date(), limit = 8) {
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - 60);
+  const iso = cutoff.toISOString().slice(0, 10);
+  const counts = new Map();
+  for (const e of entries || []) {
+    if (e.date < iso) continue;
+    const k = e.name.toLowerCase();
+    const c = counts.get(k) || { n: 0, last: e };
+    c.n += 1;
+    if (e.date >= c.last.date) c.last = e;
+    counts.set(k, c);
+  }
+  return [...counts.values()].filter((c) => c.n >= 2).sort((a, b) => b.n - a.n || (b.last.date > a.last.date ? 1 : -1)).slice(0, limit).map((c) => c.last);
+}
+
 
 // ISO country (from the browser locale) → Open Food Facts country tag, for the countries
 // where people most often use the app. Anything else just searches worldwide.

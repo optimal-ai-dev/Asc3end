@@ -8,7 +8,7 @@ import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { currentMonthKey } from "../lib/monthlyUsage.js";
 import { isAdminUser } from "../lib/adminAccess.js";
 
-const METERED_FEATURES = ["coach", "meals"];
+const METERED_FEATURES = ["coach", "meals", "label"];
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {

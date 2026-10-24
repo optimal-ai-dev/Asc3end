@@ -65,10 +65,27 @@ function fdcSearch(query, dataType, pageSize) {
 // Lucene special characters are escaped so a query like "m&m's (peanut)" can't break the syntax.
 const lucene = (text) => text.replace(/([+\-!(){}[\]^"~*?:\\/&|])/g, "\\$1");
 
-function offSearch(text, countryTag) {
-  const q = countryTag ? `${lucene(text)} countries_tags:"${countryTag}"` : lucene(text);
+// `fuzzy` adds Lucene's one-edit tolerance (`word~1`) to words of five or more letters, for
+// misspelled brand and product names the client's food-word spellcheck can't know about.
+function offSearch(text, countryTag, fuzzy = false) {
+  const terms = fuzzy ? text.split(/\s+/).map((w) => (w.length >= 5 ? `${lucene(w)}~1` : lucene(w))).join(" ") : lucene(text);
+  const q = countryTag ? `${terms} countries_tags:"${countryTag}"` : terms;
   const url = `${OFF_SEARCH}?q=${encodeURIComponent(q)}&langs=en&page_size=24&fields=${OFF_FIELDS}`;
   return getJson(url, { headers: { "User-Agent": USER_AGENT } }).then((d) => d.hits || []);
+}
+
+// When a search finds almost nothing, the usual cause is a misspelt brand or product name, so
+// one more Open Food Facts query is tried with typo tolerance. Only then, to keep normal
+// searches to a single round trip.
+async function withFuzzyFallback(results, parsed) {
+  if (results.length >= 5 || !/\S{5,}/.test(parsed.branded)) return results;
+  try {
+    const extra = (await offSearch(parsed.branded, null, true)).map(normalizeOffProduct).filter(Boolean);
+    return rankResults([...results, ...extra], parsed);
+  } catch (e) {
+    console.error("food-search fuzzy fallback failed", e.message);
+    return results;
+  }
 }
 
 async function searchFoods(q, country) {
@@ -98,7 +115,7 @@ async function searchFoods(q, country) {
 
   const failed = names.filter((n) => out[n].status === "rejected");
   return {
-    results: rankResults(foods, parsed),
+    results: await withFuzzyFallback(rankResults(foods, parsed), parsed),
     partial: failed.length > 0,
     allFailed: failed.length === names.length,
   };

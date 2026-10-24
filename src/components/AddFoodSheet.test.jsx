@@ -12,6 +12,10 @@ vi.mock("../lib/foodSearchClient", () => ({
   lookupBarcode: vi.fn(),
 }));
 
+vi.mock("../lib/labelReader", () => ({
+  readNutritionLabel: vi.fn(async () => ({ name: "Greek Yoghurt", brand: "Chobani", servingGrams: "170", calories: "100", protein: "17", carbs: "6", fat: "0.7" })),
+}));
+
 import { AddFoodSheet } from "./AddFoodSheet";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -87,5 +91,39 @@ describe("AddFoodSheet My foods", () => {
     act(() => [...container.querySelectorAll("button")].find((b) => b.textContent.includes("Add to Snacks")).click());
     expect(onSaveMyFood.mock.calls[0][0]).toMatchObject({ name: "Protein Bar", servingGrams: 60 });
     expect(onAdd.mock.calls[0][0]).toMatchObject({ name: "Protein Bar", calories: 220, grams: 60 });
+  });
+});
+
+describe("AddFoodSheet keyword handling", () => {
+  it("corrects spelling, reads an amount from the query, and finds past entries instantly", async () => {
+    const onAdd = vi.fn();
+    const diary = [{ id: "d1", date: "2026-10-20", name: "Banana, Raw", calories: 105, protein: 1.3, carbs: 26.9, fat: 0.4, grams: 118, amount: "1 medium", per100g: { calories: 89, protein: 1.1, carbs: 22.8, fat: 0.3 } }];
+    act(() => root.render(<AddFoodSheet initialMeal="breakfast" onAdd={onAdd} onClose={() => {}} diary={diary} />));
+    act(() => setValue(container.querySelector('input[aria-label="Search foods"]'), "200g bananna"));
+    expect(container.textContent).toContain("Showing results for banana");
+    expect(container.textContent).toContain("Logged before");
+    const row = [...container.querySelectorAll("button")].find((b) => b.textContent.includes("Logged before"));
+    act(() => row.click());
+    expect(container.querySelector("#food-qty").value).toBe("200");
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent.includes("Add to Breakfast")).click());
+    expect(onAdd.mock.calls[0][0]).toMatchObject({ grams: 200, calories: 178 });
+  });
+
+  it("offers a way out under every search, carrying the typed name into Custom", () => {
+    act(() => root.render(<AddFoodSheet initialMeal="lunch" onAdd={() => {}} onClose={() => {}} />));
+    act(() => setValue(container.querySelector('input[aria-label="Search foods"]'), "nan's curry"));
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent.includes("Type it in")).click());
+    expect(container.querySelector('input[aria-label="Food name"]').value).toBe("nan's curry");
+  });
+
+  it("fills the custom form from a label photo", async () => {
+    act(() => root.render(<AddFoodSheet initialMeal="lunch" onAdd={() => {}} onClose={() => {}} />));
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent.includes("Custom")).click());
+    const input = container.querySelector('input[type="file"]');
+    Object.defineProperty(input, "files", { value: [new File(["x"], "label.jpg", { type: "image/jpeg" })] });
+    await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(container.querySelector('input[aria-label="Food name"]').value).toBe("Greek Yoghurt");
+    expect(container.querySelector('input[aria-label="Serving size in grams"]').value).toBe("170");
+    expect(container.textContent).toContain("Filled in from the label");
   });
 });

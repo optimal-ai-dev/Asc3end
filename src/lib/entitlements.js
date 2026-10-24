@@ -20,16 +20,19 @@
 
 import { isEntitled } from "./subscription.js";
 
-export const FEATURES = { SCANNER: "scanner", COACH: "coach", MEALS: "meals", ESTIMATE: "estimate" };
+export const FEATURES = { SCANNER: "scanner", COACH: "coach", MEALS: "meals", ESTIMATE: "estimate", LABEL: "label" };
 
 const PREMIUM_ONLY_FEATURES = new Set([FEATURES.SCANNER]);
 // "Metered" — free on the Free plan, but capped per calendar month (see lib/monthlyUsage.js for
 // the reset mechanism) rather than unlimited or a one-time trial.
-const METERED_FEATURES = new Set([FEATURES.COACH, FEATURES.MEALS]);
-export const FREE_MONTHLY_LIMITS = { [FEATURES.COACH]: 5, [FEATURES.MEALS]: 2 };
+// The nutrition label reader is metered rather than premium-only: it's how someone adds a
+// product the food databases don't have, which is exactly the moment a paywall would make
+// people give up on logging. One read is a single small vision call, so 20 a month is cheap.
+const METERED_FEATURES = new Set([FEATURES.COACH, FEATURES.MEALS, FEATURES.LABEL]);
+export const FREE_MONTHLY_LIMITS = { [FEATURES.COACH]: 5, [FEATURES.MEALS]: 2, [FEATURES.LABEL]: 20 };
 // Asc3end+ fair-use caps, per calendar month. Roughly 10 coach messages, 1 meal search and 10
 // scans a day — a typical subscriber is estimated at ~60 / 8 / 40 a month.
-export const PLUS_MONTHLY_LIMITS = { [FEATURES.COACH]: 300, [FEATURES.MEALS]: 30, [FEATURES.SCANNER]: 300 };
+export const PLUS_MONTHLY_LIMITS = { [FEATURES.COACH]: 300, [FEATURES.MEALS]: 30, [FEATURES.SCANNER]: 300, [FEATURES.LABEL]: 300 };
 
 export function freeMonthlyLimit(feature) {
   return FREE_MONTHLY_LIMITS[feature] ?? null;

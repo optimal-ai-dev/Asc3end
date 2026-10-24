@@ -520,7 +520,7 @@ Respond with ONLY this JSON, nothing else:
       {addSheetMeal && (
         <AddFoodSheet
           initialMeal={addSheetMeal} onAdd={addFood} onClose={() => setAddSheetMeal(null)}
-          favorites={favorites} recentFoods={historyFoods} myFoods={myFoods} onSaveMyFood={onSaveMyFood}
+          favorites={favorites} recentFoods={historyFoods} myFoods={myFoods} diary={nutrition} onSaveMyFood={onSaveMyFood}
           onOpenPhotoScan={() => { setAddSheetMeal(null); setScannerOpen(true); }}
         />
       )}

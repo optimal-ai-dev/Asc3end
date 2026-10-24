@@ -119,7 +119,7 @@ export default async function handler(req, res) {
       }
     }
     if (!canAccessFeature(subscriptionState, feature, { [feature]: currentUsage })) {
-      const noun = { coach: "coach messages", meals: "meal searches", scanner: "food scans" }[feature];
+      const noun = { coach: "coach messages", meals: "meal searches", scanner: "food scans", label: "label reads" }[feature];
       if (entitled) {
         // Fair-use cap reached. Not a paywall (they already pay), so no premium_required code.
         return res.status(429).json({ error: { message: `You've reached this month's fair-use limit of ${plusMonthlyLimit(feature)} ${noun}. It resets on the 1st — contact support if you need more.`, code: "monthly_limit_reached" } });
