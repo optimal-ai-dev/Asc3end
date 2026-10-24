@@ -89,7 +89,7 @@ export function normalizeOffProduct(p) {
     id: `off:${p.code || p._id || name}`,
     source: "off",
     name,
-    brand: (p.brands || "").split(",")[0].trim() || null,
+    brand: (Array.isArray(p.brands) ? p.brands[0] || "" : String(p.brands || "").split(",")[0]).trim() || null,
     generic: false,
     barcode: p.code || null,
     per100g: {
@@ -165,34 +165,130 @@ export function toDiaryEntry(food, quantity, unit, extra) {
   };
 }
 
-// Generic foods first (they are what people mean by "banana" or "chicken breast"), then
-// branded ones, keeping each source's own relevance order within a tier, and dropping
-// near-duplicate names that both sources returned.
-export function mergeResults(usda, off, limit = 40) {
-  const key = (f) => `${f.name}|${f.brand || ""}`.toLowerCase().replace(/[^a-z0-9|]/g, "");
-  const seen = new Set();
-  const out = [];
-  const generic = usda.filter((f) => f.generic);
-  const branded = interleave(usda.filter((f) => !f.generic), off);
-  for (const f of [...generic, ...branded]) {
-    const k = key(f);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(f);
-    if (out.length >= limit) break;
-  }
-  return out;
-}
-
-function interleave(a, b) {
-  const out = [];
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if (a[i]) out.push(a[i]);
-    if (b[i]) out.push(b[i]);
-  }
-  return out;
-}
-
 export function isValidBarcode(code) {
   return /^\d{6,14}$/.test(String(code || "").trim());
 }
+
+// Shoppers search by store ("costco chicken", "woolies yoghurt"), but packaged foods are
+// labelled with the store's house brand. Each alias maps to the brand words on the label.
+export const STORE_BRANDS = {
+  costco: "kirkland signature",
+  kirkland: "kirkland signature",
+  woolies: "woolworths",
+  woolworths: "woolworths",
+  woolworth: "woolworths",
+  coles: "coles",
+  aldi: "aldi",
+  iga: "iga",
+  "trader joe's": "trader joe's",
+  "trader joes": "trader joe's",
+  tesco: "tesco",
+  sainsburys: "sainsbury's",
+  "sainsbury's": "sainsbury's",
+  walmart: "great value",
+  maccas: "mcdonald's",
+  mcdonalds: "mcdonald's",
+  "mcdonald's": "mcdonald's",
+  "hungry jacks": "hungry jack's",
+};
+
+const ALIAS_KEYS = Object.keys(STORE_BRANDS).sort((a, b) => b.length - a.length);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Splits a query into the brand it names (if any) and the food words. "costco chicken" →
+// { brand: "kirkland signature", food: "chicken", branded: "kirkland signature chicken" }.
+export function parseQuery(raw) {
+  let text = ` ${String(raw || "").toLowerCase().replace(/\s+/g, " ").trim()} `;
+  let brand = null;
+  for (const alias of ALIAS_KEYS) {
+    const re = new RegExp(`\\s${escapeRe(alias)}\\s`);
+    if (re.test(text)) { brand = STORE_BRANDS[alias]; text = text.replace(re, " "); break; }
+  }
+  const food = text.trim();
+  return { brand, food, branded: brand ? `${brand} ${food}`.trim() : food };
+}
+
+// Australian/British food words the USDA database spells the American way. Applied to both
+// the query sent to USDA and the words compared when ranking, so "yoghurt" still matches
+// "Yogurt, Greek, plain".
+const SYNONYMS = {
+  yoghurt: "yogurt", yoghurts: "yogurt", yogurts: "yogurt", mince: "ground", prawn: "shrimp", prawns: "shrimp",
+  capsicum: "pepper", rockmelon: "cantaloupe", coriander: "cilantro", aubergine: "eggplant", courgette: "zucchini",
+  lollies: "candies", porridge: "oatmeal",
+};
+
+export const tokens = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  .split(/[^a-z0-9]+/).filter((t) => t.length >= 2).map((t) => SYNONYMS[t] || t);
+
+export const usdaQuery = (food) => String(food || "").toLowerCase().split(/\s+/).map((w) => SYNONYMS[w] || w).join(" ").trim();
+
+// How well a result matches: the share of the query's food words found in its name, a bonus
+// when the brand the person asked for is on it, and a smaller one for products sold locally.
+// Prefix matches count ("chick" finds "chicken"), so half-typed queries still rank sensibly.
+export function relevance(food, parsed) {
+  const want = tokens(parsed.food);
+  const have = tokens(`${food.name} ${food.brand || ""}`);
+  const hit = (t) => have.some((h) => h === t || h.startsWith(t) || (t.length > 4 && t.startsWith(h) && h.length >= 4));
+  const wordScore = want.length ? want.filter(hit).length / want.length : 1;
+  const brandScore = parsed.brand ? (tokens(food.brand || food.name).join(" ").includes(tokens(parsed.brand)[0]) ? 1 : 0) : 0;
+  return wordScore * 2 + brandScore * 1.5 + (food.local ? 0.5 : 0) + (food.mine ? 3 : 0);
+}
+
+// Final ordering. Without a brand in the query, generic foods lead (they are what people mean
+// by "banana"); with one, the matching branded products do. Results matching none of the food
+// words are dropped, so a slow source can't pad the list with unrelated products.
+export function rankResults(foods, parsed, limit = 40) {
+  const key = (f) => `${f.name}|${f.brand || ""}`.toLowerCase().replace(/[^a-z0-9|]/g, "");
+  const seen = new Set();
+  const scored = [];
+  foods.forEach((f, i) => {
+    const k = key(f);
+    if (seen.has(k)) return;
+    seen.add(k);
+    const score = relevance(f, parsed);
+    if (tokens(parsed.food).length && score < 0.5 && !f.mine) return;
+    const genericBoost = !parsed.brand && f.generic ? 1 : 0;
+    scored.push({ f, score: score + genericBoost, i });
+  });
+  return scored.sort((a, b) => b.score - a.score || a.i - b.i).slice(0, limit).map((x) => x.f);
+}
+
+// The person's own saved products ("My foods"), searchable and scannable like the databases.
+export function myFoodToResult(m) {
+  return {
+    id: `mine:${m.id}`, source: "mine", mine: true, generic: false,
+    name: m.name, brand: m.brand || null, barcode: m.barcode || null,
+    per100g: m.per100g,
+    portions: m.servingGrams ? [{ label: `1 serving (${m.servingGrams} g)`, grams: m.servingGrams }] : [],
+  };
+}
+
+// Builds a My foods entry from what's printed on a pack: values per serving plus the serving
+// weight, which is how Australian and most other nutrition panels list them.
+export function myFoodFromLabel({ id, name, brand, barcode, servingGrams, calories, protein, carbs, fat }) {
+  const g = num(servingGrams) && num(servingGrams) > 0 ? num(servingGrams) : 100;
+  const per = (v) => round1(((num(v) || 0) * 100) / g);
+  return {
+    id, name: String(name).trim(), brand: (brand || "").trim() || null, barcode: barcode || null,
+    servingGrams: g,
+    per100g: { calories: per(calories), protein: per(protein), carbs: per(carbs), fat: per(fat) },
+  };
+}
+
+export function searchMyFoods(myFoods, query) {
+  const parsed = parseQuery(query);
+  const want = tokens(`${parsed.brand || ""} ${parsed.food}`);
+  return (myFoods || []).map(myFoodToResult).filter((f) => {
+    const have = tokens(`${f.name} ${f.brand || ""}`);
+    return want.length && want.every((t) => have.some((h) => h.startsWith(t)));
+  });
+}
+
+// ISO country (from the browser locale) → Open Food Facts country tag, for the countries
+// where people most often use the app. Anything else just searches worldwide.
+export const OFF_COUNTRY = {
+  au: "en:australia", nz: "en:new-zealand", us: "en:united-states", ca: "en:canada",
+  gb: "en:united-kingdom", uk: "en:united-kingdom", ie: "en:ireland", fr: "en:france",
+  de: "en:germany", es: "en:spain", it: "en:italy", nl: "en:netherlands", in: "en:india",
+  sg: "en:singapore", za: "en:south-africa", ph: "en:philippines", my: "en:malaysia",
+};

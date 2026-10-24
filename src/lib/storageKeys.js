@@ -9,4 +9,5 @@ export const KEYS = {
   coachMessages: "atlas:coachMessages",
   challenges: "atlas:challenges",
   water: "atlas:water",
+  myFoods: "atlas:myFoods",
 };

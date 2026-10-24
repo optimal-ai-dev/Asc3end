@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { X, Search, ScanBarcode, ChevronLeft, Loader2, Plus, Star, History, Camera, Pencil } from "lucide-react";
 import { uid, todayStr } from "../lib/dateUtils";
 import { MEALS, MEAL_LABEL } from "../lib/nutritionHelpers";
-import { unitOptions, defaultAmount, gramsFor, nutrientsFor, toDiaryEntry, isValidBarcode } from "../lib/foodData";
+import { unitOptions, defaultAmount, gramsFor, nutrientsFor, toDiaryEntry, isValidBarcode, myFoodToResult, myFoodFromLabel, searchMyFoods } from "../lib/foodData";
 import { searchFoods, lookupBarcode } from "../lib/foodSearchClient";
 
 /* ------------------------------------------------------------------ */
@@ -25,7 +25,7 @@ async function createBarcodeDetector() {
 }
 
 const fmt = (n) => (Math.round(n * 10) / 10).toLocaleString();
-const SOURCE_LABEL = { usda: "USDA", off: "Open Food Facts" };
+const SOURCE_LABEL = { usda: "USDA", off: "Open Food Facts", mine: "My foods" };
 
 function MacroRow({ totals }) {
   return (
@@ -122,7 +122,7 @@ function FoodDetail({ food, meal, onMealChange, onBack, onAdd }) {
   );
 }
 
-function BarcodePanel({ onFound }) {
+function BarcodePanel({ onFound, onNotFound, myFoods }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [manual, setManual] = useState("");
@@ -131,11 +131,15 @@ function BarcodePanel({ onFound }) {
 
   const lookup = async (code) => {
     if (!isValidBarcode(code)) { setError("Barcodes are 6 to 14 digits — check the number."); return; }
+    // Products the person saved themselves win, so a pack they added once scans instantly.
+    const mine = myFoods.find((m) => m.barcode === code);
+    if (mine) { onFound(myFoodToResult(mine)); return; }
     setLoading(true);
     setError(null);
     try {
       onFound(await lookupBarcode(code));
     } catch (e) {
+      if (e.status === 404) { onNotFound(code); return; }
       setError(e.message);
       setLoading(false);
     }
@@ -197,33 +201,62 @@ function BarcodePanel({ onFound }) {
   );
 }
 
-function CustomPanel({ meal, onMealChange, onAdd }) {
-  const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
+// Custom entry, laid out like a nutrition panel: values per serving plus the serving weight.
+// Saved to My foods by default, so it shows up in search (and, with a barcode, in the scanner)
+// next time. This is also where an unrecognised barcode lands, with the code filled in.
+function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode }) {
+  const [form, setForm] = useState({ name: "", brand: "", servingGrams: "", calories: "", protein: "", carbs: "", fat: "" });
+  const [save, setSave] = useState(true);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const valid = form.name.trim() && form.calories !== "";
+
+  const submit = () => {
+    const mine = myFoodFromLabel({ id: uid(), barcode, ...form });
+    if (save && onSaveMyFood) onSaveMyFood(mine);
+    const food = myFoodToResult(mine);
+    onAdd(toDiaryEntry(food, 1, food.portions[0], { id: uid(), date: todayStr(), meal, source: "custom" }));
+  };
+
   return (
     <div>
-      <input className="atlas-input" placeholder="Food name, e.g. Mum's lasagne" value={form.name} onChange={set("name")} aria-label="Food name" style={{ marginBottom: 8 }} />
-      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-        {[["calories", "kcal"], ["protein", "protein g"], ["carbs", "carbs g"], ["fat", "fat g"]].map(([k, ph]) => (
-          <input key={k} className="atlas-input" type="number" inputMode="decimal" placeholder={ph} value={form[k]} onChange={set(k)} aria-label={ph} />
+      {barcode && (
+        <div style={{ fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.45, marginBottom: 12, background: "var(--bg-elev2)", borderRadius: 10, padding: "10px 12px" }}>
+          Barcode <span className="mono" style={{ color: "var(--ink)" }}>{barcode}</span> isn't in the food databases yet. Copy the nutrition panel from the pack once and it'll scan straight away next time.
+        </div>
+      )}
+      <input className="atlas-input" placeholder={barcode ? "Product name" : "Food name, e.g. Mum's lasagne"} value={form.name} onChange={set("name")} aria-label="Food name" style={{ marginBottom: 8 }} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <input className="atlas-input" placeholder="Brand (optional)" value={form.brand} onChange={set("brand")} aria-label="Brand" />
+        <input className="atlas-input" type="number" inputMode="decimal" placeholder="Serving (g)" value={form.servingGrams} onChange={set("servingGrams")} aria-label="Serving size in grams" style={{ flex: "0 0 120px" }} />
+      </div>
+      <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 6 }}>PER SERVING{form.servingGrams ? ` (${form.servingGrams} G)` : " (100 G IF BLANK)"}</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {[["calories", "kcal", "kcal"], ["protein", "protein", "protein g"], ["carbs", "carbs", "carbs g"], ["fat", "fat", "fat g"]].map(([k, ph, label]) => (
+          <input key={k} className="atlas-input" type="number" inputMode="decimal" placeholder={ph} value={form[k]} onChange={set(k)} aria-label={label} />
         ))}
       </div>
+      {onSaveMyFood && (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink-dim)", marginBottom: 14, cursor: "pointer" }}>
+          <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} style={{ width: 18, height: 18, accentColor: "var(--brass)" }} />
+          Save to My foods so I can find it again
+        </label>
+      )}
       <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 6 }}>ADD TO</div>
       <MealPicker meal={meal} onChange={onMealChange} />
-      <button className="atlas-btn" style={{ width: "100%", marginTop: 14, padding: 13 }} disabled={!valid}
-        onClick={() => onAdd({ id: uid(), date: todayStr(), meal, name: form.name.trim(), calories: +form.calories || 0, protein: +form.protein || 0, carbs: +form.carbs || 0, fat: +form.fat || 0 })}>
+      <button className="atlas-btn" style={{ width: "100%", marginTop: 14, padding: 13 }} disabled={!valid} onClick={submit}>
         <Plus size={15} style={{ verticalAlign: -3, marginRight: 6 }} /> Add to {MEAL_LABEL[meal]}
       </button>
     </div>
   );
 }
 
-export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], favorites = [], onOpenPhotoScan }) {
+export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], favorites = [], myFoods = [], onSaveMyFood, onOpenPhotoScan }) {
   const [meal, setMeal] = useState(initialMeal);
   const [tab, setTab] = useState("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState(null);
+  const [partial, setPartial] = useState(false);
+  const [unknownBarcode, setUnknownBarcode] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -261,23 +294,26 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
   useEffect(() => {
     const q = query.trim();
     abortRef.current?.abort();
-    if (q.length < 2) { setResults(null); setLoading(false); setError(null); return; }
+    if (q.length < 2) { setResults(null); setLoading(false); setError(null); setPartial(false); return; }
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setLoading(true);
     const t = setTimeout(async () => {
       try {
         const r = await searchFoods(q, ctrl.signal);
-        if (!ctrl.signal.aborted) { setResults(r); setError(null); }
+        if (!ctrl.signal.aborted) { setResults(r.results); setPartial(r.partial); setError(null); }
       } catch (e) {
         if (e.name !== "AbortError") { setError(e.message); setResults(null); }
       }
       if (!ctrl.signal.aborted) setLoading(false);
-    }, 350);
+    }, 500);
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [query]);
 
   const add = (entry) => { onAdd(entry); onClose(); };
+  // My foods are matched locally, so they show up instantly and even when the databases are down.
+  const mine = query.trim().length >= 2 ? searchMyFoods(myFoods, query) : [];
+  const shown = results || mine.length ? [...mine, ...(results || []).filter((r) => !mine.some((m) => m.barcode && m.barcode === r.barcode))] : null;
   const addSaved = (f) => add({ id: uid(), date: todayStr(), meal, name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, ...(f.grams ? { grams: f.grams, amount: f.amount, per100g: f.per100g } : {}) });
 
   const tabs = [["search", "Search", Search], ["barcode", "Barcode", ScanBarcode], ["custom", "Custom", Pencil]];
@@ -308,7 +344,7 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
         {!selected && (
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }} role="tablist">
             {tabs.map(([id, label, Icon]) => (
-              <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setError(null); }} className="pill"
+              <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setError(null); if (id !== "custom") setUnknownBarcode(null); }} className="pill"
                 style={{ flex: 1, justifyContent: "center", cursor: "pointer", border: "1px solid var(--line)", minHeight: 40, gap: 5, background: tab === id ? "var(--brass-soft)" : "transparent", color: tab === id ? "var(--brass)" : "var(--ink-dim)" }}>
                 <Icon size={14} /> {label}
               </button>
@@ -329,12 +365,15 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
             </div>
             {loading && <div className="mono" style={{ fontSize: 12, color: "var(--ink-dim)", display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}><Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> Searching…</div>}
             {error && <div style={{ fontSize: 12, color: "var(--rest)", marginBottom: 10 }}>{error}</div>}
-            {results && !loading && results.length === 0 && (
+            {partial && !loading && (
+              <div style={{ fontSize: 12, color: "var(--warn)", marginBottom: 10 }}>Some food databases didn't respond, so this list may be incomplete. Try again in a moment.</div>
+            )}
+            {shown && !loading && shown.length === 0 && (
               <div style={{ fontSize: 13, color: "var(--ink-dim)", marginBottom: 12 }}>
-                No matches for “{query.trim()}”. Try a simpler name, scan the barcode, or add it as a custom food.
+                No matches for “{query.trim()}”. Try fewer words (“kirkland chicken” rather than the full pack name), scan the barcode, or add it from the label under Custom.
               </div>
             )}
-            {results && results.map((f) => {
+            {shown && shown.map((f) => {
               const d = defaultAmount(f);
               const kcal = nutrientsFor(f.per100g, gramsFor(d.quantity, d.unit)).calories;
               return (
@@ -342,14 +381,14 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
                   <span style={{ minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
                     <span className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {[f.brand, d.unit.label === "g" ? "100 g" : d.unit.label, `${kcal} kcal`].filter(Boolean).join(" · ")}
+                      {[f.mine ? "My foods" : null, f.brand, d.unit.label === "g" ? "100 g" : d.unit.label, `${kcal} kcal`].filter(Boolean).join(" · ")}
                     </span>
                   </span>
                   <Plus size={18} color="var(--brass)" style={{ flexShrink: 0 }} aria-hidden="true" />
                 </button>
               );
             })}
-            {!results && !loading && (
+            {!shown && !loading && (
               <>
                 {savedList("FAVORITES", Star, favorites)}
                 {savedList("RECENT", History, recentFoods)}
@@ -365,9 +404,9 @@ export function AddFoodSheet({ initialMeal, onAdd, onClose, recentFoods = [], fa
             </div>
           </>
         ) : tab === "barcode" ? (
-          <BarcodePanel onFound={setSelected} />
+          <BarcodePanel onFound={setSelected} myFoods={myFoods} onNotFound={(code) => { setUnknownBarcode(code); setTab("custom"); }} />
         ) : (
-          <CustomPanel meal={meal} onMealChange={setMeal} onAdd={add} />
+          <LabelPanel key={unknownBarcode || "custom"} meal={meal} onMealChange={setMeal} onAdd={add} onSaveMyFood={onSaveMyFood} barcode={unknownBarcode} />
         )}
       </div>
     </div>

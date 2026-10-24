@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeFdcFood, normalizeOffProduct, unitOptions, defaultAmount, gramsFor, nutrientsFor, toDiaryEntry, mergeResults, isValidBarcode } from "./foodData";
+import { normalizeFdcFood, normalizeOffProduct, unitOptions, defaultAmount, gramsFor, nutrientsFor, toDiaryEntry, isValidBarcode, parseQuery, rankResults, myFoodFromLabel, myFoodToResult, searchMyFoods, tokens } from "./foodData";
 
 const fdcBanana = {
   fdcId: 2709224, description: "BANANA, RAW", dataType: "Survey (FNDDS)",
@@ -84,13 +84,65 @@ describe("amounts", () => {
   });
 });
 
-describe("mergeResults", () => {
-  it("lists generic foods first, interleaves branded, and drops duplicates", () => {
-    const g = { id: "g", name: "Rice", generic: true };
-    const b1 = { id: "b1", name: "Rice Cakes", brand: "Quaker", generic: false };
-    const o1 = { id: "o1", name: "Rice cakes", brand: "Quaker", generic: false };
-    const o2 = { id: "o2", name: "Basmati", brand: "Tilda", generic: false };
-    expect(mergeResults([b1, g], [o1, o2]).map((f) => f.id)).toEqual(["g", "b1", "o2"]);
+describe("parseQuery", () => {
+  it("maps stores to the house brand on their labels", () => {
+    expect(parseQuery("Costco chicken")).toEqual({ brand: "kirkland signature", food: "chicken", branded: "kirkland signature chicken" });
+    expect(parseQuery("woolies greek yoghurt").brand).toBe("woolworths");
+    expect(parseQuery("coles")).toMatchObject({ brand: "coles", food: "" });
+    expect(parseQuery("chicken breast")).toEqual({ brand: null, food: "chicken breast", branded: "chicken breast" });
+  });
+
+  it("doesn't treat a store name inside another word as the store", () => {
+    expect(parseQuery("coleslaw").brand).toBeNull();
+  });
+
+  it("normalises Australian spellings to USDA's", () => {
+    expect(tokens("Greek Yoghurt")).toEqual(["greek", "yogurt"]);
+    expect(tokens("Crème fraîche")).toEqual(["creme", "fraiche"]);
+  });
+});
+
+describe("rankResults", () => {
+  const rice = { id: "g", name: "Rice, White, Cooked", generic: true };
+  const kirkland = { id: "k", name: "Rotisserie Chicken", brand: "Kirkland Signature", generic: false };
+  const tegel = { id: "t", name: "Chicken Breast", brand: "Tegel", generic: false };
+  const local = { id: "l", name: "Chicken Breast Fillets", brand: "Coles", generic: false, local: true };
+  const chickenGeneric = { id: "c", name: "Chicken Breast, Roasted", generic: true };
+
+  it("puts the asked-for brand first and drops unrelated results", () => {
+    const ids = rankResults([rice, chickenGeneric, tegel, kirkland], parseQuery("costco chicken")).map((f) => f.id);
+    expect(ids[0]).toBe("k");
+    expect(ids).not.toContain("g");
+  });
+
+  it("leads with generic foods when no brand is named, and boosts local products", () => {
+    const ids = rankResults([tegel, local, chickenGeneric], parseQuery("chicken breast")).map((f) => f.id);
+    expect(ids).toEqual(["c", "l", "t"]);
+  });
+
+  it("drops duplicates", () => {
+    expect(rankResults([tegel, { ...tegel, id: "t2" }], parseQuery("chicken"))).toHaveLength(1);
+  });
+});
+
+describe("My foods", () => {
+  const m = myFoodFromLabel({ id: "1", name: "Protein Bar", brand: "Coles", barcode: "9300601", servingGrams: "60", calories: "220", protein: "20", carbs: "18", fat: "7" });
+
+  it("converts a per-serving label to per 100 g", () => {
+    expect(m).toMatchObject({ servingGrams: 60, per100g: { calories: 366.7, protein: 33.3, carbs: 30, fat: 11.7 } });
+    const r = myFoodToResult(m);
+    expect(r.portions[0]).toEqual({ label: "1 serving (60 g)", grams: 60 });
+    expect(toDiaryEntry(r, 1, r.portions[0], {}).calories).toBe(220);
+  });
+
+  it("assumes 100 g when no serving size is given", () => {
+    expect(myFoodFromLabel({ id: "2", name: "Soup", calories: 80 }).per100g.calories).toBe(80);
+  });
+
+  it("is searchable by name, brand or store", () => {
+    expect(searchMyFoods([m], "protein b")).toHaveLength(1);
+    expect(searchMyFoods([m], "coles bar")).toHaveLength(1);
+    expect(searchMyFoods([m], "woolies bar")).toHaveLength(0);
   });
 });
 
