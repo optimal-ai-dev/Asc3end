@@ -238,6 +238,14 @@ View it by signing in with an allowlisted email and appending `?admin=1` to the 
 no nav-bar link to it on purpose (no reason to surface it to regular users), but that's a
 convenience, not the security boundary — the server-side email check is.
 
+## Owner access (free Asc3end+ for you)
+Every email in `ADMIN_EMAILS` also gets full Asc3end+ (Coach, Meals Near You, food scanner) with
+no monthly caps and no Stripe subscription. The check is server-side in `api/claude.js` against
+the caller's verified Supabase auth email (`lib/adminAccess.js`); `/api/usage` returns
+`owner: true` so the app shows "Asc3end+ Owner Access" instead of the paywall. The per-minute
+rate limit still applies. To set it up: Vercel → Project → Settings → Environment Variables →
+add `ADMIN_EMAILS` (comma-separated, e.g. `you@example.com`) for Production, then redeploy.
+
 ## Paywall
 Free (no card required, never expires): unlimited workout logging, unlimited nutrition tracking
 (manual entry + quick add + AI macro estimate), progress analytics, and `FREE_MONTHLY_LIMITS` (in

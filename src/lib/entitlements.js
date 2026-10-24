@@ -44,6 +44,8 @@ export function plusMonthlyLimit(feature) {
 // feature with no limit for the caller's plan (e.g. "estimate") is always allowed, since it's
 // free and unlimited for everyone regardless of plan.
 export function canAccessFeature(subscriptionState, feature, usage = {}) {
+  // The owner's account pays the Claude bill directly, so no fair-use cap applies.
+  if (subscriptionState.type === "owner") return true;
   if (isEntitled(subscriptionState)) {
     const cap = plusMonthlyLimit(feature);
     return cap === null || (usage[feature] || 0) < cap;
@@ -56,6 +58,7 @@ export function canAccessFeature(subscriptionState, feature, usage = {}) {
 // Whether a call to `feature` by this caller counts against a monthly allowance, i.e. whether
 // api/claude.js needs to read and increment its feature_usage_monthly row.
 export function isUsageTracked(subscriptionState, feature) {
+  if (subscriptionState.type === "owner") return false;
   if (isEntitled(subscriptionState)) return plusMonthlyLimit(feature) !== null;
   return METERED_FEATURES.has(feature);
 }

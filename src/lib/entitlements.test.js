@@ -91,3 +91,19 @@ describe("remainingMonthlyUses", () => {
     expect(remainingMonthlyUses(FEATURES.ESTIMATE, {})).toBeNull();
   });
 });
+
+describe("owner access (ADMIN_EMAILS)", () => {
+  const OWNER = { type: "owner", status: "active" };
+
+  it("can use every feature regardless of usage, with no fair-use cap", () => {
+    for (const feature of Object.values(FEATURES)) {
+      expect(canAccessFeature(OWNER, feature, { [feature]: 1_000_000 })).toBe(true);
+    }
+  });
+
+  it("isn't usage-tracked, so api/claude.js never reads or writes its monthly counts", () => {
+    for (const feature of Object.values(FEATURES)) {
+      expect(isUsageTracked(OWNER, feature)).toBe(false);
+    }
+  });
+});

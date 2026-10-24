@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSubscriptionState, isEntitled, describeSubscriptionState } from "./subscription";
+import { computeSubscriptionState, isEntitled, describeSubscriptionState, OWNER_SUBSCRIPTION_STATE } from "./subscription";
 
 describe("computeSubscriptionState", () => {
   it("undefined subscription -> loading", () => {
@@ -89,5 +89,18 @@ describe("describeSubscriptionState — human-readable status text", () => {
 
   it("demo always shows the exact required copy", () => {
     expect(describeSubscriptionState({ type: "demo", status: "active" })).toBe("Asc3end+ Demo Access");
+  });
+});
+
+describe("OWNER_SUBSCRIPTION_STATE", () => {
+  it("is entitled and labelled as owner access", () => {
+    expect(isEntitled(OWNER_SUBSCRIPTION_STATE)).toBe(true);
+    expect(describeSubscriptionState(OWNER_SUBSCRIPTION_STATE)).toBe("Asc3end+ Owner Access");
+  });
+
+  it("is never produced from a subscriptions row", () => {
+    const states = [null, { status: "active", stripe_customer_id: null }, { status: "active", stripe_customer_id: "cus_1" }]
+      .map(computeSubscriptionState);
+    expect(states.some((s) => s.type === "owner")).toBe(false);
   });
 });

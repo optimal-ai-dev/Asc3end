@@ -10,7 +10,7 @@ import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
 import { computeStreak, computeWorkoutXp } from "./lib/workoutMath";
 import { classifyDayAdherence } from "./lib/nutritionMath";
-import { computeSubscriptionState, isEntitled } from "./lib/subscription";
+import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE } from "./lib/subscription";
 import { isStaleSession, isValidSession } from "./lib/session";
 import {
   isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidFavorite,
@@ -286,9 +286,15 @@ export default function App() {
   // The one authoritative entitlement computation — everything that used to check
   // `subscription.status === "active" || "trialing"` ad hoc now derives from this single object,
   // so free/demo/paid can't quietly drift apart or contradict each other across components.
-  const subscriptionState = useMemo(() => computeSubscriptionState(subscription), [subscription]);
+  // usage.owner comes from /api/usage (ADMIN_EMAILS, checked server-side). It only affects what the
+  // UI shows — api/claude.js re-checks the caller itself before serving anything.
+  const subscriptionState = useMemo(
+    () => (usage.owner ? OWNER_SUBSCRIPTION_STATE : computeSubscriptionState(subscription)),
+    [subscription, usage.owner],
+  );
   const isPremium = isEntitled(subscriptionState);
-  const isDemoEntitlement = subscriptionState.type === "demo";
+  // Demo and owner access have no Stripe customer, so there's no billing portal to open.
+  const isDemoEntitlement = subscriptionState.type === "demo" || subscriptionState.type === "owner";
 
   const startCheckout = async (planArg = "monthly", trial = false) => {
     // Defensive normalization, not just a default — several call sites do `onClick={onUpgrade}`,

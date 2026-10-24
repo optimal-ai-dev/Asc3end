@@ -8,14 +8,7 @@
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
-
-function isAdminEmail(email) {
-  const allowlist = (process.env.ADMIN_EMAILS || "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return !!email && allowlist.includes(email.toLowerCase());
-}
+import { isAdminUser } from "../lib/adminAccess.js";
 
 async function countRows(table, extra) {
   let query = supabaseAdmin.from(table).select("*", { count: "exact", head: true });
@@ -37,7 +30,7 @@ export default async function handler(req, res) {
   if (authError || !user) {
     return res.status(401).json({ error: "Sign in required." });
   }
-  if (!isAdminEmail(user.email)) {
+  if (!isAdminUser(user)) {
     return res.status(403).json({ error: "Not authorized." });
   }
 
