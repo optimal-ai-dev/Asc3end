@@ -6,6 +6,7 @@
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { currentMonthKey } from "../lib/monthlyUsage.js";
+import { isAdminUser } from "../lib/adminAccess.js";
 
 const METERED_FEATURES = ["coach", "meals"];
 
@@ -37,6 +38,10 @@ export default async function handler(req, res) {
 
   const usage = { coach: 0, meals: 0 };
   for (const row of rows || []) usage[row.feature] = row.count;
+
+  // `owner` tells the client to show Asc3end+ for an ADMIN_EMAILS account. It only changes what
+  // the UI displays; api/claude.js makes the same check itself before serving anything.
+  if (isAdminUser(user)) usage.owner = true;
 
   res.status(200).json(usage);
 }

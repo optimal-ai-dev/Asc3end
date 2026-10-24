@@ -9,6 +9,7 @@
 // SubscriptionState =
 //   | { type: "free", status: "inactive" }
 //   | { type: "demo", status: "active" }
+//   | { type: "owner", status: "active" }   (an ADMIN_EMAILS account — see OWNER_SUBSCRIPTION_STATE)
 //   | { type: "paid", status: "trialing"|"active"|"past_due"|"cancelled", plan: "monthly"|"annual"|null, currentPeriodEnd: string|null }
 //   | { type: "loading" }
 //   | { type: "error", message: string }
@@ -16,6 +17,11 @@
 // `subscription` here is the row shape App.jsx already loads from the `subscriptions` table:
 // { status, stripe_customer_id, current_period_end, cancel_at_period_end, plan } — undefined
 // means "not checked yet" (loading), null means "no row" (free), an object is a real row.
+
+// The app owner's entitlement: full Asc3end+ with no fair-use caps and no Stripe subscription.
+// Never derived from a `subscriptions` row — only the server decides it (lib/adminAccess.js, from
+// the verified auth email vs ADMIN_EMAILS), and the client uses it only when /api/usage says so.
+export const OWNER_SUBSCRIPTION_STATE = Object.freeze({ type: "owner", status: "active" });
 
 export function computeSubscriptionState(subscription) {
   if (subscription === undefined) return { type: "loading" };
@@ -58,7 +64,7 @@ export function computeSubscriptionState(subscription) {
 
 // The one boolean components actually gate premium UI on.
 export function isEntitled(state) {
-  if (state.type === "demo") return true;
+  if (state.type === "demo" || state.type === "owner") return true;
   if (state.type === "paid") return state.status === "active" || state.status === "trialing" || state.status === "past_due" || state.status === "cancelled";
   return false;
 }
@@ -70,6 +76,7 @@ export function describeSubscriptionState(state) {
     case "loading": return "Checking subscription…";
     case "error": return state.message || "Couldn't check subscription status.";
     case "demo": return "Asc3end+ Demo Access";
+    case "owner": return "Asc3end+ Owner Access";
     case "free": return "Free plan";
     case "paid": {
       const planLabel = state.plan === "annual" ? "Annual" : state.plan === "monthly" ? "Monthly" : "";

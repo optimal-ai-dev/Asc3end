@@ -146,7 +146,7 @@ export function ResetPasswordScreen({ onDone }) {
 // acknowledgement instead of silently landing back on Home with a stray query param (the
 // cancelled case was previously completely unhandled).
 export function CheckoutResultScreen({ result, subscriptionState, onContinue, onRetry }) {
-  const activated = subscriptionState.type === "paid" || subscriptionState.type === "demo";
+  const activated = subscriptionState.type === "paid" || subscriptionState.type === "demo" || subscriptionState.type === "owner";
   return (
     <div className="atlas-root" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 }}>
       <div className="atlas-card" style={{ width: "100%", maxWidth: 360, textAlign: "center", padding: 28 }}>

@@ -260,7 +260,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
                 </button>
               )}
             </div>
-            {isDemoEntitlement && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 6 }}>Billing management is unavailable for demo accounts.</div>}
+            {isDemoEntitlement && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 6 }}>Billing management is unavailable for demo and owner accounts.</div>}
             {subscriptionState?.status === "past_due" && <div className="mono" style={{ fontSize: 11, color: "var(--warn)", marginTop: 6 }}>Your last payment failed — update your card via Manage Billing to avoid losing access.</div>}
           </div>
         ) : (

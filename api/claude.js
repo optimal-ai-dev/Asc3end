@@ -20,7 +20,8 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { getMonthlyUsage, incrementMonthlyUsage } from "../lib/monthlyUsage.js";
-import { computeSubscriptionState, isEntitled } from "../src/lib/subscription.js";
+import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE } from "../src/lib/subscription.js";
+import { isAdminUser } from "../lib/adminAccess.js";
 import { canAccessFeature, isMeteredFeature, isUsageTracked, freeMonthlyLimit, plusMonthlyLimit, FEATURES } from "../src/lib/entitlements.js";
 import { buildAnthropicRequest } from "../lib/anthropicRequest.js";
 
@@ -93,7 +94,9 @@ export default async function handler(req, res) {
   let usageCountBeforeThisCall = null; // set only when this call should increment usage after success
 
   if (feature === FEATURES.SCANNER || meteredFeature) {
-    const subscriptionState = await getSubscriptionState(user.id);
+    // Owners (ADMIN_EMAILS) get Asc3end+ with no monthly caps and no Stripe subscription. The
+    // per-minute rate limit above still applies to them.
+    const subscriptionState = isAdminUser(user) ? OWNER_SUBSCRIPTION_STATE : await getSubscriptionState(user.id);
     const entitled = isEntitled(subscriptionState);
     const tracked = isUsageTracked(subscriptionState, feature);
     let currentUsage = 0;
