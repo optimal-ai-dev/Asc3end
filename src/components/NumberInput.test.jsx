@@ -74,12 +74,22 @@ describe("Onboarding body stats", () => {
     act(() => root.render(<Onboarding onComplete={() => {}} />));
     typeInto(container.querySelector('input[placeholder="Your name"]'), "Tarique");
     const [age, height, weight] = inputs();
-    for (const [el, text] of [[age, "14"], [height, "168"], [weight, "58"]]) {
+    for (const [el, text] of [[age, "17"], [height, "168"], [weight, "58"]]) {
       typeInto(el, "");
       expect(el.value).toBe("");
       typeInto(el, "0" + text); // what the browser reports if a 0 was left in the box
       expect(el.value).toBe(text);
     }
+    expect(continueBtn().disabled).toBe(false);
+  });
+
+  it("blocks Continue for anyone under the minimum age of 16", () => {
+    act(() => root.render(<Onboarding onComplete={() => {}} />));
+    typeInto(container.querySelector('input[placeholder="Your name"]'), "Tarique");
+    typeInto(inputs()[0], "14");
+    expect(continueBtn().disabled).toBe(true);
+    expect(container.textContent).toContain("you need to be at least 16");
+    typeInto(inputs()[0], "16");
     expect(continueBtn().disabled).toBe(false);
   });
 

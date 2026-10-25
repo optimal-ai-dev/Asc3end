@@ -4,7 +4,7 @@ import LegalPage from "../LegalPage";
 import { supabase } from "../lib/supabase";
 import { logEvent } from "../lib/analytics";
 import { getNutritionTargets } from "../lib/nutritionMath";
-import { SUPPORT_EMAIL, LEGAL_COPY } from "../lib/legal";
+import { SUPPORT_EMAIL, LEGAL_COPY, MIN_AGE, meetsMinimumAge } from "../lib/legal";
 import { isValidPassword, MIN_PASSWORD_LENGTH } from "../lib/passwordPolicy";
 import { describeSubscriptionState } from "../lib/subscription";
 import { FEATURES, remainingMonthlyUses, freeMonthlyLimit, PLUS_MONTHLY_LIMITS } from "../lib/entitlements";
@@ -67,7 +67,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
 
   const saveIdentity = async () => {
     const name = edit.name.trim();
-    if (!name || !hasBodyStats(edit)) return;
+    if (!name || !hasBodyStats(edit) || !meetsMinimumAge(edit.age)) return;
     // No `targets` snapshot to recompute here anymore — getNutritionTargets() derives fresh from
     // these same profile fields everywhere it's called, so there's nothing to keep in sync.
     const next = { ...profile, ...edit, name };
@@ -197,7 +197,8 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
         <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 10 }}>
           Coaching style is set from the Coach tab — it's tied to how the AI talks about your plan, not your saved profile.
         </div>
-        <button className="atlas-btn" style={{ width: "100%" }} onClick={saveIdentity} disabled={!edit.name.trim() || !hasBodyStats(edit)}>Save Changes</button>
+        {hasBodyStats(edit) && !meetsMinimumAge(edit.age) && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 8 }}>Asc3end is for people aged {MIN_AGE} and over.</div>}
+        <button className="atlas-btn" style={{ width: "100%" }} onClick={saveIdentity} disabled={!edit.name.trim() || !hasBodyStats(edit) || !meetsMinimumAge(edit.age)}>Save Changes</button>
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
@@ -406,7 +407,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
         ) : (
           <div>
             <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 10 }}>
-              This permanently deletes your account and all workouts, nutrition logs, and weight history. This can't be undone. Type DELETE and enter your password to confirm.
+              This permanently deletes your account and all workouts, nutrition logs, and weight history, and cancels any active Asc3end+ subscription. This can't be undone. Type DELETE and enter your password to confirm.
             </div>
             <input className="atlas-input" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="DELETE" style={{ marginBottom: 10 }} />
             <input className="atlas-input" type="password" autoComplete="current-password" value={reauthPassword} onChange={(e) => { setReauthPassword(e.target.value); setReauthError(null); }} placeholder="Current password" style={{ marginBottom: 10 }} aria-label="Current password, to confirm it's really you" />

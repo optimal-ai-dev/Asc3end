@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { LEGAL_DOCUMENT_VERSION, LEGAL_EFFECTIVE_DATE, LEGAL_COPY } from "./legal";
+import { LEGAL_DOCUMENT_VERSION, LEGAL_EFFECTIVE_DATE, LEGAL_COPY, MIN_AGE, meetsMinimumAge } from "./legal";
 
-const REQUIRED_DOCS = ["privacy", "terms", "disclaimer", "aiLimitations", "subscriptionTerms", "refundPolicy", "support", "contact"];
+const REQUIRED_DOCS = ["privacy", "terms", "disclaimer", "aiLimitations", "subscriptionTerms", "refundPolicy", "dataSources", "support", "contact"];
 
 const PRIVACY_REQUIRED_TOPICS = [
   "data we collect", "why we collect it", "account and profile data",
@@ -9,11 +9,14 @@ const PRIVACY_REQUIRED_TOPICS = [
   "payment processing", "analytics and error monitoring", "cookies and local storage",
   "data retention", "export and deletion", "security", "children and minimum age",
   "international data processing", "your privacy rights", "contact",
+  "health information and your consent", "who we share it with", "food databases",
+  "data breaches", "complaints",
 ];
 
 const TERMS_REQUIRED_TOPICS = [
   "accounts", "acceptable use", "subscriptions", "cancellation", "intellectual property",
   "ai limitations", "health disclaimer", "termination", "warranty", "contact",
+  "your consumer rights", "governing law",
 ];
 
 describe("legal document version + copy", () => {
@@ -24,7 +27,7 @@ describe("legal document version + copy", () => {
     expect(LEGAL_EFFECTIVE_DATE.length).toBeGreaterThan(0);
   });
 
-  it("has all 8 required documents, each with a title and non-empty structured sections", () => {
+  it("has all 9 required documents, each with a title and non-empty structured sections", () => {
     for (const key of REQUIRED_DOCS) {
       const doc = LEGAL_COPY[key];
       expect(doc, `missing document: ${key}`).toBeDefined();
@@ -71,6 +74,50 @@ describe("legal document version + copy", () => {
     const billing = LEGAL_COPY.subscriptionTerms.sections.find((s) => s.heading === "Billing");
     expect(billing.body).toMatch(/AUD \$9\.99/);
     expect(billing.body).toMatch(/AUD \$79\.99/);
+  });
+});
+
+describe("Australian privacy, consumer law and attribution details", () => {
+  const text = (key) => LEGAL_COPY[key].sections.map((s) => s.body).join(" ");
+
+  it("sets one minimum age that onboarding, the Privacy Policy and the Terms all use", () => {
+    expect(MIN_AGE).toBe(16);
+    expect(meetsMinimumAge(16)).toBe(true);
+    expect(meetsMinimumAge(15)).toBe(false);
+    expect(meetsMinimumAge("")).toBe(false);
+    expect(text("privacy")).toContain(`at least ${MIN_AGE}`);
+    expect(text("terms")).toContain(`at least ${MIN_AGE}`);
+  });
+
+  it("tells people how to complain to the OAIC", () => {
+    expect(text("privacy")).toMatch(/Office of the Australian Information Commissioner/);
+    expect(text("privacy")).toMatch(/oaic\.gov\.au/);
+  });
+
+  it("names each overseas processor the app actually sends data to", () => {
+    const intl = LEGAL_COPY.privacy.sections.find((s) => s.heading === "International data processing").body;
+    for (const name of ["Anthropic", "Vercel", "Stripe", "Supabase", "United States"]) expect(intl).toContain(name);
+  });
+
+  it("does not rely on blanket 'by using you consent' wording for overseas transfers", () => {
+    expect(text("privacy")).not.toMatch(/by using asc3end you consent/i);
+  });
+
+  it("keeps the Terms' warranty clause subject to the Australian Consumer Law", () => {
+    expect(text("terms")).toMatch(/Australian Consumer Law/);
+    expect(text("terms")).not.toMatch(/without warranties of any kind/i);
+  });
+
+  it("credits Open Food Facts under the ODbL with a link to the licence", () => {
+    const off = LEGAL_COPY.dataSources.sections.find((s) => s.heading === "Open Food Facts");
+    expect(off.body).toMatch(/Open Database License/);
+    expect(off.links.map((l) => l.href)).toContain("https://opendatacommons.org/licenses/odbl/1-0/");
+  });
+
+  it("never points users at source files or the code repository", () => {
+    for (const doc of Object.values(LEGAL_COPY)) {
+      for (const section of doc.sections) expect(section.body).not.toMatch(/src\/|\.js\b|SECURITY\.md|repository/);
+    }
   });
 });
 
