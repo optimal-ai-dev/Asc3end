@@ -8,6 +8,7 @@ import {
 } from "../lib/foodData";
 import { readNutritionLabel } from "../lib/labelReader";
 import { searchFoods, lookupBarcode } from "../lib/foodSearchClient";
+import { NumberInput } from "./NumberInput";
 
 /* ------------------------------------------------------------------ */
 /* Add Food sheet — search, barcode and custom entry for one meal       */
@@ -145,8 +146,8 @@ function FoodDetail({ food, meal, onMealChange, onBack, onAdd, queryAmount }) {
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <div style={{ flex: "0 0 92px" }}>
           <label className="mono" htmlFor="food-qty" style={{ fontSize: 10.5, color: "var(--ink-dim)" }}>AMOUNT</label>
-          <input id="food-qty" className="atlas-input" type="number" inputMode="decimal" min="0" step="any" value={quantity}
-            onChange={(e) => setQuantity(e.target.value)} style={{ marginTop: 4, fontSize: 16 }} />
+          <NumberInput id="food-qty" className="atlas-input" inputMode="decimal" min="0" step="any" value={quantity}
+            onChange={(v) => setQuantity(v)} style={{ marginTop: 4, fontSize: 16 }} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <label className="mono" htmlFor="food-unit" style={{ fontSize: 10.5, color: "var(--ink-dim)" }}>SERVING SIZE</label>
@@ -350,6 +351,7 @@ function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode, initialN
     setReading(false);
   };
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setNum = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
   const valid = form.name.trim() && form.calories !== "";
 
   const submit = () => {
@@ -394,7 +396,7 @@ function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode, initialN
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <input className="atlas-input" placeholder="Brand (optional)" value={form.brand} onChange={set("brand")} aria-label="Brand" />
         <div style={{ flex: "0 0 132px", display: "flex", gap: 4 }}>
-          <input className="atlas-input" type="number" inputMode="decimal" placeholder="Serving" value={form.servingGrams} onChange={set("servingGrams")} aria-label="Serving size in grams" style={readDone ? filledStyle : undefined} />
+          <NumberInput className="atlas-input" inputMode="decimal" placeholder="Serving" value={form.servingGrams} onChange={setNum("servingGrams")} aria-label="Serving size in grams" style={readDone ? filledStyle : undefined} />
           <select className="atlas-input" value={form.servingUnit} onChange={set("servingUnit")} aria-label="Serving unit" style={{ flex: "0 0 52px", padding: "0 4px" }}>
             <option value="g">g</option><option value="ml">ml</option>
           </select>
@@ -404,7 +406,7 @@ function LabelPanel({ meal, onMealChange, onAdd, onSaveMyFood, barcode, initialN
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
         {[["calories", "kcal", "kcal", "kcal"], ["protein", "P (g)", "protein g", "Protein"], ["carbs", "C (g)", "carbs g", "Carbs"], ["fat", "F (g)", "fat g", "Fat"]].map(([k, ph, label, title]) => (
           <div key={k} style={{ flex: 1, minWidth: 0 }}>
-            <input className="atlas-input" type="number" inputMode="decimal" placeholder={ph} value={form[k]} onChange={set(k)} aria-label={label} style={readDone ? filledStyle : undefined} />
+            <NumberInput className="atlas-input" inputMode="decimal" placeholder={ph} value={form[k]} onChange={setNum(k)} aria-label={label} style={readDone ? filledStyle : undefined} />
             {readDone && <div className="mono" style={{ fontSize: 9.5, color: "var(--ink-dim)", textAlign: "center", marginTop: 3 }}>{title}</div>}
           </div>
         ))}

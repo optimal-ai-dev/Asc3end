@@ -2,6 +2,8 @@ import { useState } from "react";
 import LegalPage from "../LegalPage";
 import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION } from "../lib/legal";
 import { GOAL_LABELS } from "../lib/workoutHelpers";
+import { parseNumberDraft, hasBodyStats } from "../lib/numberInput";
+import { NumberInput } from "../components/NumberInput";
 
 /* ------------------------------------------------------------------ */
 /* Onboarding                                                          */
@@ -16,9 +18,9 @@ export function Onboarding({ onComplete }) {
     goal: "muscle_growth", experience: "intermediate", trainingDays: 4,
   });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  // Strips stray leading zeros (e.g. "018") that can otherwise persist in a controlled
-  // number input when a field is cleared and retyped — "18" should never render as "018".
-  const setNumber = (k, raw) => set(k, raw === "" ? 0 : +raw.replace(/^0+(?=\d)/, ""));
+  // NumberInput already strips leading zeros; a cleared field is stored as "" (not 0) so it
+  // stays blank and blocks Continue instead of saving an age/height/weight of 0.
+  const setNumber = (k, raw) => set(k, parseNumberDraft(raw));
 
   const steps = [
     {
@@ -30,7 +32,7 @@ export function Onboarding({ onComplete }) {
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>AGE</label>
-              <input type="number" className="atlas-input" value={form.age} onChange={(e) => setNumber("age", e.target.value)} />
+              <NumberInput className="atlas-input" value={form.age} onChange={(v) => setNumber("age", v)} />
             </div>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>GENDER</label>
@@ -44,11 +46,11 @@ export function Onboarding({ onComplete }) {
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>HEIGHT (CM)</label>
-              <input type="number" className="atlas-input" value={form.heightCm} onChange={(e) => setNumber("heightCm", e.target.value)} />
+              <NumberInput className="atlas-input" value={form.heightCm} onChange={(v) => setNumber("heightCm", v)} />
             </div>
             <div style={{ flex: 1 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>WEIGHT (KG)</label>
-              <input type="number" className="atlas-input" value={form.weightKg} onChange={(e) => setNumber("weightKg", e.target.value)} />
+              <NumberInput className="atlas-input" value={form.weightKg} onChange={(v) => setNumber("weightKg", v)} />
             </div>
           </div>
         </div>
@@ -119,6 +121,7 @@ export function Onboarding({ onComplete }) {
 
   const isLast = step === steps.length - 1;
   const nameMissing = step === 0 && !form.name.trim();
+  const statsMissing = step === 0 && !nameMissing && !hasBodyStats(form);
   const legalNotAgreed = isLast && !agreedToLegal;
 
   return (
@@ -140,7 +143,7 @@ export function Onboarding({ onComplete }) {
         <button
           className="atlas-btn"
           style={{ flex: 1 }}
-          disabled={nameMissing || legalNotAgreed}
+          disabled={nameMissing || statsMissing || legalNotAgreed}
           onClick={() => {
             if (isLast) onComplete({ ...form, legalAcceptedVersion: LEGAL_DOCUMENT_VERSION, legalAcceptedAt: new Date().toISOString() });
             else setStep(step + 1);
@@ -150,6 +153,7 @@ export function Onboarding({ onComplete }) {
         </button>
       </div>
       {nameMissing && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Enter your name to continue.</div>}
+      {statsMissing && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Enter your age, height and weight to continue.</div>}
       {legalNotAgreed && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Accept the Terms and Privacy Policy to continue.</div>}
     </div>
   );
