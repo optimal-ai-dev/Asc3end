@@ -294,7 +294,7 @@ function FoodScanner({ onAdd, onClose }) {
         <div className="atlas-card">
           <div className="disp" style={{ fontSize: 16 }}>{result.name}</div>
           <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 12 }}>
-            {result.source === "barcode" ? "From barcode lookup" : "From photo scan"} · {result.per100g.calories} kcal / 100g
+            {result.source === "barcode" ? "From Open Food Facts (ODbL)" : "From photo scan"} · {result.per100g.calories} kcal / 100g
           </div>
           <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>PORTION SIZE — ADJUST IF NEEDED (GRAMS)</label>
           <NumberInput className="atlas-input" value={grams} zeroAsEmpty onChange={(v) => setGrams(v === "" ? 0 : +v)} style={{ marginTop: 4, marginBottom: 12 }} />

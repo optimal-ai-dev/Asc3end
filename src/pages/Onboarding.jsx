@@ -1,6 +1,6 @@
 import { useState } from "react";
-import LegalPage from "../LegalPage";
-import { LEGAL_COPY, LEGAL_DOCUMENT_VERSION } from "../lib/legal";
+import { LEGAL_DOCUMENT_VERSION, MIN_AGE, meetsMinimumAge } from "../lib/legal";
+import { LegalConsent } from "../components/LegalConsent";
 import { GOAL_LABELS } from "../lib/workoutHelpers";
 import { parseNumberDraft, hasBodyStats } from "../lib/numberInput";
 import { NumberInput } from "../components/NumberInput";
@@ -12,7 +12,7 @@ import { NumberInput } from "../components/NumberInput";
 export function Onboarding({ onComplete }) {
   const [step, setStep] = useState(0);
   const [agreedToLegal, setAgreedToLegal] = useState(false);
-  const [legalOpen, setLegalOpen] = useState(null);
+  const [agreedToHealth, setAgreedToHealth] = useState(false);
   const [form, setForm] = useState({
     name: "", age: 25, gender: "male", heightCm: 175, weightKg: 75,
     goal: "muscle_growth", experience: "intermediate", trainingDays: 4,
@@ -102,18 +102,9 @@ export function Onboarding({ onComplete }) {
       body: (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 13, color: "var(--ink-dim)", lineHeight: 1.6, marginBottom: 4 }}>
-            Asc3end gives general fitness and nutrition information, not medical advice — quick summary below, full documents linked from Profile once you're in.
+            Asc3end gives general fitness and nutrition information, not medical advice — read the documents below, and you can find them again in Profile any time.
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {["terms", "privacy", "disclaimer"].map((k) => (
-              <button key={k} onClick={() => setLegalOpen(legalOpen === k ? null : k)} className="pill" style={{ cursor: "pointer", border: "1px solid var(--line)", background: "transparent", color: "var(--ink-dim)" }}>{LEGAL_COPY[k].title}</button>
-            ))}
-          </div>
-          {legalOpen && <LegalPage docKey={legalOpen} onClose={() => setLegalOpen(null)} />}
-          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", marginTop: 8 }}>
-            <input type="checkbox" checked={agreedToLegal} onChange={(e) => setAgreedToLegal(e.target.checked)} style={{ marginTop: 3 }} />
-            <span style={{ fontSize: 13, lineHeight: 1.5 }}>I agree to the Terms of Use and Privacy Policy, and understand Asc3end is not medical advice.</span>
-          </label>
+          <LegalConsent agreedToTerms={agreedToLegal} onAgreedToTerms={setAgreedToLegal} agreedToHealth={agreedToHealth} onAgreedToHealth={setAgreedToHealth} />
         </div>
       ),
     },
@@ -122,7 +113,8 @@ export function Onboarding({ onComplete }) {
   const isLast = step === steps.length - 1;
   const nameMissing = step === 0 && !form.name.trim();
   const statsMissing = step === 0 && !nameMissing && !hasBodyStats(form);
-  const legalNotAgreed = isLast && !agreedToLegal;
+  const underAge = step === 0 && !nameMissing && !statsMissing && !meetsMinimumAge(form.age);
+  const legalNotAgreed = isLast && !(agreedToLegal && agreedToHealth);
 
   return (
     <div className="atlas-root" style={{ padding: "40px 20px", paddingBottom: 40 }}>
@@ -143,9 +135,9 @@ export function Onboarding({ onComplete }) {
         <button
           className="atlas-btn"
           style={{ flex: 1 }}
-          disabled={nameMissing || statsMissing || legalNotAgreed}
+          disabled={nameMissing || statsMissing || underAge || legalNotAgreed}
           onClick={() => {
-            if (isLast) onComplete({ ...form, legalAcceptedVersion: LEGAL_DOCUMENT_VERSION, legalAcceptedAt: new Date().toISOString() });
+            if (isLast) onComplete({ ...form, legalAcceptedVersion: LEGAL_DOCUMENT_VERSION, legalAcceptedAt: new Date().toISOString(), healthConsentAt: new Date().toISOString() });
             else setStep(step + 1);
           }}
         >
@@ -154,7 +146,8 @@ export function Onboarding({ onComplete }) {
       </div>
       {nameMissing && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Enter your name to continue.</div>}
       {statsMissing && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Enter your age, height and weight to continue.</div>}
-      {legalNotAgreed && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Accept the Terms and Privacy Policy to continue.</div>}
+      {underAge && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Sorry, you need to be at least {MIN_AGE} to use Asc3end.</div>}
+      {legalNotAgreed && <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 8, textAlign: "center" }}>Tick both boxes to continue.</div>}
     </div>
   );
 }

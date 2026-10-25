@@ -27,6 +27,8 @@ import {
 import { weeklyAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL } from "./lib/nutritionHelpers";
 import { MuscleReadinessMap } from "./components/MuscleReadinessMap";
 import { Onboarding } from "./pages/Onboarding";
+import { LegalUpdateScreen } from "./pages/LegalUpdateScreen";
+import { LEGAL_DOCUMENT_VERSION } from "./lib/legal";
 import { Dashboard } from "./pages/Dashboard";
 import { Profile } from "./pages/Profile";
 import { Train } from "./pages/Train";
@@ -657,6 +659,21 @@ export default function App() {
       <>
         <GlobalStyle />
         <Onboarding onComplete={completeOnboarding} />
+      </>
+    );
+  }
+
+  if (profile.legalAcceptedVersion !== LEGAL_DOCUMENT_VERSION) {
+    return (
+      <>
+        <GlobalStyle />
+        <LegalUpdateScreen
+          onAccept={() => {
+            const acceptedAt = new Date().toISOString();
+            return updateProfile({ legalAcceptedVersion: LEGAL_DOCUMENT_VERSION, legalAcceptedAt: acceptedAt, healthConsentAt: acceptedAt });
+          }}
+          onLogOut={logOut}
+        />
       </>
     );
   }

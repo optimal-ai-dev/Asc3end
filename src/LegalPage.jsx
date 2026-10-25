@@ -28,6 +28,13 @@ export default function LegalPage({ docKey, onClose }) {
                 <div key={section.heading} style={{ marginBottom: 18 }}>
                   <h2 className="disp" style={{ fontSize: 14, marginBottom: 6 }}>{section.heading}</h2>
                   <p style={{ fontSize: 13.5, color: "var(--ink)", lineHeight: 1.7, margin: 0 }}>{section.body}</p>
+                  {section.links?.length > 0 && (
+                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
+                      {section.links.map((link) => (
+                        <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--brass)", fontSize: 13, textDecoration: "underline" }}>{link.label}</a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
               {showMailLink && (

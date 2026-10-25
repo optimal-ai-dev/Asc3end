@@ -1,9 +1,12 @@
 // Vercel serverless function. Deployed at /api/delete-account — the only way an account can
 // actually be removed, since deleting an auth user requires the service_role key, which never
 // exists client-side. Cleans up the user's own rows first (no FK cascade is configured on these
-// tables), then deletes the auth user itself.
+// tables), then deletes the auth user itself. An active Stripe subscription is cancelled first:
+// deleting only our subscriptions row would leave Stripe billing someone who no longer has an
+// account to use or to cancel from.
 
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
+import { stripe } from "../lib/stripe.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
 export default async function handler(req, res) {
@@ -25,7 +28,27 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: "Too many requests — please wait a moment and try again." });
   }
 
+  // Statuses where Stripe will never charge again, so there's nothing to cancel.
+  const ENDED = ["canceled", "incomplete_expired"];
   try {
+    const { data: sub } = await supabaseAdmin
+      .from("subscriptions")
+      .select("stripe_subscription_id, status")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (sub?.stripe_subscription_id && !ENDED.includes(sub.status)) {
+      try {
+        await stripe.subscriptions.cancel(sub.stripe_subscription_id);
+      } catch (e) {
+        // Already gone on Stripe's side is fine; anything else stops the deletion, so the user can
+        // retry instead of losing their account while still being billed.
+        if (e?.code !== "resource_missing") {
+          console.error("delete-account: stripe cancel failed", { userId: user.id, code: e?.code });
+          return res.status(502).json({ error: "Couldn't cancel your subscription, so your account wasn't deleted. Try again, or cancel from Manage Billing first." });
+        }
+      }
+    }
+
     // Every one of these tables' user_id references auth.users with no ON DELETE clause (default:
     // NO ACTION) — deleteUser() below fails with a foreign-key violation if any row for this user
     // is left behind anywhere. feature_usage_monthly was missing from this list entirely (added
