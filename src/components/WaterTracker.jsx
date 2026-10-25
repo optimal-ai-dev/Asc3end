@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Droplet, Undo2, Plus } from "lucide-react";
 import { todayStr } from "../lib/dateUtils";
 import { WATER_QUICK_ADDS, waterGoalMl, waterForDate, formatMl } from "../lib/water";
+import { NumberInput } from "./NumberInput";
 
 export function WaterTracker({ profile, water = [], onAdd, onDelete, onUpdateProfile }) {
   const [custom, setCustom] = useState("");
@@ -38,7 +39,7 @@ export function WaterTracker({ profile, water = [], onAdd, onDelete, onUpdatePro
         </h2>
         {editingGoal ? (
           <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
-            <input className="atlas-input" type="number" inputMode="numeric" value={goalInput} onChange={(e) => setGoalInput(e.target.value)}
+            <NumberInput className="atlas-input" inputMode="numeric" value={goalInput} onChange={(v) => setGoalInput(v)}
               style={{ width: 84, padding: "4px 8px" }} aria-label="Daily water goal in millilitres" autoFocus />
             <button className="atlas-btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={saveGoal}>Save</button>
           </span>
@@ -70,8 +71,8 @@ export function WaterTracker({ profile, water = [], onAdd, onDelete, onUpdatePro
         ))}
       </div>
       <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-        <input className="atlas-input" type="number" inputMode="numeric" placeholder="Other amount (ml)" value={custom}
-          onChange={(e) => setCustom(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCustom()} aria-label="Custom water amount in millilitres" />
+        <NumberInput className="atlas-input" inputMode="numeric" placeholder="Other amount (ml)" value={custom}
+          onChange={(v) => setCustom(v)} onKeyDown={(e) => e.key === "Enter" && addCustom()} aria-label="Custom water amount in millilitres" />
         <button className="atlas-btn-ghost" style={{ padding: "8px 12px" }} onClick={addCustom} disabled={!custom} aria-label="Add custom water amount">
           <Plus size={14} />
         </button>

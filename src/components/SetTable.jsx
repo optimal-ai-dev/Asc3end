@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Plus, Trophy } from "lucide-react";
 import { SET_TYPES, SET_TYPE_COLORS, SET_TYPE_LABELS, fmtWeightReps } from "../lib/workoutHelpers";
+import { NumberInput } from "./NumberInput";
 
 // Short set-number labels in the Hevy/Strong convention: normal sets are numbered, the others
 // get a coloured letter so a warm-up never reads as "set 1".
@@ -121,13 +122,13 @@ export function SetTable({ exName, sets, targetSets, previous, suggestedWeight, 
                 </td>
                 <td className="mono" style={{ ...cell, fontSize: 13, color: "var(--ink-dim)" }}>{fmtPrev(previous[n])}</td>
                 <td style={cell}>
-                  <input className="atlas-input mono" type="number" inputMode="decimal" style={valueBox}
-                    placeholder={String(ph.kg)} value={draft.kg ?? ""} onChange={(e) => setDraft(n, { kg: e.target.value })}
+                  <NumberInput className="atlas-input mono" inputMode="decimal" style={valueBox}
+                    placeholder={String(ph.kg)} value={draft.kg ?? ""} onChange={(v) => setDraft(n, { kg: v })}
                     aria-label={`Set ${n + 1} weight in kg for ${exName}`} />
                 </td>
                 <td style={cell}>
-                  <input className="atlas-input mono" type="number" inputMode="numeric" style={valueBox}
-                    placeholder={String(ph.reps)} value={draft.reps ?? ""} onChange={(e) => setDraft(n, { reps: e.target.value })}
+                  <NumberInput className="atlas-input mono" inputMode="numeric" style={valueBox}
+                    placeholder={String(ph.reps)} value={draft.reps ?? ""} onChange={(v) => setDraft(n, { reps: v })}
                     aria-label={`Set ${n + 1} reps for ${exName}`} />
                 </td>
                 <td style={cell}>

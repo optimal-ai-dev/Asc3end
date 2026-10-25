@@ -19,6 +19,7 @@ import { WeeklyCheckIn } from "../components/WeeklyCheckIn";
 import { AddFoodSheet } from "../components/AddFoodSheet";
 import { WaterTracker } from "../components/WaterTracker";
 import { nutrientsFor } from "../lib/foodData";
+import { NumberInput } from "../components/NumberInput";
 
 /* ------------------------------------------------------------------ */
 /* Nutrition                                                            */
@@ -296,7 +297,7 @@ function FoodScanner({ onAdd, onClose }) {
             {result.source === "barcode" ? "From barcode lookup" : "From photo scan"} · {result.per100g.calories} kcal / 100g
           </div>
           <label className="mono" style={{ fontSize: 11, color: "var(--ink-dim)" }}>PORTION SIZE — ADJUST IF NEEDED (GRAMS)</label>
-          <input type="number" className="atlas-input" value={grams} onChange={(e) => setGrams(e.target.value === "" ? 0 : +e.target.value.replace(/^0+(?=\d)/, ""))} style={{ marginTop: 4, marginBottom: 12 }} />
+          <NumberInput className="atlas-input" value={grams} zeroAsEmpty onChange={(v) => setGrams(v === "" ? 0 : +v)} style={{ marginTop: 4, marginBottom: 12 }} />
           <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
             <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.calories}</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>KCAL</div></div>
             <div style={{ flex: 1, textAlign: "center" }}><div className="disp" style={{ fontSize: 18 }}>{totals.protein}g</div><div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)" }}>PROTEIN</div></div>
@@ -593,14 +594,14 @@ Respond with ONLY this JSON, nothing else:
                     {editForm.per100g && (
                       <label className="mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-dim)", marginBottom: 6 }}>
                         AMOUNT (G)
-                        <input className="atlas-input" type="number" inputMode="decimal" value={editForm.grams} onChange={(e) => setEditGrams(e.target.value)} aria-label="Edit amount in grams" style={{ flex: 1 }} />
+                        <NumberInput className="atlas-input" inputMode="decimal" value={editForm.grams} onChange={(v) => setEditGrams(v)} aria-label="Edit amount in grams" style={{ flex: 1 }} />
                       </label>
                     )}
                     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                      <input className="atlas-input" type="number" placeholder="kcal" value={editForm.calories} onChange={(e) => setEditForm((v) => ({ ...v, calories: e.target.value }))} aria-label="Edit calories" />
-                      <input className="atlas-input" type="number" placeholder="protein" value={editForm.protein} onChange={(e) => setEditForm((v) => ({ ...v, protein: e.target.value }))} aria-label="Edit protein" />
-                      <input className="atlas-input" type="number" placeholder="carbs" value={editForm.carbs} onChange={(e) => setEditForm((v) => ({ ...v, carbs: e.target.value }))} aria-label="Edit carbs" />
-                      <input className="atlas-input" type="number" placeholder="fat" value={editForm.fat} onChange={(e) => setEditForm((v) => ({ ...v, fat: e.target.value }))} aria-label="Edit fat" />
+                      <NumberInput className="atlas-input" placeholder="kcal" value={editForm.calories} onChange={(v) => setEditForm((f) => ({ ...f, calories: v }))} aria-label="Edit calories" />
+                      <NumberInput className="atlas-input" placeholder="protein" value={editForm.protein} onChange={(v) => setEditForm((f) => ({ ...f, protein: v }))} aria-label="Edit protein" />
+                      <NumberInput className="atlas-input" placeholder="carbs" value={editForm.carbs} onChange={(v) => setEditForm((f) => ({ ...f, carbs: v }))} aria-label="Edit carbs" />
+                      <NumberInput className="atlas-input" placeholder="fat" value={editForm.fat} onChange={(v) => setEditForm((f) => ({ ...f, fat: v }))} aria-label="Edit fat" />
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => { setEditingId(null); setEditForm(null); }}>Cancel</button>
@@ -707,10 +708,10 @@ Respond with ONLY this JSON, nothing else:
         </div>
         {estimating && <div style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 6 }}>Estimating macros…</div>}
         <div style={{ display: "flex", gap: 6 }}>
-          <input className="atlas-input" type="number" placeholder="kcal" value={form.calories} onChange={(e) => setForm((f) => ({ ...f, calories: e.target.value }))} aria-label="Calories" />
-          <input className="atlas-input" type="number" placeholder="protein" value={form.protein} onChange={(e) => setForm((f) => ({ ...f, protein: e.target.value }))} aria-label="Protein grams" />
-          <input className="atlas-input" type="number" placeholder="carbs" value={form.carbs} onChange={(e) => setForm((f) => ({ ...f, carbs: e.target.value }))} aria-label="Carbs grams" />
-          <input className="atlas-input" type="number" placeholder="fat" value={form.fat} onChange={(e) => setForm((f) => ({ ...f, fat: e.target.value }))} aria-label="Fat grams" />
+          <NumberInput className="atlas-input" placeholder="kcal" value={form.calories} onChange={(v) => setForm((f) => ({ ...f, calories: v }))} aria-label="Calories" />
+          <NumberInput className="atlas-input" placeholder="protein" value={form.protein} onChange={(v) => setForm((f) => ({ ...f, protein: v }))} aria-label="Protein grams" />
+          <NumberInput className="atlas-input" placeholder="carbs" value={form.carbs} onChange={(v) => setForm((f) => ({ ...f, carbs: v }))} aria-label="Carbs grams" />
+          <NumberInput className="atlas-input" placeholder="fat" value={form.fat} onChange={(v) => setForm((f) => ({ ...f, fat: v }))} aria-label="Fat grams" />
         </div>
         <button className="atlas-btn" style={{ width: "100%", marginTop: 8 }} onClick={submit}>Add to Log</button>
       </div>
