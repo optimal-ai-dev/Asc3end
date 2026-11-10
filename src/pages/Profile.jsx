@@ -159,7 +159,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
         <h2 className="disp" style={{ fontSize: 15, marginBottom: 12 }}>About You</h2>
         {row("NAME", <input className="atlas-input" value={edit.name} onChange={(e) => setEdit((f) => ({ ...f, name: e.target.value }))} />)}
         <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}>{row("AGE", <NumberInput className="atlas-input" value={edit.age} onChange={(v) => setNumber("age", v)} />)}</div>
+          <div style={{ flex: 1 }}>{row("AGE", <NumberInput className="atlas-input" inputMode="numeric" value={edit.age} onChange={(v) => setNumber("age", v)} />)}</div>
           <div style={{ flex: 1 }}>
             {row("GENDER", (
               <select className="atlas-input" value={edit.gender} onChange={(e) => setEdit((f) => ({ ...f, gender: e.target.value }))}>

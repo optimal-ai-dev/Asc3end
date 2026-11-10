@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripLeadingZeros, toDraft, draftMatchesValue, parseNumberDraft, hasBodyStats } from "./numberInput";
+import { cleanNumberText, stripLeadingZeros, toDraft, draftMatchesValue, parseNumberDraft, hasBodyStats } from "./numberInput";
 
 describe("stripLeadingZeros", () => {
   it("drops zeros in front of a whole number", () => {
@@ -53,5 +53,22 @@ describe("parseNumberDraft / hasBodyStats", () => {
     expect(hasBodyStats({ age: 14, heightCm: 168, weightKg: 58 })).toBe(true);
     expect(hasBodyStats({ age: "", heightCm: 168, weightKg: 58 })).toBe(false);
     expect(hasBodyStats({ age: 14, heightCm: 0, weightKg: 58 })).toBe(false);
+  });
+});
+
+describe("cleanNumberText", () => {
+  it("keeps only a clean number with no leading zeros", () => {
+    expect(cleanNumberText("025")).toBe("25");
+    expect(cleanNumberText("0")).toBe("0");
+    expect(cleanNumberText("")).toBe("");
+    expect(cleanNumberText("1,5")).toBe("1.5");
+    expect(cleanNumberText("1.2.3")).toBe("1.23");
+    expect(cleanNumberText(".5")).toBe("0.5");
+    expect(cleanNumberText("12kg")).toBe("12");
+    expect(cleanNumberText("-5")).toBe("5");
+  });
+  it("drops the decimal point in whole-number boxes", () => {
+    expect(cleanNumberText("07.5", false)).toBe("75");
+    expect(cleanNumberText("012", false)).toBe("12");
   });
 });

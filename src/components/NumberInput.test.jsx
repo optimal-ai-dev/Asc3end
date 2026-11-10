@@ -66,8 +66,54 @@ describe("NumberInput", () => {
   });
 });
 
+describe("NumberInput on a phone", () => {
+  it("is a text box with a number keypad, so the screen always shows exactly the cleaned value", () => {
+    act(() => root.render(<NumericParent initial={25} />));
+    const input = container.querySelector("input");
+    expect(input.type).toBe("text");
+    expect(input.getAttribute("inputmode")).toBe("decimal");
+  });
+
+  it("clearing a prefilled age then typing a new one never leaves a 0 in front", () => {
+    const onValue = vi.fn();
+    function AgeParent() {
+      const [age, setAge] = useState(25);
+      return <NumberInput aria-label="age" inputMode="numeric" value={age} onChange={(v) => { const n = v === "" ? "" : +v; setAge(n); onValue(n); }} />;
+    }
+    act(() => root.render(<AgeParent />));
+    const input = container.querySelector("input");
+    typeInto(input, "2");
+    typeInto(input, "");
+    expect(input.value).toBe("");
+    typeInto(input, "0");
+    typeInto(input, "03");
+    typeInto(input, "032");
+    expect(input.value).toBe("32");
+    expect(onValue).toHaveBeenLastCalledWith(32);
+  });
+
+  it("drops letters, reads a comma as a decimal point and keeps whole-number boxes whole", () => {
+    act(() => root.render(<NumberInput aria-label="kg" value="" onChange={() => {}} />));
+    const kg = container.querySelector("input");
+    typeInto(kg, "62,5kg");
+    expect(kg.value).toBe("62.5");
+    act(() => root.render(<NumberInput aria-label="reps" inputMode="numeric" value="" onChange={() => {}} />));
+    const reps = container.querySelector("input");
+    typeInto(reps, "08.");
+    expect(reps.value).toBe("8");
+  });
+
+  it("selects the number already in the box when tapped, so typing replaces it", () => {
+    act(() => root.render(<NumericParent initial={75} />));
+    const input = container.querySelector("input");
+    act(() => input.focus());
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(2);
+  });
+});
+
 describe("Onboarding body stats", () => {
-  const inputs = () => container.querySelectorAll('input[type="number"]');
+  const inputs = () => container.querySelectorAll("input[inputmode]");
   const continueBtn = () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Continue");
 
   it("never shows a leading zero when age, height and weight are retyped", () => {
