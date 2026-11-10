@@ -20,6 +20,19 @@ window.addEventListener("unhandledrejection", (event) => {
   captureException(event.reason instanceof Error ? event.reason : new Error(String(event.reason)));
 });
 
+// The PWA service worker (vite-plugin-pwa, registerType "autoUpdate") activates a new deploy in
+// the background, but the page that's already open keeps running the old JS until it's reloaded,
+// so a fix could take two refreshes to appear. Reload once when a new worker takes over. Skipped
+// on the very first install (no previous controller), where there's no stale code to replace.
+if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 
 // A plain, dependency-free fallback for the ONE class of failure ErrorBoundary structurally
