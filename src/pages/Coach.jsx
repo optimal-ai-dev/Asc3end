@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useRef, useEffect } from "react";
 import { X, Pencil, Loader2, Sparkles, Trash2, Plus, Send, AlertTriangle } from "lucide-react";
 import { logEvent } from "../lib/analytics";
+import { ChatTextarea } from "../components/ChatTextarea";
 import { loadKey, saveKey } from "../lib/storage";
 import { getNutritionTargets } from "../lib/nutritionMath";
 import { remainingMonthlyUses, FEATURES } from "../lib/entitlements";
@@ -16,6 +17,7 @@ import { lookupExercise, GOAL_LABELS, matchesSearch } from "../lib/workoutHelper
 import { ExerciseThumb } from "../components/ExerciseFigure";
 import { ProgramRoadmap } from "../components/ProgramRoadmap";
 import { Paywall } from "../components/Paywall";
+import { NumberInput } from "../components/NumberInput";
 
 // Lazy-loaded: react-markdown (and its remark/micromark dependencies) only ships to people who
 // actually open the Coach tab, instead of adding to the bundle everyone downloads on first load.
@@ -150,7 +152,13 @@ export function Coach({ profile, workouts, onUpdateProfile, isPremium, onUpgrade
     saveKey(KEYS.coachMessages, messages);
   }, [messages, messagesLoaded]);
 
-  useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [messages]);
+  // The page itself scrolls (plan card above, chat below), so follow new messages only once the
+  // user has started chatting this visit — restoring a saved conversation shouldn't yank the page
+  // past the plan card on open.
+  const followChatRef = useRef(false);
+  useEffect(() => {
+    if (followChatRef.current) scrollRef.current?.lastElementChild?.scrollIntoView?.({ block: "end", behavior: "smooth" });
+  }, [messages, sending]);
 
   // Elapsed-seconds counter for the "Thinking…" indicator — the underlying request can
   // legitimately take 10-20+ seconds (web-search-backed Meals Near You shares this same proxy,
@@ -304,6 +312,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
     const text = safeOverride ?? input;
     if (!text.trim()) return;
     sendingRef.current = true;
+    followChatRef.current = true;
     setLastFailedInput(null);
     // On retry, drop the trailing error bubble first — otherwise it both looks stale once the
     // retry succeeds, and gets sent back to Claude as if it were real conversation history.
@@ -363,7 +372,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
   }
 
   return (
-    <div style={{ padding: "24px 18px", display: "flex", flexDirection: "column", height: "calc(100vh - 88px)" }}>
+    <div style={{ padding: "24px 18px 0", display: "flex", flexDirection: "column", minHeight: "calc(100dvh - 88px)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
         <h1 className="disp-title" style={{ fontSize: 26 }}>Coach</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -434,7 +443,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
                     {mg.exercises.map((ex, exIdx) => (
                       <div key={exIdx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
                         <span style={{ flex: 1, fontSize: 12.5 }}>{ex.name}</span>
-                        <input className="atlas-input" type="number" style={{ width: 50, fontSize: 12, padding: "6px 8px" }} value={ex.sets} onChange={(e) => updateExerciseField(dayIdx, mgIdx, exIdx, "sets", +e.target.value || 0)} aria-label={`Sets for ${ex.name}`} />
+                        <NumberInput className="atlas-input" style={{ width: 50, fontSize: 12, padding: "6px 8px" }} value={ex.sets} zeroAsEmpty onChange={(v) => updateExerciseField(dayIdx, mgIdx, exIdx, "sets", +v || 0)} aria-label={`Sets for ${ex.name}`} />
                         <input className="atlas-input" style={{ width: 60, fontSize: 12, padding: "6px 8px" }} value={ex.reps} onChange={(e) => updateExerciseField(dayIdx, mgIdx, exIdx, "reps", e.target.value)} aria-label={`Reps for ${ex.name}`} />
                         <button onClick={() => removeExercise(dayIdx, mgIdx, exIdx)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Remove ${ex.name} from ${d.day}`}>
                           <X size={13} color="var(--ink-dim)" />
@@ -500,7 +509,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
         {!plan && !planError && !genLoading && <div style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 8 }}>Generate a personalised split based on your goal and schedule.</div>}
       </div>
 
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 2 }}>
+      <div ref={scrollRef} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, paddingRight: 2 }}>
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "chat-bubble-user" : "chat-bubble-ai"} style={{ fontSize: 13.5, lineHeight: 1.5 }}>
             {m.workout ? (
@@ -509,6 +518,9 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
                 <MuscleGroupBlock muscleGroups={m.workout.muscleGroups} onTapExercise={setExDetail} />
                 <div className="mono" style={{ fontSize: 9, color: "var(--ink-dim)", marginTop: 8, fontStyle: "italic" }}>Tap any exercise for form cues.</div>
               </div>
+            ) : m.role === "user" ? (
+              // The user's own words, shown exactly as typed so line breaks from the message box survive.
+              <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{m.content}</div>
             ) : (
               <CoachMessageContent content={m.content} />
             )}
@@ -528,10 +540,11 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <input className="atlas-input" placeholder="Ask your coach…" value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()} />
-        <button className="atlas-btn" style={{ padding: "10px 14px" }} onClick={() => sendMessage()} disabled={sending} aria-label="Send message"><Send size={16} /></button>
+      {/* Pinned just above the bottom nav while the page scrolls, so the box stays reachable however
+          tall the plan card or the message being typed gets. */}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", position: "sticky", bottom: "calc(70px + env(safe-area-inset-bottom))", background: "var(--bg)", padding: "10px 0 12px", zIndex: 5 }}>
+        <ChatTextarea placeholder="Ask your coach…" value={input} onChange={setInput} onSend={() => sendMessage()} aria-label="Message your coach" />
+        <button className="atlas-btn" style={{ padding: "10px 14px", flexShrink: 0 }} onClick={() => sendMessage()} disabled={sending} aria-label="Send message"><Send size={16} /></button>
       </div>
 
       {exDetail && <CoachExercisePopup ex={exDetail} onClose={() => setExDetail(null)} />}

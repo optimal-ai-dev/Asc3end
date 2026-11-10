@@ -66,6 +66,7 @@ const RECOMMENDED = [
   ["VITE_LEGAL_BUSINESS_NAME", "Legal pages don't name a responsible entity without it — see LAUNCH_READINESS.md"],
   ["VITE_LEGAL_BUSINESS_ABN", "Same — business registration details for legal pages"],
   ["VITE_LEGAL_BUSINESS_ADDRESS", "Same — registered address for legal pages"],
+  ["USDA_FDC_API_KEY", "Food search falls back to USDA's shared DEMO_KEY (a few dozen searches an hour) without it — free key at fdc.nal.usda.gov/api-key-signup"],
   ["ADMIN_EMAILS", "/api/admin-metrics refuses everyone (403) without at least one allowlisted email"],
 ];
 

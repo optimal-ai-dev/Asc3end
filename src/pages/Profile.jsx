@@ -4,7 +4,7 @@ import LegalPage from "../LegalPage";
 import { supabase } from "../lib/supabase";
 import { logEvent } from "../lib/analytics";
 import { getNutritionTargets } from "../lib/nutritionMath";
-import { SUPPORT_EMAIL, LEGAL_COPY } from "../lib/legal";
+import { SUPPORT_EMAIL, LEGAL_COPY, MIN_AGE, meetsMinimumAge } from "../lib/legal";
 import { isValidPassword, MIN_PASSWORD_LENGTH } from "../lib/passwordPolicy";
 import { describeSubscriptionState } from "../lib/subscription";
 import { FEATURES, remainingMonthlyUses, freeMonthlyLimit, PLUS_MONTHLY_LIMITS } from "../lib/entitlements";
@@ -13,6 +13,8 @@ import { todayStr } from "../lib/dateUtils";
 import { GOAL_LABELS } from "../lib/workoutHelpers";
 import { FeatureComparisonTable } from "../components/Paywall";
 import { getThemePref, setThemePref, THEME_OPTIONS } from "../lib/theme";
+import { parseNumberDraft, hasBodyStats } from "../lib/numberInput";
+import { NumberInput } from "../components/NumberInput";
 
 /* ------------------------------------------------------------------ */
 /* Profile / Settings                                                   */
@@ -27,7 +29,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
   const [savedFlash, setSavedFlash] = useState(false);
   const [theme, setTheme] = useState(getThemePref);
   const [showComparison, setShowComparison] = useState(false);
-  const setNumber = (k, raw) => setEdit((f) => ({ ...f, [k]: raw === "" ? 0 : +raw.replace(/^0+(?=\d)/, "") }));
+  const setNumber = (k, raw) => setEdit((f) => ({ ...f, [k]: parseNumberDraft(raw) }));
 
   const [overrideOn, setOverrideOn] = useState(!!profile.macroOverride);
   const currentTargets = getNutritionTargets(profile);
@@ -65,7 +67,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
 
   const saveIdentity = async () => {
     const name = edit.name.trim();
-    if (!name) return;
+    if (!name || !hasBodyStats(edit) || !meetsMinimumAge(edit.age)) return;
     // No `targets` snapshot to recompute here anymore — getNutritionTargets() derives fresh from
     // these same profile fields everywhere it's called, so there's nothing to keep in sync.
     const next = { ...profile, ...edit, name };
@@ -157,7 +159,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
         <h2 className="disp" style={{ fontSize: 15, marginBottom: 12 }}>About You</h2>
         {row("NAME", <input className="atlas-input" value={edit.name} onChange={(e) => setEdit((f) => ({ ...f, name: e.target.value }))} />)}
         <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}>{row("AGE", <input type="number" className="atlas-input" value={edit.age} onChange={(e) => setNumber("age", e.target.value)} />)}</div>
+          <div style={{ flex: 1 }}>{row("AGE", <NumberInput className="atlas-input" value={edit.age} onChange={(v) => setNumber("age", v)} />)}</div>
           <div style={{ flex: 1 }}>
             {row("GENDER", (
               <select className="atlas-input" value={edit.gender} onChange={(e) => setEdit((f) => ({ ...f, gender: e.target.value }))}>
@@ -170,8 +172,8 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
           </div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}>{row("HEIGHT (CM)", <input type="number" className="atlas-input" value={edit.heightCm} onChange={(e) => setNumber("heightCm", e.target.value)} />)}</div>
-          <div style={{ flex: 1 }}>{row("WEIGHT (KG)", <input type="number" className="atlas-input" value={edit.weightKg} onChange={(e) => setNumber("weightKg", e.target.value)} />)}</div>
+          <div style={{ flex: 1 }}>{row("HEIGHT (CM)", <NumberInput className="atlas-input" value={edit.heightCm} onChange={(v) => setNumber("heightCm", v)} />)}</div>
+          <div style={{ flex: 1 }}>{row("WEIGHT (KG)", <NumberInput className="atlas-input" value={edit.weightKg} onChange={(v) => setNumber("weightKg", v)} />)}</div>
         </div>
 
         <div className="disp" style={{ fontSize: 13, color: "var(--ink-dim)", margin: "10px 0 10px" }}>Training Preferences</div>
@@ -195,7 +197,8 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
         <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 10 }}>
           Coaching style is set from the Coach tab — it's tied to how the AI talks about your plan, not your saved profile.
         </div>
-        <button className="atlas-btn" style={{ width: "100%" }} onClick={saveIdentity} disabled={!edit.name.trim()}>Save Changes</button>
+        {hasBodyStats(edit) && !meetsMinimumAge(edit.age) && <div className="mono" style={{ fontSize: 11, color: "var(--rest)", marginBottom: 8 }}>Asc3end is for people aged {MIN_AGE} and over.</div>}
+        <button className="atlas-btn" style={{ width: "100%" }} onClick={saveIdentity} disabled={!edit.name.trim() || !hasBodyStats(edit) || !meetsMinimumAge(edit.age)}>Save Changes</button>
       </div>
 
       <div className="atlas-card" style={{ marginBottom: 16 }}>
@@ -214,7 +217,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
             {["calories", "protein", "carbs", "fat"].map((k) => (
               <div key={k} style={{ flex: "1 1 45%" }}>
-                {row(k.toUpperCase(), <input type="number" className="atlas-input" value={overrideForm[k]} onChange={(e) => setOverrideForm((f) => ({ ...f, [k]: e.target.value === "" ? "" : +e.target.value }))} />)}
+                {row(k.toUpperCase(), <NumberInput className="atlas-input" value={overrideForm[k]} onChange={(v) => setOverrideForm((f) => ({ ...f, [k]: v === "" ? "" : +v }))} />)}
               </div>
             ))}
           </div>
@@ -404,7 +407,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
         ) : (
           <div>
             <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 10 }}>
-              This permanently deletes your account and all workouts, nutrition logs, and weight history. This can't be undone. Type DELETE and enter your password to confirm.
+              This permanently deletes your account and all workouts, nutrition logs, and weight history, and cancels any active Asc3end+ subscription. This can't be undone. Type DELETE and enter your password to confirm.
             </div>
             <input className="atlas-input" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="DELETE" style={{ marginBottom: 10 }} />
             <input className="atlas-input" type="password" autoComplete="current-password" value={reauthPassword} onChange={(e) => { setReauthPassword(e.target.value); setReauthError(null); }} placeholder="Current password" style={{ marginBottom: 10 }} aria-label="Current password, to confirm it's really you" />

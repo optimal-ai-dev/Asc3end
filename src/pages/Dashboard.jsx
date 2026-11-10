@@ -10,6 +10,7 @@ import { describeSubscriptionState } from "../lib/subscription";
 import { todayStr } from "../lib/dateUtils";
 import { muscleReadiness, readinessByGroup, READINESS_COLORS, READINESS_LABEL } from "../lib/workoutHelpers";
 import { MuscleReadinessMap } from "../components/MuscleReadinessMap";
+import { NumberInput } from "../components/NumberInput";
 
 export function Dashboard({ profile, workouts, nutrition, weightlog, customExercises, onNav, onLogWeight, onLogOut, isPremium, isDemoEntitlement, subscriptionState, onUpgrade, onManageBilling, billingError, billingLoading, session, onStartWorkout, onOpenProfile, onOpenChallenges, onViewExercises }) {
   const readiness = useMemo(() => muscleReadiness(workouts, customExercises), [workouts, customExercises]);
@@ -229,7 +230,7 @@ export function Dashboard({ profile, workouts, nutrition, weightlog, customExerc
       <div className="atlas-card">
         <h2 className="disp" style={{ fontSize: 15, marginBottom: 8 }}>Log Bodyweight</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <input className="atlas-input" type="number" placeholder={`${profile.weightKg} kg`} value={weightInput} onChange={(e) => setWeightInput(e.target.value)} aria-label="Bodyweight in kilograms" />
+          <NumberInput className="atlas-input" placeholder={`${profile.weightKg} kg`} value={weightInput} onChange={(v) => setWeightInput(v)} aria-label="Bodyweight in kilograms" />
           <button className="atlas-btn" onClick={() => { if (weightInput) { onLogWeight(+weightInput); setWeightInput(""); } }} aria-label="Save bodyweight">
             <Check size={16} />
           </button>

@@ -16,12 +16,14 @@
   "dependencies": {
     "@sentry/react": "^10.74.0",
     "@supabase/supabase-js": "^2.45.0",
+    "barcode-detector": "^3.2.3",
     "lucide-react": "^0.383.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "recharts": "^2.12.7",
-    "stripe": "^22.6.2"
+    "stripe": "^22.6.2",
+    "zxing-wasm": "3.1.6"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

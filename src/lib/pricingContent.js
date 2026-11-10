@@ -21,7 +21,9 @@ export const FEATURE_COMPARISON = [
   { label: "Progress & strength analytics", free: true, premium: true },
   { label: "AI Coach chat & plans", free: `${FREE_MONTHLY_LIMITS.coach}/month`, premium: `${PLUS_MONTHLY_LIMITS.coach}/month*` },
   { label: "Meals Near You", free: `${FREE_MONTHLY_LIMITS.meals}/month`, premium: `${PLUS_MONTHLY_LIMITS.meals}/month*` },
-  { label: "Food scanner (photo/barcode)", free: false, premium: true },
+  { label: "Food search & barcode scanning", free: true, premium: true },
+  { label: "Nutrition label reader", free: `${FREE_MONTHLY_LIMITS.label}/month`, premium: `${PLUS_MONTHLY_LIMITS.label}/month*` },
+  { label: "AI meal photo scanner", free: false, premium: true },
 ];
 
 export const FEATURE_COMPARISON_FOOTNOTE = `*Fair-use limits, well above normal use (about ${Math.round(PLUS_MONTHLY_LIMITS.coach / 30)} coach messages a day). The food scanner allows ${PLUS_MONTHLY_LIMITS.scanner} scans a month.`;

@@ -30,6 +30,8 @@ exercise those, or just test against the deployed Vercel URL.
 1. **Supabase**: create a project, run the SQL below in the SQL Editor, and fill in
    `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`.
 2. **Anthropic**: get a key at console.anthropic.com, set `ANTHROPIC_API_KEY`.
+   **Food search**: get a free USDA FoodData Central key at https://fdc.nal.usda.gov/api-key-signup
+   and set `USDA_FDC_API_KEY` (server-side only). Open Food Facts needs no key.
 3. **Stripe**: set `STRIPE_SECRET_KEY` (test or live), then run `node scripts/setup-stripe.mjs` to
    create the Premium product/price and print `STRIPE_PRICE_ID` to add to your env. After deploying,
    create a webhook endpoint in the Stripe Dashboard (Developers > Webhooks) pointing at

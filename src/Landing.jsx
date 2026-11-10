@@ -519,7 +519,7 @@ export default function Landing({ onStartFree, onLogIn, onOpenLegal }) {
           {[
             ["privacy", "Privacy"], ["terms", "Terms"], ["disclaimer", "Health Disclaimer"],
             ["aiLimitations", "AI Limitations"], ["subscriptionTerms", "Subscription Terms"],
-            ["refundPolicy", "Refund Policy"], ["support", "Support"], ["contact", "Contact"],
+            ["refundPolicy", "Refund Policy"], ["dataSources", "Data Sources"], ["support", "Support"], ["contact", "Contact"],
           ].map(([key, label]) => (
             <button key={key} onClick={() => onOpenLegal(key)} style={{ background: "none", border: "none", padding: "0 4px", minHeight: 44, display: "inline-flex", alignItems: "center", cursor: "pointer", color: "var(--ink-dim)", fontSize: 11.5 }}>{label}</button>
           ))}

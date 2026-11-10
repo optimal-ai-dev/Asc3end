@@ -15,6 +15,7 @@ import { playRestDoneSound, playPRSound } from "../lib/sounds";
 import { ExerciseThumb } from "../components/ExerciseFigure";
 import { ExerciseDetailCard } from "../components/ExerciseDetailCard";
 import { SetTable } from "../components/SetTable";
+import { NumberInput } from "../components/NumberInput";
 
 // Every readiness region (the 18 drawn on the body map plus the 3 filter/search-only ones),
 // grouped by coarse muscle group — used to scope the Train picker's region filter to whichever
@@ -147,9 +148,9 @@ function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }
                 <div key={stIdx} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: "var(--ink-dim)", marginBottom: 4 }}>
                   {editingSets ? (
                     <>
-                      <input type="number" className="atlas-input" style={{ width: 64, padding: "5px 7px" }} value={st.weight} aria-label={`${ex.name} set ${stIdx + 1} weight in kg`} onChange={(e) => updateSet(exIdx, stIdx, "weight", e.target.value)} />
+                      <NumberInput className="atlas-input" style={{ width: 64, padding: "5px 7px" }} value={st.weight} aria-label={`${ex.name} set ${stIdx + 1} weight in kg`} onChange={(v) => updateSet(exIdx, stIdx, "weight", v)} />
                       <span>kg ×</span>
-                      <input type="number" className="atlas-input" style={{ width: 54, padding: "5px 7px" }} value={st.reps} aria-label={`${ex.name} set ${stIdx + 1} reps`} onChange={(e) => updateSet(exIdx, stIdx, "reps", e.target.value)} />
+                      <NumberInput className="atlas-input" style={{ width: 54, padding: "5px 7px" }} value={st.reps} aria-label={`${ex.name} set ${stIdx + 1} reps`} onChange={(v) => updateSet(exIdx, stIdx, "reps", v)} />
                     </>
                   ) : (
                     <span>{fmtWeightReps(st.weight, st.reps)}{st.type && st.type !== "normal" ? ` (${st.type})` : ""}</span>
@@ -643,52 +644,52 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
                 plank never asks for weight, a treadmill run never asks for reps. */}
             {(() => {
               const tt = meta?.trackingType || "weight_reps";
-              const setNum = (setter) => (e) => setter((v) => ({ ...v, [ex.name]: e.target.value }));
+              const setNum = (setter) => (value) => setter((v) => ({ ...v, [ex.name]: value }));
               if (tt === "bodyweight_reps") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
-                  <input className="atlas-input" placeholder="+kg (optional)" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Added weight in kg for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="+kg (optional)" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Added weight in kg for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
               if (tt === "assisted_bodyweight") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
-                  <input className="atlas-input" placeholder="assist kg" type="number" value={assistIn[ex.name] || ""} onChange={setNum(setAssistIn)} aria-label={`Assistance weight in kg for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="assist kg" value={assistIn[ex.name] || ""} onChange={setNum(setAssistIn)} aria-label={`Assistance weight in kg for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
               if (tt === "reps_only") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
               if (tt === "duration" || tt === "isometric_hold") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="seconds" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
               if (tt === "distance_duration") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="meters" type="number" value={distanceIn[ex.name] || ""} onChange={setNum(setDistanceIn)} aria-label={`Distance in meters for ${ex.name}`} />
-                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="meters" value={distanceIn[ex.name] || ""} onChange={setNum(setDistanceIn)} aria-label={`Distance in meters for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="seconds" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
               if (tt === "weight_distance" || tt === "weighted_duration") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
-                  {tt === "weight_distance" && <input className="atlas-input" placeholder="meters" type="number" value={distanceIn[ex.name] || ""} onChange={setNum(setDistanceIn)} aria-label={`Distance in meters for ${ex.name}`} />}
-                  <input className="atlas-input" placeholder="seconds" type="number" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="kg" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
+                  {tt === "weight_distance" && <NumberInput className="atlas-input" placeholder="meters" value={distanceIn[ex.name] || ""} onChange={setNum(setDistanceIn)} aria-label={`Distance in meters for ${ex.name}`} />}
+                  <NumberInput className="atlas-input" placeholder="seconds" value={durationIn[ex.name] || ""} onChange={setNum(setDurationIn)} aria-label={`Duration in seconds for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
               return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input className="atlas-input" placeholder="kg" type="number" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
-                  <input className="atlas-input" placeholder="reps" type="number" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="kg" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
+                  <NumberInput className="atlas-input" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
