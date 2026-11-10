@@ -11,6 +11,23 @@ export function stripLeadingZeros(raw) {
   return m ? m[1] + m[2] : s;
 }
 
+// Everything typed or pasted into a number box goes through here: keeps digits and (when
+// decimals are allowed) one decimal point, reads a comma as a decimal point, drops anything
+// else, then strips leading zeros. "025" -> "25", "1,5" -> "1.5", "12kg" -> "12", ".5" -> "0.5".
+export function cleanNumberText(raw, allowDecimal = true) {
+  if (raw == null) return "";
+  let s = String(raw).replace(/,/g, ".");
+  if (allowDecimal) {
+    s = s.replace(/[^\d.]/g, "");
+    const dot = s.indexOf(".");
+    if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "");
+    if (s.startsWith(".")) s = "0" + s;
+  } else {
+    s = s.replace(/\D/g, "");
+  }
+  return stripLeadingZeros(s);
+}
+
 const isEmpty = (v) => v === "" || v == null || (typeof v === "number" && Number.isNaN(v));
 
 // What the box should show for a value coming from state. With zeroAsEmpty, a 0 that only means

@@ -150,7 +150,7 @@ function WorkoutDetailModal({ workout, onClose, onEditWorkout, onDeleteWorkout }
                     <>
                       <NumberInput className="atlas-input" style={{ width: 64, padding: "5px 7px" }} value={st.weight} aria-label={`${ex.name} set ${stIdx + 1} weight in kg`} onChange={(v) => updateSet(exIdx, stIdx, "weight", v)} />
                       <span>kg ×</span>
-                      <NumberInput className="atlas-input" style={{ width: 54, padding: "5px 7px" }} value={st.reps} aria-label={`${ex.name} set ${stIdx + 1} reps`} onChange={(v) => updateSet(exIdx, stIdx, "reps", v)} />
+                      <NumberInput className="atlas-input" style={{ width: 54, padding: "5px 7px" }} inputMode="numeric" value={st.reps} aria-label={`${ex.name} set ${stIdx + 1} reps`} onChange={(v) => updateSet(exIdx, stIdx, "reps", v)} />
                     </>
                   ) : (
                     <span>{fmtWeightReps(st.weight, st.reps)}{st.type && st.type !== "normal" ? ` (${st.type})` : ""}</span>
@@ -647,21 +647,21 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
               const setNum = (setter) => (value) => setter((v) => ({ ...v, [ex.name]: value }));
               if (tt === "bodyweight_reps") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <NumberInput className="atlas-input" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <NumberInput className="atlas-input" inputMode="numeric" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
                   <NumberInput className="atlas-input" placeholder="+kg (optional)" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Added weight in kg for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
               if (tt === "assisted_bodyweight") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <NumberInput className="atlas-input" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <NumberInput className="atlas-input" inputMode="numeric" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
                   <NumberInput className="atlas-input" placeholder="assist kg" value={assistIn[ex.name] || ""} onChange={setNum(setAssistIn)} aria-label={`Assistance weight in kg for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
               if (tt === "reps_only") return (
                 <div style={{ display: "flex", gap: 6 }}>
-                  <NumberInput className="atlas-input" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <NumberInput className="atlas-input" inputMode="numeric" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );
@@ -689,7 +689,7 @@ export function Train({ profile, workouts, session, setSession, onFinish, onDisc
               return (
                 <div style={{ display: "flex", gap: 6 }}>
                   <NumberInput className="atlas-input" placeholder="kg" value={weightIn[ex.name] || ""} onChange={setNum(setWeightIn)} aria-label={`Weight in kg for ${ex.name}`} />
-                  <NumberInput className="atlas-input" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
+                  <NumberInput className="atlas-input" inputMode="numeric" placeholder="reps" value={repsIn[ex.name] || ""} onChange={setNum(setRepsIn)} aria-label={`Reps for ${ex.name}`} />
                   <button className="atlas-btn" style={{ padding: "8px 14px" }} onClick={() => addSet(ex.name)} aria-label={`Add set for ${ex.name}`}><Plus size={16} /></button>
                 </div>
               );

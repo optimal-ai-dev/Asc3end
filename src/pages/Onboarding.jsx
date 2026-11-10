@@ -30,11 +30,11 @@ export function Onboarding({ onComplete }) {
           <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>NAME</label>
           <input className="atlas-input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Your name" autoFocus />
           <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>AGE</label>
-              <NumberInput className="atlas-input" value={form.age} onChange={(v) => setNumber("age", v)} />
+              <NumberInput className="atlas-input" inputMode="numeric" value={form.age} onChange={(v) => setNumber("age", v)} />
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>GENDER</label>
               <select className="atlas-input" value={form.gender} onChange={(e) => set("gender", e.target.value)}>
                 <option value="male">Male</option>
@@ -44,11 +44,11 @@ export function Onboarding({ onComplete }) {
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>HEIGHT (CM)</label>
               <NumberInput className="atlas-input" value={form.heightCm} onChange={(v) => setNumber("heightCm", v)} />
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <label className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>WEIGHT (KG)</label>
               <NumberInput className="atlas-input" value={form.weightKg} onChange={(v) => setNumber("weightKg", v)} />
             </div>

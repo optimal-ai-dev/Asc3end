@@ -171,6 +171,16 @@ export default function GlobalStyle() {
         width: 100%;
       }
       .atlas-input:focus { outline: none; border-color: var(--brass); }
+      /* iPhone Safari zooms the whole page in when a text box with type smaller than 16px gets
+         focus, and leaves it zoomed. Onboarding focuses the name box as soon as "Who's training?"
+         opens, so the screen arrived zoomed and had to be pinched back out. On touch screens every
+         box is at least 16px; !important also beats the smaller inline sizes some compact boxes
+         set (plan editor, set table). Desktop keeps the 14px look. */
+      @media (pointer: coarse) {
+        input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+        select,
+        textarea { font-size: 16px !important; }
+      }
       .atlas-root button:focus-visible,
       .atlas-root a:focus-visible,
       .atlas-root input:focus-visible,

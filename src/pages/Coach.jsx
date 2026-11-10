@@ -443,7 +443,7 @@ Use "muscle" values only from: chest, back, shoulders, arms, legs, core. Use ${p
                     {mg.exercises.map((ex, exIdx) => (
                       <div key={exIdx} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
                         <span style={{ flex: 1, fontSize: 12.5 }}>{ex.name}</span>
-                        <NumberInput className="atlas-input" style={{ width: 50, fontSize: 12, padding: "6px 8px" }} value={ex.sets} zeroAsEmpty onChange={(v) => updateExerciseField(dayIdx, mgIdx, exIdx, "sets", +v || 0)} aria-label={`Sets for ${ex.name}`} />
+                        <NumberInput className="atlas-input" style={{ width: 50, fontSize: 12, padding: "6px 8px" }} inputMode="numeric" value={ex.sets} zeroAsEmpty onChange={(v) => updateExerciseField(dayIdx, mgIdx, exIdx, "sets", +v || 0)} aria-label={`Sets for ${ex.name}`} />
                         <input className="atlas-input" style={{ width: 60, fontSize: 12, padding: "6px 8px" }} value={ex.reps} onChange={(e) => updateExerciseField(dayIdx, mgIdx, exIdx, "reps", e.target.value)} aria-label={`Reps for ${ex.name}`} />
                         <button onClick={() => removeExercise(dayIdx, mgIdx, exIdx)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label={`Remove ${ex.name} from ${d.day}`}>
                           <X size={13} color="var(--ink-dim)" />
