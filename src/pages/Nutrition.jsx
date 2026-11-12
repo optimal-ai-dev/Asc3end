@@ -20,6 +20,8 @@ import { AddFoodSheet } from "../components/AddFoodSheet";
 import { WaterTracker } from "../components/WaterTracker";
 import { nutrientsFor } from "../lib/foodData";
 import { NumberInput } from "../components/NumberInput";
+import { MealScanReview } from "../components/MealScanReview";
+import { SCAN_PROMPT, parseScanResult, toDiaryEntries } from "../lib/mealScan";
 
 /* ------------------------------------------------------------------ */
 /* Nutrition                                                            */
@@ -29,11 +31,13 @@ import { NumberInput } from "../components/NumberInput";
 /* Food Scanner — camera photo recognition + barcode lookup            */
 /* ------------------------------------------------------------------ */
 
-function FoodScanner({ onAdd, onClose }) {
+function FoodScanner({ onAdd, onAddMany, onClose }) {
   const [mode, setMode] = useState("photo");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Barcode lookups give one product (`result`); a photo gives every food on the plate (`mealItems`).
   const [result, setResult] = useState(null);
+  const [mealItems, setMealItems] = useState(null);
   const [grams, setGrams] = useState(100);
   const [manualBarcode, setManualBarcode] = useState("");
   const [cameraDenied, setCameraDenied] = useState(false);
@@ -102,7 +106,7 @@ function FoodScanner({ onAdd, onClose }) {
   };
 
   useEffect(() => {
-    if (result || cameraDenied) { stopCamera(); return; }
+    if (result || mealItems || cameraDenied) { stopCamera(); return; }
     let cancelled = false;
     (async () => {
       try {
@@ -128,7 +132,7 @@ function FoodScanner({ onAdd, onClose }) {
       }
     })();
     return () => { cancelled = true; stopCamera(); };
-  }, [mode, result, cameraDenied]);
+  }, [mode, result, mealItems, cameraDenied]);
 
   const analyzeImage = async (base64) => {
     setLoading(true);
@@ -142,13 +146,13 @@ function FoodScanner({ onAdd, onClose }) {
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
-          max_tokens: 400,
+          max_tokens: 2000,
           feature: "scanner",
           messages: [{
             role: "user",
             content: [
               { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
-              { type: "text", text: `Identify the food in this photo and estimate its nutrition. Return ONLY valid JSON, no markdown fences, no preamble: {"name":"","estimatedGrams":0,"caloriesPer100g":0,"proteinPer100g":0,"carbsPer100g":0,"fatPer100g":0}` },
+              { type: "text", text: SCAN_PROMPT },
             ],
           }],
         }),
@@ -163,13 +167,9 @@ function FoodScanner({ onAdd, onClose }) {
         throw err;
       }
       const text = extractClaudeText(data);
-      const parsed = extractJSON(text);
-      setResult({
-        name: parsed.name || "Unknown food",
-        per100g: { calories: parsed.caloriesPer100g || 0, protein: parsed.proteinPer100g || 0, carbs: parsed.carbsPer100g || 0, fat: parsed.fatPer100g || 0 },
-        source: "photo",
-      });
-      setGrams(parsed.estimatedGrams || 150);
+      const items = parseScanResult(extractJSON(text));
+      if (items.length === 0) throw new Error("no food found");
+      setMealItems(items);
     } catch (e) {
       setError(
         e.message && (e.code === "monthly_limit_reached" || e.message.startsWith("Usage limit") || e.message.includes("Premium"))
@@ -235,7 +235,19 @@ function FoodScanner({ onAdd, onClose }) {
         <button onClick={() => { stopCamera(); onClose(); }} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="Close scanner"><X size={20} color="var(--ink)" /></button>
       </div>
 
-      {!result && (
+      {mealItems && (
+        <MealScanReview
+          initialItems={mealItems}
+          // Renaming an item, adding one, or answering the AI's questions is a text-only follow-up
+          // on a scan already paid for, so it goes through the free "estimate" feature rather
+          // than spending another of the month's food scans.
+          ask={(prompt, maxTokens) => callClaude([{ role: "user", content: prompt }], maxTokens)}
+          onRescan={() => { setMealItems(null); setError(null); }}
+          onAddAll={(items) => { onAddMany(toDiaryEntries(items, { id: uid, date: todayStr() })); onClose(); }}
+        />
+      )}
+
+      {!result && !mealItems && (
         <>
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
             <button onClick={() => setMode("photo")} className="pill" style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid var(--line)", background: mode === "photo" ? "var(--brass-soft)" : "transparent", color: mode === "photo" ? "var(--brass)" : "var(--ink-dim)" }}>Photo</button>
@@ -526,7 +538,7 @@ Respond with ONLY this JSON, nothing else:
         />
       )}
       {scannerOpen && (isPremium ? (
-        <FoodScanner onAdd={addFood} onClose={() => setScannerOpen(false)} />
+        <FoodScanner onAdd={addFood} onAddMany={(items) => onAddMany(items.map((f) => ({ ...f, meal: f.meal || activeMeal })))} onClose={() => setScannerOpen(false)} />
       ) : (
         <div style={{ marginBottom: 16 }}>
           <Paywall feature="scanner" onUpgrade={onUpgrade} />
