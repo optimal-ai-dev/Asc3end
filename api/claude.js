@@ -10,9 +10,8 @@
 // Every call must be authenticated (a signed-in Supabase user) — this closes a previous gap
 // where anyone could call this for free. The Stripe paywall is enforced HERE, not just by
 // hiding buttons in the UI, which a direct API call would bypass entirely:
-//   - "scanner" (the food scanner) always requires an active Asc3end+ subscription.
-//   - "coach" and "meals" (Meals Near You) are free on the Free plan up to FREE_MONTHLY_LIMITS
-//     uses PER CALENDAR MONTH (see lib/monthlyUsage.js) — this is a standing monthly
+//   - "coach", "meals" (Meals Near You), "label" and "scanner" (the photo meal scanner) are free
+//     on the Free plan up to FREE_MONTHLY_LIMITS uses PER CALENDAR MONTH (see lib/monthlyUsage.js) — this is a standing monthly
 //     allowance, not a trial: the Free plan itself never expires and never requires a card.
 //   - Asc3end+ gets coach, meals and the scanner up to the PLUS_MONTHLY_LIMITS fair-use caps.
 //   - "estimate" (manual food entry's macro estimate) is unlimited and free for everyone.
@@ -124,9 +123,7 @@ export default async function handler(req, res) {
         // Fair-use cap reached. Not a paywall (they already pay), so no premium_required code.
         return res.status(429).json({ error: { message: `You've reached this month's fair-use limit of ${plusMonthlyLimit(feature)} ${noun}. It resets on the 1st — contact support if you need more.`, code: "monthly_limit_reached" } });
       }
-      const message = feature === FEATURES.SCANNER
-        ? "The food scanner is an Asc3end+ feature."
-        : `You've used all ${freeMonthlyLimit(feature)} free ${noun} this month — upgrade to Asc3end+ for more, or check back next month.`;
+      const message = `You've used all ${freeMonthlyLimit(feature)} free ${noun} this month — upgrade to Asc3end+ for more, or check back next month.`;
       return res.status(402).json({ error: { message, code: "premium_required" } });
     }
     if (usageKnown) {

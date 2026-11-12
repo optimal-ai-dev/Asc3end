@@ -31,13 +31,15 @@ import { SCAN_PROMPT, parseScanResult, toDiaryEntries } from "../lib/mealScan";
 /* Food Scanner — camera photo recognition + barcode lookup            */
 /* ------------------------------------------------------------------ */
 
-function FoodScanner({ onAdd, onAddMany, onClose }) {
+function FoodScanner({ onAdd, onAddMany, onClose, freeScansLeft = null, onScanned, onUpgrade }) {
   const [mode, setMode] = useState("photo");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   // Barcode lookups give one product (`result`); a photo gives every food on the plate (`mealItems`).
   const [result, setResult] = useState(null);
   const [mealItems, setMealItems] = useState(null);
+  // Free scans left once this scan is counted, fixed at scan time so it doesn't wait on the usage refresh.
+  const [scansLeftAfter, setScansLeftAfter] = useState(null);
   const [grams, setGrams] = useState(100);
   const [manualBarcode, setManualBarcode] = useState("");
   const [cameraDenied, setCameraDenied] = useState(false);
@@ -170,6 +172,8 @@ function FoodScanner({ onAdd, onAddMany, onClose }) {
       const items = parseScanResult(extractJSON(text));
       if (items.length === 0) throw new Error("no food found");
       setMealItems(items);
+      if (freeScansLeft !== null) setScansLeftAfter(Math.max(0, freeScansLeft - 1));
+      onScanned?.();
     } catch (e) {
       setError(
         e.message && (e.code === "monthly_limit_reached" || e.message.startsWith("Usage limit") || e.message.includes("Premium"))
@@ -244,6 +248,9 @@ function FoodScanner({ onAdd, onAddMany, onClose }) {
           ask={(prompt, maxTokens) => callClaude([{ role: "user", content: prompt }], maxTokens)}
           onRescan={() => { setMealItems(null); setError(null); }}
           onAddAll={(items) => { onAddMany(toDiaryEntries(items, { id: uid, date: todayStr() })); onClose(); }}
+          freeScansLeft={scansLeftAfter}
+          // The plans screen replaces the app, so log the meal first rather than lose it.
+          onUpgrade={onUpgrade && ((items) => { onAddMany(toDiaryEntries(items, { id: uid, date: todayStr() })); onClose(); onUpgrade(); })}
         />
       )}
 
@@ -283,6 +290,11 @@ function FoodScanner({ onAdd, onAddMany, onClose }) {
               <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => fileInputRef.current?.click()} disabled={loading}>
                 Upload Photo
               </button>
+            </div>
+          )}
+          {mode === "photo" && freeScansLeft !== null && (
+            <div className="mono" style={{ fontSize: 11, color: "var(--brass)", marginTop: 10, textAlign: "center" }}>
+              {freeScansLeft} free photo {freeScansLeft === 1 ? "scan" : "scans"} left this month
             </div>
           )}
           {mode === "photo" && (
@@ -355,6 +367,9 @@ function WeeklyAdherence({ nutrition, targets }) {
 
 export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, water, myFoods, onSaveMyFood, onAddWater, onDeleteWater, isPremium, onUpgrade, usage, onUsageChange }) {
   const mealsRemaining = remainingMonthlyUses(FEATURES.MEALS, usage || {});
+  // Free users get a few photo scans a month; Asc3end+ has its own fair-use cap, checked server-side.
+  const scansRemaining = remainingMonthlyUses(FEATURES.SCANNER, usage || {});
+  const canScan = isPremium || scansRemaining > 0;
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -537,8 +552,8 @@ Respond with ONLY this JSON, nothing else:
           onOpenPhotoScan={() => { setAddSheetMeal(null); setScannerOpen(true); }}
         />
       )}
-      {scannerOpen && (isPremium ? (
-        <FoodScanner onAdd={addFood} onAddMany={(items) => onAddMany(items.map((f) => ({ ...f, meal: f.meal || activeMeal })))} onClose={() => setScannerOpen(false)} />
+      {scannerOpen && (canScan ? (
+        <FoodScanner freeScansLeft={isPremium ? null : scansRemaining} onScanned={() => onUsageChange?.()} onUpgrade={onUpgrade} onAdd={addFood} onAddMany={(items) => onAddMany(items.map((f) => ({ ...f, meal: f.meal || activeMeal })))} onClose={() => setScannerOpen(false)} />
       ) : (
         <div style={{ marginBottom: 16 }}>
           <Paywall feature="scanner" onUpgrade={onUpgrade} />

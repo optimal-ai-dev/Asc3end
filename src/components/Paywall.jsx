@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Check, X, Sparkles, ChevronUp, ChevronDown } from "lucide-react";
 import { logEvent } from "../lib/analytics";
 import { FEATURE_COMPARISON, FEATURE_COMPARISON_FOOTNOTE, MONTHLY_PRICE } from "../lib/pricingContent";
+import { FREE_MONTHLY_LIMITS, PLUS_MONTHLY_LIMITS } from "../lib/entitlements";
 
 /* Shared upsell shown in place of a gated feature — Coach entirely, or an inline slot inside
    Nutrition for the scanner / Meals Near You. Subscription status is only ever set by the
@@ -32,7 +33,7 @@ export function Paywall({ feature, onUpgrade }) {
   useEffect(() => { logEvent("paywall_viewed", { feature }); }, [feature]);
   const COPY = {
     coach: { title: "AI Coach is Premium", blurb: "Personalized training plans, a chat coach that knows your history, and real-time form feedback." },
-    scanner: { title: "Food Scanner is Premium", blurb: "Snap a photo or scan a barcode to log food in seconds instead of typing it in by hand." },
+    scanner: { title: "You've used your free photo scans", blurb: `The Free plan includes ${FREE_MONTHLY_LIMITS.scanner} photo meal scans a month, and they reset on the 1st. Asc3end+ gives you up to ${PLUS_MONTHLY_LIMITS.scanner} a month.` },
     meals: { title: "Meals Near You is Premium", blurb: "Real nearby restaurant suggestions tuned to your macros and training goal." },
   };
   const c = COPY[feature] || { title: "This feature is Premium", blurb: "" };

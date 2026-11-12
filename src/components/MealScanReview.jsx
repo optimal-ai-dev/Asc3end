@@ -6,6 +6,7 @@ import {
   buildItemEstimatePrompt, parseItemEstimate, renameItem, buildRefinePrompt, mergeRefined, blankItem,
 } from "../lib/mealScan";
 import { extractJSON } from "../lib/claudeClient";
+import { FREE_MONTHLY_LIMITS } from "../lib/entitlements";
 
 const plural = (label, n) => (n === 1 ? label : `${label}s`);
 const label = { fontSize: 10.5, color: "var(--ink-dim)", display: "block", marginBottom: 4 };
@@ -14,7 +15,9 @@ const label = { fontSize: 10.5, color: "var(--ink-dim)", display: "block", margi
 // can rename an item (the macros follow the new food), set how many pieces and roughly how many
 // grams, remove or add items, and answer the AI's questions. `ask(prompt, maxTokens)` sends a
 // text-only request and resolves to the reply text.
-export function MealScanReview({ initialItems, ask, onAddAll, onRescan }) {
+// `freeScansLeft` is set for Free-plan users only (null on Asc3end+): how many photo scans they
+// have left this month after this one. `onUpgrade(items)` logs this meal and opens the plans.
+export function MealScanReview({ initialItems, ask, onAddAll, onRescan, freeScansLeft = null, onUpgrade }) {
   const [items, setItems] = useState(initialItems);
   const [names, setNames] = useState(() => Object.fromEntries(initialItems.map((it) => [it.id, it.name])));
   const [busy, setBusy] = useState({});
@@ -178,6 +181,20 @@ export function MealScanReview({ initialItems, ask, onAddAll, onRescan }) {
       </div>
 
       {error && <div style={{ fontSize: 12, color: "var(--rest)", marginBottom: 10 }} role="alert">{error}</div>}
+
+      {freeScansLeft !== null && (
+        <div className="atlas-card" data-testid="free-scans-left" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "10px 12px" }}>
+          <div style={{ flex: 1, fontSize: 12.5 }}>
+            <div style={{ fontWeight: 600 }}>{freeScansLeft} of {FREE_MONTHLY_LIMITS.scanner} free scans left this month</div>
+            <div style={{ fontSize: 11, color: "var(--ink-dim)" }}>Asc3end+ lets you scan every meal.</div>
+          </div>
+          {onUpgrade && (
+            <button className="atlas-btn" style={{ padding: "8px 12px", fontSize: 12 }} onClick={() => onUpgrade(items)} disabled={anyBusy} title="Logs this meal, then shows Asc3end+">
+              <Sparkles size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Upgrade
+            </button>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, paddingBottom: 4 }}>
         <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={onRescan}>

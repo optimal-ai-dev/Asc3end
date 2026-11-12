@@ -85,3 +85,18 @@ describe("MealScanReview", () => {
     expect(container.querySelectorAll('[data-testid="scan-item"]').length).toBe(1);
   });
 });
+
+describe("MealScanReview on the Free plan", () => {
+  it("shows how many free scans are left and logs the meal before upgrading", () => {
+    const onUpgrade = vi.fn();
+    act(() => root.render(<MealScanReview initialItems={scan()} ask={vi.fn()} onAddAll={vi.fn()} onRescan={vi.fn()} freeScansLeft={3} onUpgrade={onUpgrade} />));
+    expect(container.querySelector('[data-testid="free-scans-left"]').textContent).toContain("3 of 5 free scans left this month");
+    act(() => button("Upgrade").click());
+    expect(onUpgrade).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ name: "White rice" })]));
+  });
+
+  it("hides the banner for Asc3end+", () => {
+    act(() => root.render(<MealScanReview initialItems={scan()} ask={vi.fn()} onAddAll={vi.fn()} onRescan={vi.fn()} />));
+    expect(container.querySelector('[data-testid="free-scans-left"]')).toBeNull();
+  });
+});

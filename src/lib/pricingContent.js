@@ -3,11 +3,11 @@
 //
 // Commercial model — keep this consistent everywhere:
 //   - Free: no card required, does not expire. 5 Coach messages and 2 Meals Near You searches
-//     PER CALENDAR MONTH (a standing monthly allowance, not a trial — see lib/entitlements.js).
-//     No food scanner.
+//     PER CALENDAR MONTH (a standing monthly allowance, not a trial — see lib/entitlements.js),
+//     plus 5 photo meal scans a month.
 //   - Asc3end+ monthly: $9.99/month. Asc3end+ annual: $79.99/year.
 //   - Asc3end+ raises Coach and Meals Near You to a fair-use monthly cap (PLUS_MONTHLY_LIMITS in
-//     lib/entitlements.js) and unlocks the food scanner. The caps are shown as numbers rather
+//     lib/entitlements.js) and raises the photo meal scanner to its fair-use cap. The caps are shown as numbers rather
 //     than "unlimited", since a hard cap described as unlimited would be misleading.
 import { FREE_MONTHLY_LIMITS, PLUS_MONTHLY_LIMITS } from "./entitlements";
 
@@ -23,7 +23,7 @@ export const FEATURE_COMPARISON = [
   { label: "Meals Near You", free: `${FREE_MONTHLY_LIMITS.meals}/month`, premium: `${PLUS_MONTHLY_LIMITS.meals}/month*` },
   { label: "Food search & barcode scanning", free: true, premium: true },
   { label: "Nutrition label reader", free: `${FREE_MONTHLY_LIMITS.label}/month`, premium: `${PLUS_MONTHLY_LIMITS.label}/month*` },
-  { label: "AI meal photo scanner", free: false, premium: true },
+  { label: "AI meal photo scanner", free: `${FREE_MONTHLY_LIMITS.scanner}/month`, premium: `${PLUS_MONTHLY_LIMITS.scanner}/month*` },
 ];
 
 export const FEATURE_COMPARISON_FOOTNOTE = `*Fair-use limits, well above normal use (about ${Math.round(PLUS_MONTHLY_LIMITS.coach / 30)} coach messages a day). The food scanner allows ${PLUS_MONTHLY_LIMITS.scanner} scans a month.`;
