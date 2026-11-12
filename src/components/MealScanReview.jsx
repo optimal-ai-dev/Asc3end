@@ -3,12 +3,11 @@ import { Plus, Minus, RefreshCw, Sparkles, Trash2, Loader2 } from "lucide-react"
 import { NumberInput } from "./NumberInput";
 import {
   itemNutrients, mealTotals, setPieces, setGramsPerPiece, setTotalGrams,
-  buildItemEstimatePrompt, parseItemEstimate, renameItem, buildRefinePrompt, mergeRefined, blankItem,
+  buildItemEstimatePrompt, parseItemEstimate, renameItem, buildRefinePrompt, mergeRefined, blankItem, pluralize as plural,
 } from "../lib/mealScan";
 import { extractJSON } from "../lib/claudeClient";
 import { FREE_MONTHLY_LIMITS } from "../lib/entitlements";
 
-const plural = (label, n) => (n === 1 ? label : `${label}s`);
 const label = { fontSize: 10.5, color: "var(--ink-dim)", display: "block", marginBottom: 4 };
 
 // The result of a photo scan: every food the AI found on the plate as its own card. The person

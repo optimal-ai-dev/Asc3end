@@ -119,3 +119,15 @@ describe("toDiaryEntries", () => {
     expect(entries[1].per100g.calories).toBe(130);
   });
 });
+
+import { pluralize } from "./mealScan";
+describe("pluralize", () => {
+  it("handles the piece names the scanner uses", () => {
+    expect(pluralize("chop", 2)).toBe("chops");
+    expect(pluralize("chop", 1)).toBe("chop");
+    expect(pluralize("potato", 3)).toBe("potatoes");
+    expect(pluralize("patty", 2)).toBe("patties");
+    expect(pluralize("sandwich", 2)).toBe("sandwiches");
+    expect(pluralize("slice", 2)).toBe("slices");
+  });
+});

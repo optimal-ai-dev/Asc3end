@@ -11,6 +11,14 @@ const MAX_ITEMS = 12;
 const MAX_GRAMS = 3000;
 const clampGrams = (g) => Math.min(MAX_GRAMS, Math.max(0, Math.round(g)));
 
+// "chop" -> "chops", "potato" -> "potatoes", "patty" -> "patties", "sandwich" -> "sandwiches".
+export function pluralize(word, n) {
+  if (n === 1 || !word) return word;
+  if (/[^aeiou]y$/i.test(word)) return `${word.slice(0, -1)}ies`;
+  if (/(s|x|z|ch|sh|[^aeiou]o)$/i.test(word)) return `${word}es`;
+  return `${word}s`;
+}
+
 let nextId = 0;
 const itemId = () => `scan-${Date.now().toString(36)}-${(nextId++).toString(36)}`;
 
@@ -169,7 +177,7 @@ export function toDiaryEntries(items, { id, date }) {
   return items.filter((it) => it.grams > 0).map((it) => ({
     id: id(),
     date,
-    name: it.pieces ? `${it.name} (${it.pieces} ${it.pieceLabel}${it.pieces === 1 ? "" : "s"}, ${it.grams}g)` : `${it.name} (${it.grams}g)`,
+    name: it.pieces ? `${it.name} (${it.pieces} ${pluralize(it.pieceLabel, it.pieces)}, ${it.grams}g)` : `${it.name} (${it.grams}g)`,
     ...itemNutrients(it),
     grams: it.grams,
     amount: `${it.grams} g`,
