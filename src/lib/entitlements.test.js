@@ -9,8 +9,12 @@ const PAID_ACTIVE = { type: "paid", status: "active", plan: "monthly", currentPe
 const PAST_DUE = { type: "paid", status: "past_due", plan: "monthly", currentPeriodEnd: null };
 
 describe("canAccessFeature", () => {
-  it("scanner is premium-only — free user is blocked regardless of usage", () => {
-    expect(canAccessFeature(FREE, FEATURES.SCANNER, {})).toBe(false);
+  it("free users get 5 photo meal scans a month, then are blocked", () => {
+    expect(FREE_MONTHLY_LIMITS.scanner).toBe(5);
+    expect(canAccessFeature(FREE, FEATURES.SCANNER, {})).toBe(true);
+    expect(canAccessFeature(FREE, FEATURES.SCANNER, { scanner: 4 })).toBe(true);
+    expect(canAccessFeature(FREE, FEATURES.SCANNER, { scanner: 5 })).toBe(false);
+    expect(remainingMonthlyUses(FEATURES.SCANNER, { scanner: 2 })).toBe(3);
   });
 
   it("scanner is allowed for demo, paid, and grace-period (past_due) states", () => {
@@ -54,18 +58,18 @@ describe("canAccessFeature", () => {
 });
 
 describe("isMeteredFeature", () => {
-  it("coach and meals are metered; scanner and unlisted features are not", () => {
+  it("coach, meals and scanner are metered; unlisted features are not", () => {
     expect(isMeteredFeature(FEATURES.COACH)).toBe(true);
     expect(isMeteredFeature(FEATURES.MEALS)).toBe(true);
-    expect(isMeteredFeature(FEATURES.SCANNER)).toBe(false);
+    expect(isMeteredFeature(FEATURES.SCANNER)).toBe(true);
     expect(isMeteredFeature(FEATURES.ESTIMATE)).toBe(false);
   });
 });
 
 describe("isUsageTracked", () => {
-  it("tracks coach/meals for free users and coach/meals/scanner for entitled users", () => {
+  it("tracks coach/meals/scanner for free and entitled users", () => {
     expect(isUsageTracked(FREE, FEATURES.COACH)).toBe(true);
-    expect(isUsageTracked(FREE, FEATURES.SCANNER)).toBe(false);
+    expect(isUsageTracked(FREE, FEATURES.SCANNER)).toBe(true);
     expect(isUsageTracked(PAID_ACTIVE, FEATURES.COACH)).toBe(true);
     expect(isUsageTracked(PAID_ACTIVE, FEATURES.SCANNER)).toBe(true);
     expect(isUsageTracked(PAID_ACTIVE, FEATURES.ESTIMATE)).toBe(false);
@@ -87,7 +91,6 @@ describe("remainingMonthlyUses", () => {
   });
 
   it("returns null for non-metered features", () => {
-    expect(remainingMonthlyUses(FEATURES.SCANNER, {})).toBeNull();
     expect(remainingMonthlyUses(FEATURES.ESTIMATE, {})).toBeNull();
   });
 });

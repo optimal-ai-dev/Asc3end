@@ -20,6 +20,8 @@ import { AddFoodSheet } from "../components/AddFoodSheet";
 import { WaterTracker } from "../components/WaterTracker";
 import { nutrientsFor } from "../lib/foodData";
 import { NumberInput } from "../components/NumberInput";
+import { MealScanReview } from "../components/MealScanReview";
+import { SCAN_PROMPT, parseScanResult, toDiaryEntries } from "../lib/mealScan";
 
 /* ------------------------------------------------------------------ */
 /* Nutrition                                                            */
@@ -29,11 +31,15 @@ import { NumberInput } from "../components/NumberInput";
 /* Food Scanner — camera photo recognition + barcode lookup            */
 /* ------------------------------------------------------------------ */
 
-function FoodScanner({ onAdd, onClose }) {
+function FoodScanner({ onAdd, onAddMany, onClose, freeScansLeft = null, onScanned, onUpgrade }) {
   const [mode, setMode] = useState("photo");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Barcode lookups give one product (`result`); a photo gives every food on the plate (`mealItems`).
   const [result, setResult] = useState(null);
+  const [mealItems, setMealItems] = useState(null);
+  // Free scans left once this scan is counted, fixed at scan time so it doesn't wait on the usage refresh.
+  const [scansLeftAfter, setScansLeftAfter] = useState(null);
   const [grams, setGrams] = useState(100);
   const [manualBarcode, setManualBarcode] = useState("");
   const [cameraDenied, setCameraDenied] = useState(false);
@@ -102,7 +108,7 @@ function FoodScanner({ onAdd, onClose }) {
   };
 
   useEffect(() => {
-    if (result || cameraDenied) { stopCamera(); return; }
+    if (result || mealItems || cameraDenied) { stopCamera(); return; }
     let cancelled = false;
     (async () => {
       try {
@@ -128,7 +134,7 @@ function FoodScanner({ onAdd, onClose }) {
       }
     })();
     return () => { cancelled = true; stopCamera(); };
-  }, [mode, result, cameraDenied]);
+  }, [mode, result, mealItems, cameraDenied]);
 
   const analyzeImage = async (base64) => {
     setLoading(true);
@@ -142,13 +148,13 @@ function FoodScanner({ onAdd, onClose }) {
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
-          max_tokens: 400,
+          max_tokens: 2000,
           feature: "scanner",
           messages: [{
             role: "user",
             content: [
               { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
-              { type: "text", text: `Identify the food in this photo and estimate its nutrition. Return ONLY valid JSON, no markdown fences, no preamble: {"name":"","estimatedGrams":0,"caloriesPer100g":0,"proteinPer100g":0,"carbsPer100g":0,"fatPer100g":0}` },
+              { type: "text", text: SCAN_PROMPT },
             ],
           }],
         }),
@@ -163,13 +169,11 @@ function FoodScanner({ onAdd, onClose }) {
         throw err;
       }
       const text = extractClaudeText(data);
-      const parsed = extractJSON(text);
-      setResult({
-        name: parsed.name || "Unknown food",
-        per100g: { calories: parsed.caloriesPer100g || 0, protein: parsed.proteinPer100g || 0, carbs: parsed.carbsPer100g || 0, fat: parsed.fatPer100g || 0 },
-        source: "photo",
-      });
-      setGrams(parsed.estimatedGrams || 150);
+      const items = parseScanResult(extractJSON(text));
+      if (items.length === 0) throw new Error("no food found");
+      setMealItems(items);
+      if (freeScansLeft !== null) setScansLeftAfter(Math.max(0, freeScansLeft - 1));
+      onScanned?.();
     } catch (e) {
       setError(
         e.message && (e.code === "monthly_limit_reached" || e.message.startsWith("Usage limit") || e.message.includes("Premium"))
@@ -235,7 +239,22 @@ function FoodScanner({ onAdd, onClose }) {
         <button onClick={() => { stopCamera(); onClose(); }} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="Close scanner"><X size={20} color="var(--ink)" /></button>
       </div>
 
-      {!result && (
+      {mealItems && (
+        <MealScanReview
+          initialItems={mealItems}
+          // Renaming an item, adding one, or answering the AI's questions is a text-only follow-up
+          // on a scan already paid for, so it goes through the free "estimate" feature rather
+          // than spending another of the month's food scans.
+          ask={(prompt, maxTokens) => callClaude([{ role: "user", content: prompt }], maxTokens)}
+          onRescan={() => { setMealItems(null); setError(null); }}
+          onAddAll={(items) => { onAddMany(toDiaryEntries(items, { id: uid, date: todayStr() })); onClose(); }}
+          freeScansLeft={scansLeftAfter}
+          // The plans screen replaces the app, so log the meal first rather than lose it.
+          onUpgrade={onUpgrade && ((items) => { onAddMany(toDiaryEntries(items, { id: uid, date: todayStr() })); onClose(); onUpgrade(); })}
+        />
+      )}
+
+      {!result && !mealItems && (
         <>
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
             <button onClick={() => setMode("photo")} className="pill" style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid var(--line)", background: mode === "photo" ? "var(--brass-soft)" : "transparent", color: mode === "photo" ? "var(--brass)" : "var(--ink-dim)" }}>Photo</button>
@@ -271,6 +290,11 @@ function FoodScanner({ onAdd, onClose }) {
               <button className="atlas-btn-ghost" style={{ flex: 1 }} onClick={() => fileInputRef.current?.click()} disabled={loading}>
                 Upload Photo
               </button>
+            </div>
+          )}
+          {mode === "photo" && freeScansLeft !== null && (
+            <div className="mono" style={{ fontSize: 11, color: "var(--brass)", marginTop: 10, textAlign: "center" }}>
+              {freeScansLeft} free photo {freeScansLeft === 1 ? "scan" : "scans"} left this month
             </div>
           )}
           {mode === "photo" && (
@@ -343,6 +367,9 @@ function WeeklyAdherence({ nutrition, targets }) {
 
 export function Nutrition({ profile, nutrition, weightlog = [], onUpdateProfile, onAdd, onAddMany, onDelete, onEdit, favorites, onToggleFavorite, water, myFoods, onSaveMyFood, onAddWater, onDeleteWater, isPremium, onUpgrade, usage, onUsageChange }) {
   const mealsRemaining = remainingMonthlyUses(FEATURES.MEALS, usage || {});
+  // Free users get a few photo scans a month; Asc3end+ has its own fair-use cap, checked server-side.
+  const scansRemaining = remainingMonthlyUses(FEATURES.SCANNER, usage || {});
+  const canScan = isPremium || scansRemaining > 0;
   const [form, setForm] = useState({ name: "", calories: "", protein: "", carbs: "", fat: "" });
   const [estimating, setEstimating] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -525,8 +552,8 @@ Respond with ONLY this JSON, nothing else:
           onOpenPhotoScan={() => { setAddSheetMeal(null); setScannerOpen(true); }}
         />
       )}
-      {scannerOpen && (isPremium ? (
-        <FoodScanner onAdd={addFood} onClose={() => setScannerOpen(false)} />
+      {scannerOpen && (canScan ? (
+        <FoodScanner freeScansLeft={isPremium ? null : scansRemaining} onScanned={() => onUsageChange?.()} onUpgrade={onUpgrade} onAdd={addFood} onAddMany={(items) => onAddMany(items.map((f) => ({ ...f, meal: f.meal || activeMeal })))} onClose={() => setScannerOpen(false)} />
       ) : (
         <div style={{ marginBottom: 16 }}>
           <Paywall feature="scanner" onUpgrade={onUpgrade} />

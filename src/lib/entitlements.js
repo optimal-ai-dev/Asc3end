@@ -7,8 +7,8 @@
 // permanent, needs no card, and never expires; these are a standing monthly allowance, not a
 // countdown to a required decision):
 //   - Free: unlimited workout logging, unlimited manual nutrition logging, progress analytics,
-//     5 Coach messages per calendar month, 2 Meals Near You searches per calendar month, no
-//     food scanner. Meals gets fewer than Coach because every search includes a web search,
+//     5 Coach messages per calendar month, 2 Meals Near You searches per calendar month, 5
+//     photo meal scans per calendar month (a taster of the Asc3end+ scanner). Meals gets fewer than Coach because every search includes a web search,
 //     the single most expensive AI call the app makes.
 //   - Asc3end+: everything in Free, plus Coach, Meals Near You and the food scanner up to a
 //     fair-use monthly cap (PLUS_MONTHLY_LIMITS). The caps sit far above normal use — they exist
@@ -22,14 +22,16 @@ import { isEntitled } from "./subscription.js";
 
 export const FEATURES = { SCANNER: "scanner", COACH: "coach", MEALS: "meals", ESTIMATE: "estimate", LABEL: "label" };
 
-const PREMIUM_ONLY_FEATURES = new Set([FEATURES.SCANNER]);
+// Nothing is fully premium-only at the moment: the photo meal scanner gets a small free monthly
+// allowance so people can try it before upgrading. Kept so a future feature can be gated outright.
+const PREMIUM_ONLY_FEATURES = new Set();
 // "Metered" — free on the Free plan, but capped per calendar month (see lib/monthlyUsage.js for
 // the reset mechanism) rather than unlimited or a one-time trial.
 // The nutrition label reader is metered rather than premium-only: it's how someone adds a
 // product the food databases don't have, which is exactly the moment a paywall would make
 // people give up on logging. One read is a single small vision call, so 20 a month is cheap.
-const METERED_FEATURES = new Set([FEATURES.COACH, FEATURES.MEALS, FEATURES.LABEL]);
-export const FREE_MONTHLY_LIMITS = { [FEATURES.COACH]: 5, [FEATURES.MEALS]: 2, [FEATURES.LABEL]: 20 };
+const METERED_FEATURES = new Set([FEATURES.COACH, FEATURES.MEALS, FEATURES.LABEL, FEATURES.SCANNER]);
+export const FREE_MONTHLY_LIMITS = { [FEATURES.COACH]: 5, [FEATURES.MEALS]: 2, [FEATURES.LABEL]: 20, [FEATURES.SCANNER]: 5 };
 // Asc3end+ fair-use caps, per calendar month. Roughly 10 coach messages, 1 meal search and 10
 // scans a day — a typical subscriber is estimated at ~60 / 8 / 40 a month.
 export const PLUS_MONTHLY_LIMITS = { [FEATURES.COACH]: 300, [FEATURES.MEALS]: 30, [FEATURES.SCANNER]: 300, [FEATURES.LABEL]: 300 };

@@ -305,7 +305,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
           <div className="mono" style={{ fontSize: 12, color: "var(--brass)" }}>Asc3end+ — up to {PLUS_MONTHLY_LIMITS.coach} coach messages and {PLUS_MONTHLY_LIMITS.meals} meal searches a month</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {[["AI Coach", FEATURES.COACH], ["Meals Near You", FEATURES.MEALS]].map(([label, key]) => {
+            {[["AI Coach", FEATURES.COACH], ["Meals Near You", FEATURES.MEALS], ["Photo meal scans", FEATURES.SCANNER]].map(([label, key]) => {
               const remaining = remainingMonthlyUses(key, usage || {});
               const limit = freeMonthlyLimit(key);
               return (
@@ -320,7 +320,7 @@ export function Profile({ profile, authUser, workouts, nutrition, weightlog, cus
                 </div>
               );
             })}
-            <div style={{ fontSize: 11.5, color: "var(--ink-dim)" }}>Resets on the 1st of each month. Food scanner requires Asc3end+.</div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-dim)" }}>Resets on the 1st of each month.</div>
           </div>
         )}
       </div>
