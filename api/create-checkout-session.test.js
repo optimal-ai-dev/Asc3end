@@ -153,11 +153,10 @@ describe("api/create-checkout-session", () => {
     expect(fakeStripe.checkout.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ customer: "cus_existing" }));
   });
 
-  it("only applies a trial period when the client explicitly requests one", async () => {
+  it("never applies a trial period, even if the client asks for one", async () => {
     await handler(fakeReq({ token: "valid-token", body: { plan: "monthly", trial: true } }), fakeRes());
-    expect(fakeStripe.checkout.sessions.create).toHaveBeenCalledWith(expect.objectContaining({
-      subscription_data: expect.objectContaining({ trial_period_days: 7 }),
-    }));
+    const args = fakeStripe.checkout.sessions.create.mock.calls[0][0];
+    expect(args.subscription_data.trial_period_days).toBeUndefined();
   });
 
   it("success and cancel URLs point back to the app with the correct query param", async () => {

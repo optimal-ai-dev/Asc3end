@@ -72,7 +72,9 @@ export default async function handler(req, res) {
       });
     }
 
-    const { plan, trial } = req.body || {};
+    // Any `trial` flag in the body is ignored: Asc3end+ has no free trial (founding-member
+    // pricing is billed from day one), so a client can't request one.
+    const { plan } = req.body || {};
     // Reject anything that isn't exactly one of the two real plans instead of silently falling
     // back to monthly — a typo'd or malformed client request should fail loudly, not quietly
     // check the caller out on a plan they didn't ask for.
@@ -91,12 +93,6 @@ export default async function handler(req, res) {
       line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: {
         metadata: { supabase_user_id: user.id },
-        // Only offered when the caller explicitly asks for it (the pricing page's trial toggle)
-        // — Stripe doesn't natively dedupe "has this customer already trialed before" for
-        // Checkout-created subscriptions, so this is an honest "optional" trial, not a
-        // guaranteed-once-ever one; fine for a beta launch, worth revisiting before wide launch
-        // if trial abuse becomes a real cost concern.
-        ...(trial ? { trial_period_days: 7 } : {}),
       },
       success_url: `${origin}/?checkout=success`,
       cancel_url: `${origin}/?checkout=cancelled`,
