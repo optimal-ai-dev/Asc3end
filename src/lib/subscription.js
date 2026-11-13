@@ -88,3 +88,15 @@ export function describeSubscriptionState(state) {
     default: return "";
   }
 }
+
+// Asc3end+ comes with a free trial, once per account: a card is taken at checkout and the first
+// charge happens when the trial ends. Anyone who has ever had a Stripe subscription (trialing,
+// paid, cancelled, failed) is not eligible again. The client only sees `status` (and not
+// stripe_subscription_id), and a never-subscribed account is either no row or a row the checkout
+// endpoint created with status "inactive", so both sides reach the same answer.
+export const TRIAL_DAYS = 7;
+export function isTrialEligible(subscription) {
+  if (!subscription) return true;
+  if (subscription.stripe_subscription_id) return false;
+  return !subscription.status || subscription.status === "inactive";
+}

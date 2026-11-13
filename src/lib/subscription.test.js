@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSubscriptionState, isEntitled, describeSubscriptionState, OWNER_SUBSCRIPTION_STATE } from "./subscription";
+import { computeSubscriptionState, isEntitled, describeSubscriptionState, OWNER_SUBSCRIPTION_STATE, isTrialEligible } from "./subscription";
 
 describe("computeSubscriptionState", () => {
   it("undefined subscription -> loading", () => {
@@ -102,5 +102,20 @@ describe("OWNER_SUBSCRIPTION_STATE", () => {
     const states = [null, { status: "active", stripe_customer_id: null }, { status: "active", stripe_customer_id: "cus_1" }]
       .map(computeSubscriptionState);
     expect(states.some((s) => s.type === "owner")).toBe(false);
+  });
+});
+
+describe("isTrialEligible — one free trial per account", () => {
+  it("is eligible with no row, or the inactive row checkout creates before the first purchase", () => {
+    expect(isTrialEligible(null)).toBe(true);
+    expect(isTrialEligible(undefined)).toBe(true);
+    expect(isTrialEligible({ stripe_customer_id: "cus_1", status: "inactive" })).toBe(true);
+  });
+
+  it("is not eligible once any Stripe subscription has existed", () => {
+    expect(isTrialEligible({ stripe_customer_id: "cus_1", stripe_subscription_id: "sub_1", status: "inactive" })).toBe(false);
+    for (const status of ["trialing", "active", "past_due", "canceled", "incomplete", "unpaid"]) {
+      expect(isTrialEligible({ stripe_customer_id: "cus_1", status })).toBe(false);
+    }
   });
 });

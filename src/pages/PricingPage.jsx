@@ -2,13 +2,12 @@ import { useState, useEffect } from "react";
 import { X, Check, Sparkles, Loader2 } from "lucide-react";
 import LegalPage from "../LegalPage";
 import { logEvent } from "../lib/analytics";
-import { describeSubscriptionState } from "../lib/subscription";
+import { describeSubscriptionState, TRIAL_DAYS } from "../lib/subscription";
 import { ANNUAL_PRICE, MONTHLY_PRICE, ANNUAL_SAVINGS_PCT, PRICING_FAQ } from "../lib/pricingContent";
 import { FeatureComparisonTable } from "../components/Paywall";
 
-export function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLoading, billingError, onClose, initialFeature }) {
+export function PricingPage({ subscriptionState, isPremium, trialEligible = true, onConfirmUpgrade, billingLoading, billingError, onClose, initialFeature }) {
   const [plan, setPlan] = useState("monthly");
-  const [trial, setTrial] = useState(false);
   const [legalOpen, setLegalOpen] = useState(null);
   useEffect(() => { logEvent("paywall_viewed", { feature: initialFeature || "pricing_page" }); }, [initialFeature]);
 
@@ -66,26 +65,21 @@ export function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, bi
             )}
             {plan !== "annual" && <div style={{ marginBottom: 14 }} />}
 
-            <label style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", marginBottom: 16, cursor: "pointer" }}>
-              <input type="checkbox" checked={trial} onChange={(e) => setTrial(e.target.checked)} />
-              <span style={{ fontSize: 12.5 }}>Start with a 7-day free trial</span>
-            </label>
-
             {billingError && <div style={{ color: "var(--rest)", fontSize: 12, marginBottom: 12 }}>{billingError}</div>}
 
             <button
               className="atlas-btn"
               style={{ width: "100%" }}
               disabled={billingLoading === "checkout"}
-              onClick={() => onConfirmUpgrade(plan, trial)}
+              onClick={() => onConfirmUpgrade(plan)}
             >
               {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
-              {trial ? "Start Free Trial — Upgrade to Asc3end+" : `Upgrade to Asc3end+ — AUD $${price.toFixed(2)}/${period}`}
+              {trialEligible ? `Start ${TRIAL_DAYS}-day free trial` : `Upgrade to Asc3end+ — AUD $${price.toFixed(2)}/${period}`}
             </button>
             <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10, lineHeight: 1.5 }}>
-              {trial
-                ? "You won't be charged for 7 days. Your card is charged automatically after the trial unless you cancel first. Cancel anytime."
-                : "Billed immediately, then recurring until you cancel. Cancel anytime — no lock-in."}
+              {trialEligible
+                ? `${TRIAL_DAYS}-day free trial, then AUD $${price.toFixed(2)}/${period === "yr" ? "year" : "month"}. Your card is charged when the trial ends unless you cancel before then. Cancel anytime — no lock-in.`
+                : "Billed today, then recurring until you cancel. Cancel anytime — no lock-in."}
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 10 }}>
               <button onClick={() => setLegalOpen("subscriptionTerms")} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 10.5, textDecoration: "underline", padding: 0 }}>Subscription Terms</button>

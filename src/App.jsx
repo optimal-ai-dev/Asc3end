@@ -10,7 +10,7 @@ import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
 import { computeStreak, computeWorkoutXp } from "./lib/workoutMath";
 import { classifyDayAdherence } from "./lib/nutritionMath";
-import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE } from "./lib/subscription";
+import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE, isTrialEligible } from "./lib/subscription";
 import { isStaleSession, isValidSession } from "./lib/session";
 import {
   isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidWaterEntry, isValidMyFood, isValidFavorite,
@@ -27,6 +27,7 @@ import {
 import { weeklyAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL } from "./lib/nutritionHelpers";
 import { MuscleReadinessMap } from "./components/MuscleReadinessMap";
 import { Onboarding } from "./pages/Onboarding";
+import { buildStarterPlan } from "./lib/starterPlan";
 import { LegalUpdateScreen } from "./pages/LegalUpdateScreen";
 import { LEGAL_DOCUMENT_VERSION } from "./lib/legal";
 import { Dashboard } from "./pages/Dashboard";
@@ -310,7 +311,7 @@ export default function App() {
   // Demo and owner access have no Stripe customer, so there's no billing portal to open.
   const isDemoEntitlement = subscriptionState.type === "demo" || subscriptionState.type === "owner";
 
-  const startCheckout = async (planArg = "monthly", trial = false) => {
+  const startCheckout = async (planArg = "monthly") => {
     // Defensive normalization, not just a default — several call sites do `onClick={onUpgrade}`,
     // which makes React pass the click SyntheticEvent as `planArg`. JSON.stringify-ing that event
     // (or its DOM target, via the click-handler bug this once shipped with) throws "Converting
@@ -320,7 +321,7 @@ export default function App() {
     const plan = planArg === "annual" ? "annual" : "monthly";
     setBillingError(null);
     setBillingLoading("checkout");
-    logEvent("checkout_started", { plan, trial });
+    logEvent("checkout_started", { plan });
     try {
       const { data: { session: authSession } } = await supabase.auth.getSession();
       if (!authSession) {
@@ -331,7 +332,7 @@ export default function App() {
       const res = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authSession.access_token}` },
-        body: JSON.stringify({ plan, trial }),
+        body: JSON.stringify({ plan }),
       });
       const data = await res.json();
       if (data.url) { window.location.href = data.url; return; }
@@ -388,13 +389,18 @@ export default function App() {
     // No `targets` snapshot stored here — getNutritionTargets(profile) derives it fresh from
     // these same fields everywhere it's needed, so there's nothing to compute or cache at
     // onboarding time (and nothing that can later drift out of sync with the live profile).
-    const newProfile = { ...form };
+    // "Build My Plan" has to actually leave Home with a plan: activate a starter split built
+    // from the answers just given (same shape as a Coach-built plan, so the athlete can edit it
+    // or ask the Coach for a new one later).
+    const starter = buildStarterPlan(form);
+    const newProfile = { ...form, activePlan: { days: starter.days, currentDayIndex: 0, activatedAt: new Date().toISOString(), source: "onboarding" } };
     setProfile(newProfile);
     await saveKey(KEYS.profile, newProfile);
     const wl = [{ date: todayStr(), weight: form.weightKg }];
     setWeightlog(wl);
     await saveKey(KEYS.weightlog, wl);
     logEvent("onboarding_completed", { goal: form.goal, experience: form.experience, trainingDays: form.trainingDays });
+    logEvent("plan_activated", { days: starter.days.length, source: "onboarding" });
   };
 
   // Idempotent by construction: once `session` is cleared, a second call (e.g. a double-click
@@ -745,8 +751,8 @@ export default function App() {
         <SupportPage onClose={() => setShowSupport(false)} />
       ) : showPricing ? (
         <PricingPage
-          subscriptionState={subscriptionState} isPremium={isPremium}
-          onConfirmUpgrade={(plan, trial) => { setShowPricing(false); startCheckout(plan, trial); }}
+          subscriptionState={subscriptionState} isPremium={isPremium} trialEligible={isTrialEligible(subscription)}
+          onConfirmUpgrade={(plan) => { setShowPricing(false); startCheckout(plan); }}
           billingLoading={billingLoading} billingError={billingError}
           onClose={() => setShowPricing(false)}
         />

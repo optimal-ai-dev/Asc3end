@@ -6,7 +6,7 @@
 import { stripe } from "../lib/stripe.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
-import { computeSubscriptionState } from "../src/lib/subscription.js";
+import { computeSubscriptionState, isTrialEligible, TRIAL_DAYS } from "../src/lib/subscription.js";
 import { validateStripeKeyFormat, assertValidOrLog } from "../lib/validateSecretFormat.js";
 
 const PRICE_ID_PATTERN = /^price_[A-Za-z0-9]+$/;
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
   try {
     const { data: existing } = await supabaseAdmin
       .from("subscriptions")
-      .select("stripe_customer_id, status, current_period_end, cancel_at_period_end, plan")
+      .select("stripe_customer_id, stripe_subscription_id, status, current_period_end, cancel_at_period_end, plan")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -72,7 +72,9 @@ export default async function handler(req, res) {
       });
     }
 
-    const { plan, trial } = req.body || {};
+    // The server alone decides the trial (any `trial` flag in the body is ignored): one free
+    // trial per account, judged from the row read above, before this request touched it.
+    const { plan } = req.body || {};
     // Reject anything that isn't exactly one of the two real plans instead of silently falling
     // back to monthly — a typo'd or malformed client request should fail loudly, not quietly
     // check the caller out on a plan they didn't ask for.
@@ -89,14 +91,11 @@ export default async function handler(req, res) {
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      // Checkout always collects a card for subscriptions, trial or not, so the first charge
+      // happens automatically when the trial ends unless the athlete cancels first.
       subscription_data: {
         metadata: { supabase_user_id: user.id },
-        // Only offered when the caller explicitly asks for it (the pricing page's trial toggle)
-        // — Stripe doesn't natively dedupe "has this customer already trialed before" for
-        // Checkout-created subscriptions, so this is an honest "optional" trial, not a
-        // guaranteed-once-ever one; fine for a beta launch, worth revisiting before wide launch
-        // if trial abuse becomes a real cost concern.
-        ...(trial ? { trial_period_days: 7 } : {}),
+        ...(isTrialEligible(existing) ? { trial_period_days: TRIAL_DAYS } : {}),
       },
       success_url: `${origin}/?checkout=success`,
       cancel_url: `${origin}/?checkout=cancelled`,

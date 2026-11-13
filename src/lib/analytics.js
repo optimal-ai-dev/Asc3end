@@ -25,7 +25,7 @@ export const EVENT_NAMES = new Set([
   "signup_completed",       // {} — account created (email confirmation may still be pending)
   "onboarding_completed",   // { goal, experience, trainingDays }
   "plan_generated",         // { trainingDays, coachingStyle }
-  "plan_activated",         // { days }
+  "plan_activated",         // { days, source? } — source "onboarding" for the starter plan
   "plan_edited",            // { days }
   "workout_started",        // { planned }
   "first_set_logged",       // { exercise } — the athlete's very first logged set, ever
@@ -33,7 +33,7 @@ export const EVENT_NAMES = new Set([
   "coach_message_sent",     // { isRetry }
   "food_logged",            // { count }
   "paywall_viewed",         // { feature }
-  "checkout_started",       // { plan, trial }
+  "checkout_started",       // { plan }
   "checkout_failed",        // { reason }
   "subscription_activated", // { status }
   "feedback_submitted",     // { type }
