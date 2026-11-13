@@ -2,11 +2,11 @@ import { useState, useEffect } from "react";
 import { X, Check, Sparkles, Loader2 } from "lucide-react";
 import LegalPage from "../LegalPage";
 import { logEvent } from "../lib/analytics";
-import { describeSubscriptionState } from "../lib/subscription";
+import { describeSubscriptionState, TRIAL_DAYS } from "../lib/subscription";
 import { ANNUAL_PRICE, MONTHLY_PRICE, ANNUAL_SAVINGS_PCT, PRICING_FAQ } from "../lib/pricingContent";
 import { FeatureComparisonTable } from "../components/Paywall";
 
-export function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, billingLoading, billingError, onClose, initialFeature }) {
+export function PricingPage({ subscriptionState, isPremium, trialEligible = true, onConfirmUpgrade, billingLoading, billingError, onClose, initialFeature }) {
   const [plan, setPlan] = useState("monthly");
   const [legalOpen, setLegalOpen] = useState(null);
   useEffect(() => { logEvent("paywall_viewed", { feature: initialFeature || "pricing_page" }); }, [initialFeature]);
@@ -74,10 +74,12 @@ export function PricingPage({ subscriptionState, isPremium, onConfirmUpgrade, bi
               onClick={() => onConfirmUpgrade(plan)}
             >
               {billingLoading === "checkout" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite", verticalAlign: -2, marginRight: 6 }} /> : null}
-              {`Upgrade to Asc3end+ — AUD $${price.toFixed(2)}/${period}`}
+              {trialEligible ? `Start ${TRIAL_DAYS}-day free trial` : `Upgrade to Asc3end+ — AUD $${price.toFixed(2)}/${period}`}
             </button>
             <div className="mono" style={{ fontSize: 10, color: "var(--ink-dim)", marginTop: 10, lineHeight: 1.5 }}>
-              Billed immediately, then recurring until you cancel. Cancel anytime — no lock-in.
+              {trialEligible
+                ? `${TRIAL_DAYS}-day free trial, then AUD $${price.toFixed(2)}/${period === "yr" ? "year" : "month"}. Your card is charged when the trial ends unless you cancel before then. Cancel anytime — no lock-in.`
+                : "Billed today, then recurring until you cancel. Cancel anytime — no lock-in."}
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 10 }}>
               <button onClick={() => setLegalOpen("subscriptionTerms")} className="mono" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-dim)", fontSize: 10.5, textDecoration: "underline", padding: 0 }}>Subscription Terms</button>

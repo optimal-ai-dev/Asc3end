@@ -10,7 +10,7 @@ import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
 import { computeStreak, computeWorkoutXp } from "./lib/workoutMath";
 import { classifyDayAdherence } from "./lib/nutritionMath";
-import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE } from "./lib/subscription";
+import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE, isTrialEligible } from "./lib/subscription";
 import { isStaleSession, isValidSession } from "./lib/session";
 import {
   isValidCustomExercise, isValidWorkout, isValidFoodEntry, isValidWeightEntry, isValidWaterEntry, isValidMyFood, isValidFavorite,
@@ -751,7 +751,7 @@ export default function App() {
         <SupportPage onClose={() => setShowSupport(false)} />
       ) : showPricing ? (
         <PricingPage
-          subscriptionState={subscriptionState} isPremium={isPremium}
+          subscriptionState={subscriptionState} isPremium={isPremium} trialEligible={isTrialEligible(subscription)}
           onConfirmUpgrade={(plan) => { setShowPricing(false); startCheckout(plan); }}
           billingLoading={billingLoading} billingError={billingError}
           onClose={() => setShowPricing(false)}

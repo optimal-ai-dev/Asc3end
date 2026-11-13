@@ -153,7 +153,15 @@ describe("api/create-checkout-session", () => {
     expect(fakeStripe.checkout.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ customer: "cus_existing" }));
   });
 
-  it("never applies a trial period, even if the client asks for one", async () => {
+  it("gives a new subscriber a 7-day trial without the client asking for one", async () => {
+    await handler(fakeReq({ token: "valid-token", body: { plan: "monthly" } }), fakeRes());
+    expect(fakeStripe.checkout.sessions.create).toHaveBeenCalledWith(expect.objectContaining({
+      subscription_data: expect.objectContaining({ trial_period_days: 7 }),
+    }));
+  });
+
+  it("gives no second trial to someone who has subscribed before, even if the client asks", async () => {
+    state.subscriptionsByUser.set(FREE_USER, { user_id: FREE_USER, stripe_customer_id: "cus_existing", stripe_subscription_id: "sub_old", status: "canceled" });
     await handler(fakeReq({ token: "valid-token", body: { plan: "monthly", trial: true } }), fakeRes());
     const args = fakeStripe.checkout.sessions.create.mock.calls[0][0];
     expect(args.subscription_data.trial_period_days).toBeUndefined();

@@ -6,7 +6,7 @@
 import { stripe } from "../lib/stripe.js";
 import { supabaseAdmin } from "../lib/supabaseAdmin.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
-import { computeSubscriptionState } from "../src/lib/subscription.js";
+import { computeSubscriptionState, isTrialEligible, TRIAL_DAYS } from "../src/lib/subscription.js";
 import { validateStripeKeyFormat, assertValidOrLog } from "../lib/validateSecretFormat.js";
 
 const PRICE_ID_PATTERN = /^price_[A-Za-z0-9]+$/;
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
   try {
     const { data: existing } = await supabaseAdmin
       .from("subscriptions")
-      .select("stripe_customer_id, status, current_period_end, cancel_at_period_end, plan")
+      .select("stripe_customer_id, stripe_subscription_id, status, current_period_end, cancel_at_period_end, plan")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -72,8 +72,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // Any `trial` flag in the body is ignored: Asc3end+ has no free trial (founding-member
-    // pricing is billed from day one), so a client can't request one.
+    // The server alone decides the trial (any `trial` flag in the body is ignored): one free
+    // trial per account, judged from the row read above, before this request touched it.
     const { plan } = req.body || {};
     // Reject anything that isn't exactly one of the two real plans instead of silently falling
     // back to monthly — a typo'd or malformed client request should fail loudly, not quietly
@@ -91,8 +91,11 @@ export default async function handler(req, res) {
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      // Checkout always collects a card for subscriptions, trial or not, so the first charge
+      // happens automatically when the trial ends unless the athlete cancels first.
       subscription_data: {
         metadata: { supabase_user_id: user.id },
+        ...(isTrialEligible(existing) ? { trial_period_days: TRIAL_DAYS } : {}),
       },
       success_url: `${origin}/?checkout=success`,
       cancel_url: `${origin}/?checkout=cancelled`,
