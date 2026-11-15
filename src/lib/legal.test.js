@@ -96,7 +96,7 @@ describe("Australian privacy, consumer law and attribution details", () => {
 
   it("names each overseas processor the app actually sends data to", () => {
     const intl = LEGAL_COPY.privacy.sections.find((s) => s.heading === "International data processing").body;
-    for (const name of ["Anthropic", "Vercel", "Stripe", "Supabase", "United States"]) expect(intl).toContain(name);
+    for (const name of ["Anthropic", "Vercel", "Stripe", "Supabase", "United States", "Japan"]) expect(intl).toContain(name);
   });
 
   it("does not rely on blanket 'by using you consent' wording for overseas transfers", () => {
