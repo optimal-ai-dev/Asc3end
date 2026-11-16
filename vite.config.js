@@ -37,6 +37,11 @@ export default defineConfig({
         // App shell only — index.html falls back for any unmatched navigation (SPA routing),
         // never for /api/*, so an API 404/500 is never masked by a cached HTML page.
         navigateFallbackDenylist: [/^\/api\//],
+        // The barcode reader's ~950KB WebAssembly file is only needed when someone actually opens
+        // the barcode scanner (which needs the network for the product lookup anyway). Precaching
+        // it made every first visit, on every phone, download almost 1MB in the background while
+        // the app was trying to load. It's now fetched on demand like any other request.
+        globIgnores: ["**/*.wasm"],
       },
     }),
   ],

@@ -1,15 +1,10 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import { Dumbbell, UtensilsCrossed, LayoutDashboard, MessageCircle, TrendingUp, Loader2 } from "lucide-react";
 import GlobalStyle from "./GlobalStyle";
-import AuthScreen from "./AuthScreen";
-import Landing from "./Landing";
-import LegalPage from "./LegalPage";
-import SupportPage from "./SupportPage";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
 import { loadKey, saveKey } from "./lib/storage";
 import { computeStreak, computeWorkoutXp } from "./lib/workoutMath";
-import { classifyDayAdherence } from "./lib/nutritionMath";
 import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE, isTrialEligible } from "./lib/subscription";
 import { isStaleSession, isValidSession } from "./lib/session";
 import {
@@ -17,41 +12,81 @@ import {
   isValidChallenge, sanitizeList
 } from "./lib/validation";
 import { parseAppPath, buildAppPath } from "./lib/routing";
-import { MUSCLE_GROUPS, MUSCLE_REGIONS, POSE_TIPS, regionForExercise, EXERCISES } from "./exerciseData";
 import { KEYS } from "./lib/storageKeys";
 import { todayStr, uid } from "./lib/dateUtils";
-import { COACH_SAFETY_RULES } from "./lib/coachPrompts";
-import {
-  formatSet, matchesSearch, READINESS_COLORS, READINESS_LABEL, muscleReadiness, workoutVolume
-} from "./lib/workoutHelpers";
-import { weeklyAdherence, ADHERENCE_COLOR, ADHERENCE_LABEL } from "./lib/nutritionHelpers";
-import { MuscleReadinessMap } from "./components/MuscleReadinessMap";
-import { Onboarding } from "./pages/Onboarding";
 import { buildStarterPlan } from "./lib/starterPlan";
-import { LegalUpdateScreen } from "./pages/LegalUpdateScreen";
 import { LEGAL_DOCUMENT_VERSION } from "./lib/legal";
-import { Dashboard } from "./pages/Dashboard";
-import { Profile } from "./pages/Profile";
-import { Train } from "./pages/Train";
-import { PricingPage } from "./pages/PricingPage";
-import { WorkoutCompleteScreen } from "./pages/WorkoutCompleteScreen";
-import { ChallengesScreen } from "./pages/ChallengesScreen";
-import { Coach } from "./pages/Coach";
-import { Nutrition } from "./pages/Nutrition";
 import {
   LoadingShell, NotFoundScreen, ResetPasswordScreen, CheckoutResultScreen
 } from "./pages/StatusScreens";
-import { AdminDashboard } from "./pages/AdminDashboard";
 
-// Lazy-loaded: recharts (~525KB, the single largest dependency in the app) then only ships to
-// people who actually open the Progress tab, instead of loading on every page for everyone.
+// Every screen is its own lazily-loaded chunk. Before, the whole app (every tab, the 1,000-line
+// exercise library, the food logger, the coach) shipped as one ~490KB file that had to download
+// and parse before ANYTHING appeared — including for a logged-out visitor who only ever sees the
+// landing page. Now the first paint only waits for the screen actually being shown, and
+// prefetchScreens() quietly fetches the rest in the background straight after, so switching tabs
+// is still instant rather than showing a spinner the first time.
+const screenLoaders = [];
+function lazyScreen(loader, { publicScreen = false } = {}) {
+  screenLoaders.push({ loader, publicScreen });
+  return lazy(loader);
+}
+// A logged-out visitor only gets the screens they can reach next (sign-in, legal pages); the full
+// app is fetched once someone is signed in.
+const prefetched = new Set();
+function prefetchScreens({ signedIn }) {
+  if (typeof window === "undefined") return;
+  const todo = screenLoaders.filter((s) => !prefetched.has(s) && (signedIn || s.publicScreen));
+  if (todo.length === 0) return;
+  todo.forEach((s) => prefetched.add(s));
+  const run = () => todo.forEach(({ loader }) => loader().catch(() => { /* retried on real use */ }));
+  if ("requestIdleCallback" in window) window.requestIdleCallback(run, { timeout: 3000 });
+  else setTimeout(run, 1500);
+}
+
+const AuthScreen = lazyScreen(() => import("./AuthScreen").then((m) => ({ default: m.default })), { publicScreen: true });
+const Landing = lazyScreen(() => import("./Landing").then((m) => ({ default: m.default })));
+const LegalPage = lazyScreen(() => import("./LegalPage").then((m) => ({ default: m.default })), { publicScreen: true });
+const SupportPage = lazyScreen(() => import("./SupportPage").then((m) => ({ default: m.default })), { publicScreen: true });
+const Onboarding = lazyScreen(() => import("./pages/Onboarding").then((m) => ({ default: m.Onboarding })));
+const LegalUpdateScreen = lazyScreen(() => import("./pages/LegalUpdateScreen").then((m) => ({ default: m.LegalUpdateScreen })));
+const Dashboard = lazyScreen(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+const Profile = lazyScreen(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
+const Train = lazyScreen(() => import("./pages/Train").then((m) => ({ default: m.Train })));
+const PricingPage = lazyScreen(() => import("./pages/PricingPage").then((m) => ({ default: m.PricingPage })));
+const WorkoutCompleteScreen = lazyScreen(() => import("./pages/WorkoutCompleteScreen").then((m) => ({ default: m.WorkoutCompleteScreen })));
+const ChallengesScreen = lazyScreen(() => import("./pages/ChallengesScreen").then((m) => ({ default: m.ChallengesScreen })));
+const Coach = lazyScreen(() => import("./pages/Coach").then((m) => ({ default: m.Coach })));
+const Nutrition = lazyScreen(() => import("./pages/Nutrition").then((m) => ({ default: m.Nutrition })));
+const AdminDashboard = lazyScreen(() => import("./pages/AdminDashboard").then((m) => ({ default: m.AdminDashboard })));
+
+// recharts (~525KB, the single largest dependency in the app) only ships to people who actually
+// open the Progress tab. Deliberately NOT in prefetchScreens: it's big, and most opens never
+// visit Progress.
 const Progress = lazy(() => import("./Progress"));
+
+const screenFallback = (
+  <div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}>
+    <Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} />
+  </div>
+);
 
 /* ------------------------------------------------------------------ */
 /* App root                                                             */
 /* ------------------------------------------------------------------ */
 
+// The outer boundary covers whole-page screens (landing, sign-in, onboarding...) while their chunk
+// loads. Inside the signed-in app a second boundary wraps only the content area, so the bottom
+// nav never disappears while a tab loads.
 export default function App() {
+  return (
+    <Suspense fallback={<LoadingShell stage="app" />}>
+      <AppScreens />
+    </Suspense>
+  );
+}
+
+function AppScreens() {
   // undefined = auth state not checked yet, null = logged out, object = logged in.
   // Named authUser (not "session") to avoid colliding with the in-progress workout `session` state below.
   const [authUser, setAuthUser] = useState(undefined);
@@ -176,6 +211,12 @@ export default function App() {
       setLoaded(true);
     })();
   }, [authUser]);
+
+  // Fetch the remaining screens in the background once the first one is up.
+  useEffect(() => {
+    if (authUser === null) prefetchScreens({ signedIn: false });
+    else if (authUser && loaded) prefetchScreens({ signedIn: true });
+  }, [authUser, loaded]);
 
   const refreshSubscription = async () => {
     if (!authUser) return null;
@@ -733,6 +774,7 @@ export default function App() {
   return (
     <div className="atlas-root">
       <GlobalStyle />
+      <Suspense fallback={screenFallback}>
       {completedWorkout ? (
         <WorkoutCompleteScreen
           workout={completedWorkout}
@@ -766,15 +808,13 @@ export default function App() {
         />
       ) : (
         <>
+          <Suspense fallback={screenFallback}>
           {tab === "dashboard" && <Dashboard profile={profile} workouts={workouts} nutrition={nutrition} weightlog={weightlog} customExercises={customExercises} onNav={setTab} onLogWeight={logWeight} onLogOut={logOut} isPremium={isPremium} isDemoEntitlement={isDemoEntitlement} subscriptionState={subscriptionState} onUpgrade={() => setShowPricing(true)} onManageBilling={openBillingPortal} billingError={billingError} billingLoading={billingLoading} session={session} onStartWorkout={startWorkout} onOpenProfile={() => setShowProfile(true)} onOpenChallenges={() => setShowChallenges(true)} onViewExercises={onViewExercises} />}
           {tab === "train" && <Train profile={profile} workouts={workouts} session={session} setSession={setSession} onFinish={finishWorkout} onDiscard={discardWorkout} onStartWorkout={startWorkout} finishingWorkout={finishingWorkout} finishError={finishError} customExercises={customExercises} onAddCustomExercise={addCustomExercise} onArchiveCustomExercise={archiveCustomExercise} onEditWorkout={editWorkout} onDeleteWorkout={deleteWorkout} initialMuscleFilter={trainMuscleFilter} />}
           {tab === "coach" && <Coach profile={profile} workouts={workouts} onUpdateProfile={updateProfile} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
           {tab === "nutrition" && <Nutrition profile={profile} nutrition={nutrition} weightlog={weightlog} onUpdateProfile={updateProfile} onAdd={addFood} onAddMany={addFoods} onDelete={deleteFood} onEdit={editFood} favorites={favorites} onToggleFavorite={toggleFavorite} water={water} myFoods={myFoods} onSaveMyFood={saveMyFood} onAddWater={addWater} onDeleteWater={deleteWater} isPremium={isPremium} onUpgrade={() => setShowPricing(true)} usage={usage} onUsageChange={refreshUsage} />}
-          {tab === "progress" && (
-            <Suspense fallback={<div style={{ padding: "24px 18px", display: "flex", justifyContent: "center" }}><Loader2 size={20} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} /></div>}>
-              <Progress profile={profile} workouts={workouts} weightlog={weightlog} customExercises={customExercises} nutrition={nutrition} />
-            </Suspense>
-          )}
+          {tab === "progress" && <Progress profile={profile} workouts={workouts} weightlog={weightlog} customExercises={customExercises} nutrition={nutrition} />}
+          </Suspense>
 
           <nav className="atlas-nav">
             {navItems.map((n) => (
@@ -786,6 +826,7 @@ export default function App() {
           </nav>
         </>
       )}
+      </Suspense>
     </div>
   );
 }

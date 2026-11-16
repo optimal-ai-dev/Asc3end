@@ -31,7 +31,7 @@ export function LoadingShell({ stage }) {
       <div className="disp" style={{ fontSize: 18, marginBottom: 14 }}>Asc3end</div>
       <div role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--ink-dim)", fontSize: 13 }}>
         <Loader2 size={16} color="var(--brass)" style={{ animation: "spin 1s linear infinite" }} />
-        <span>{stage === "session" ? "Checking your session…" : "Loading your data…"}</span>
+        <span>{stage === "session" ? "Checking your session…" : stage === "app" ? "Loading…" : "Loading your data…"}</span>
       </div>
       {showRetry && (
         <div style={{ marginTop: 22, textAlign: "center" }}>
