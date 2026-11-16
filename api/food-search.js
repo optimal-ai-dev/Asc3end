@@ -22,7 +22,7 @@ const FDC_URL = "https://api.nal.usda.gov/fdc/v1/foods/search";
 const OFF_HOST = "https://world.openfoodfacts.org";
 const OFF_SEARCH = "https://search.openfoodfacts.org/search";
 const OFF_FIELDS = "code,product_name,product_name_en,generic_name,brands,nutriments,serving_size,serving_quantity,serving_quantity_unit,product_quantity,quantity";
-const USER_AGENT = "Asc3end/0.1 (https://asc3end.vercel.app)";
+const USER_AGENT = "Asc3end/0.1 (https://asc3end.com)";
 const TIMEOUT_MS = 7000;
 
 // Per-instance cache. Not shared across Vercel instances, but a warm instance serves most of a

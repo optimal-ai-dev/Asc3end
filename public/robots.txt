@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /app/
 
-Sitemap: https://asc3end.vercel.app/sitemap.xml
+Sitemap: https://asc3end.com/sitemap.xml

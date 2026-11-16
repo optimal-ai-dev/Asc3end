@@ -13,9 +13,9 @@
 
 import { describe, it, expect } from "vitest";
 
-const BASE = process.env.PRODUCTION_URL || "https://asc3end.vercel.app";
+const BASE = process.env.PRODUCTION_URL || "https://asc3end.com";
 
-describe("Production deployment health — https://asc3end.vercel.app", () => {
+describe("Production deployment health — https://asc3end.com", () => {
   it("root path returns 200 with the app's HTML shell", async () => {
     const res = await fetch(`${BASE}/`);
     expect(res.status).toBe(200);
@@ -73,7 +73,7 @@ describe("Production deployment health — https://asc3end.vercel.app", () => {
     expect(res.headers.get("content-type")).toMatch(/xml/);
     const body = await res.text();
     expect(body).toContain("<urlset");
-    expect(body).toContain("https://asc3end.vercel.app/");
+    expect(body).toContain("https://asc3end.com/");
     expect(body).not.toContain("/app/"); // never leak authenticated routes into the sitemap
   });
 
