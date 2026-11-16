@@ -167,6 +167,13 @@ describe("api/create-checkout-session", () => {
     expect(args.subscription_data.trial_period_days).toBeUndefined();
   });
 
+  it("lets the athlete enter a promotion code on Checkout", async () => {
+    await handler(fakeReq({ token: "valid-token", body: { plan: "monthly" } }), fakeRes());
+    expect(fakeStripe.checkout.sessions.create).toHaveBeenCalledWith(expect.objectContaining({
+      allow_promotion_codes: true,
+    }));
+  });
+
   it("success and cancel URLs point back to the app with the correct query param", async () => {
     process.env.APP_URL = "https://asc3end.vercel.app";
     await handler(fakeReq({ token: "valid-token", body: { plan: "monthly" } }), fakeRes());
