@@ -293,7 +293,7 @@ export default function GlobalStyle() {
       .exercise-detail-layout { display: flex; flex-direction: column; gap: 16px; }
       @media (min-width: 640px) {
         .exercise-detail-layout { flex-direction: row; align-items: flex-start; }
-        .exercise-detail-figure { flex: 0 0 220px; }
+        .exercise-detail-figure { flex: 0 0 280px; }
         .exercise-detail-info { flex: 1 1 auto; min-width: 0; }
       }
 
