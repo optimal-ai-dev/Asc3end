@@ -3,14 +3,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // A minimal in-memory stand-in for the `user_data` table, faithful to the exact call chains
 // storage.js actually makes (select().eq("user_id",...).eq("key",...).maybeSingle(),
 // upsert(row), delete().eq("user_id",...).eq("key",...)) — not a general Supabase mock.
-const { fakeSupabase, setCurrentUser, getRow, forceNextUpsertError } = vi.hoisted(() => {
+const { fakeSupabase, setCurrentUser, getRow, forceNextUpsertError, forceNextBatchReadError } = vi.hoisted(() => {
   const rows = new Map(); // "user_id:key" -> { value }
   let currentUser = { id: "user-1" };
   let nextUpsertError = null;
+  let nextInError = null;
 
   const fakeSupabase = {
     auth: {
-      getUser: async () => ({ data: { user: currentUser } }),
+      // storage.js reads the user from the local session (no network), never getUser().
+      getSession: async () => ({ data: { session: currentUser ? { user: currentUser } : null } }),
+      getUser: async () => { throw new Error("storage.js must not call getUser() — it costs a network round trip per read/write"); },
     },
     from(table) {
       if (table !== "user_data") throw new Error(`unexpected table: ${table}`);
@@ -19,6 +22,17 @@ const { fakeSupabase, setCurrentUser, getRow, forceNextUpsertError } = vi.hoiste
           return {
             eq(_k1, v1) {
               return {
+                async in(_k2, keys) {
+                  if (nextInError) {
+                    const err = nextInError;
+                    nextInError = null;
+                    return { data: null, error: err };
+                  }
+                  const data = keys
+                    .filter((k) => rows.has(`${v1}:${k}`))
+                    .map((k) => ({ key: k, value: rows.get(`${v1}:${k}`).value }));
+                  return { data, error: null };
+                },
                 eq(_k2, v2) {
                   return {
                     async maybeSingle() {
@@ -61,12 +75,13 @@ const { fakeSupabase, setCurrentUser, getRow, forceNextUpsertError } = vi.hoiste
     setCurrentUser: (u) => { currentUser = u; },
     getRow: (userId, key) => rows.get(`${userId}:${key}`),
     forceNextUpsertError: (err) => { nextUpsertError = err; },
+    forceNextBatchReadError: (err) => { nextInError = err; },
   };
 });
 
 vi.mock("./supabase", () => ({ supabase: fakeSupabase }));
 
-const { loadKey, saveKey, storage } = await import("./storage");
+const { loadKey, loadKeys, saveKey, storage } = await import("./storage");
 
 beforeEach(() => {
   setCurrentUser({ id: "user-1" });
@@ -174,5 +189,35 @@ describe("storage object is still exported for callers that need the raw shape",
   it("storage.get returns null for a missing key", async () => {
     setCurrentUser({ id: "user-3" });
     expect(await storage.get("atlas:nope")).toBeNull();
+  });
+});
+
+describe("loadKeys: one batched read for app startup", () => {
+  it("returns values in the requested order, with null for keys never saved", async () => {
+    setCurrentUser({ id: "user-batch" });
+    await saveKey("atlas:profile", { name: "Batch" });
+    await saveKey("atlas:workouts", [{ id: "w1" }]);
+    expect(await loadKeys(["atlas:workouts", "atlas:missing", "atlas:profile"])).toEqual([
+      [{ id: "w1" }], null, { name: "Batch" },
+    ]);
+  });
+
+  it("only ever returns the current user's rows", async () => {
+    setCurrentUser({ id: "user-batch-a" });
+    await saveKey("atlas:profile", { name: "A" });
+    setCurrentUser({ id: "user-batch-b" });
+    expect(await loadKeys(["atlas:profile"])).toEqual([null]);
+  });
+
+  it("falls back to per-key reads if the batched read fails, instead of blanking every key", async () => {
+    setCurrentUser({ id: "user-batch-c" });
+    await saveKey("atlas:profile", { name: "C" });
+    forceNextBatchReadError({ message: "simulated failure" });
+    expect(await loadKeys(["atlas:profile", "atlas:missing"])).toEqual([{ name: "C" }, null]);
+  });
+
+  it("returns all nulls when nobody is signed in", async () => {
+    setCurrentUser(null);
+    expect(await loadKeys(["atlas:profile", "atlas:workouts"])).toEqual([null, null]);
   });
 });

@@ -22,13 +22,25 @@ import { supabase } from "./supabase";
  * That last policy is what enforces "only you can read/write your own rows" at the database
  * level — this is the real security boundary, not anything in the frontend code.
  */
+// The signed-in user for the current session, re-derived on every call rather than cached here —
+// switching authenticated users (log out, log in as someone else) can never keep serving the
+// previous user's rows, because there is no previous user_id sitting in memory to reuse.
+//
+// Uses getSession() (read locally, no network) rather than getUser() (a round trip to the
+// Supabase auth server on EVERY call). With the database in Tokyo and athletes in Australia,
+// getUser() was adding a full extra round trip in front of every single read and write — the
+// app's 10 startup reads each paid it, and every logged food or set paid it before the actual
+// save could even start. The real account-isolation boundary is Row Level Security on user_data
+// (auth.uid() = user_id), which the database checks against the signed JWT on every request,
+// so a stale or tampered local session can't read or write anyone else's rows either way.
+async function currentUser() {
+  const { data } = await supabase.auth.getSession();
+  return data?.session?.user ?? null;
+}
+
 export const storage = {
   async get(key) {
-    // Always re-derives the current session's user rather than caching one — this is the actual
-    // account-isolation boundary for every read: switching authenticated users (log out, log in
-    // as someone else) can never keep serving the previous user's rows, because there is no
-    // previous user_id sitting in memory here to reuse.
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await currentUser();
     if (!user) return null;
     const { data, error } = await supabase
       .from("user_data")
@@ -41,7 +53,7 @@ export const storage = {
   },
 
   async set(key, value) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await currentUser();
     if (!user) return null;
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
     const { error } = await supabase
@@ -51,8 +63,27 @@ export const storage = {
     return { key, value };
   },
 
+  // Reads several keys in ONE request instead of one request per key — startup loads ten keys,
+  // and ten parallel requests from a phone on mobile data queue behind each other far more than
+  // one does. Returns a plain { key: parsedValue } object; keys with no row are simply absent.
+  // Returns null (not {}) if the read itself failed, so callers can tell "nothing saved yet"
+  // apart from "couldn't load".
+  async getMany(keys) {
+    const user = await currentUser();
+    if (!user) return null;
+    const { data, error } = await supabase
+      .from("user_data")
+      .select("key, value")
+      .eq("user_id", user.id)
+      .in("key", keys);
+    if (error || !data) return null;
+    const out = {};
+    for (const row of data) out[row.key] = row.value;
+    return out;
+  },
+
   async delete(key) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await currentUser();
     if (!user) return null;
     await supabase.from("user_data").delete().eq("user_id", user.id).eq("key", key);
     return { key, deleted: true };
@@ -76,6 +107,18 @@ export async function loadKey(key) {
   } catch (e) {
     return null;
   }
+}
+
+// Loads several keys at once (one request). Resolves to an array of values in the same order as
+// `keys`, each null when missing — the same contract as calling loadKey on each key, so a failed
+// or partial read still degrades to "as if never saved" rather than throwing. If the batched read
+// fails outright, falls back to per-key reads so one bad request can't blank the whole app.
+export async function loadKeys(keys) {
+  try {
+    const rows = await storage.getMany(keys);
+    if (rows) return keys.map((k) => (k in rows ? rows[k] : null));
+  } catch (e) { /* fall through to per-key reads */ }
+  return Promise.all(keys.map((k) => loadKey(k)));
 }
 
 // Returns true/false so callers that need to know whether a save actually landed (e.g. finishing
