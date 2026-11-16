@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Camera, Plus } from "lucide-react";
 import { getExerciseGuidance, EQUIPMENT_COLORS } from "../exerciseData";
 import { POSES_WITH_FINISH, SECONDARY_MUSCLES, ExerciseFigure } from "./ExerciseFigure";
+import { ExerciseDemo } from "./ExerciseDemo";
+import { getExerciseMedia } from "../lib/exerciseMedia";
 
 // Two short, real mistakes per pattern — deliberately the *inverse* of the existing POSE_TIPS
 // (the cues say what to do; this is what commonly goes wrong when someone doesn't), not
@@ -52,6 +54,9 @@ export function ExerciseDetailCard({ ex, onAdd, onBack, onArchive }) {
   const safety = guidance.safetyNote;
   const tips = guidance.formCues;
   const mediaApproved = ex.mediaStatus === "approved";
+  // A licensed full-range-of-motion clip, when one exists, replaces the SVG figure and its
+  // start/finish toggle entirely: the clip already shows the whole rep.
+  const media = getExerciseMedia(ex);
 
   return (
     <div className="atlas-card">
@@ -62,7 +67,9 @@ export function ExerciseDetailCard({ ex, onAdd, onBack, onArchive }) {
       <div className="exercise-detail-layout">
         <div className="exercise-detail-figure" style={{ textAlign: "center" }}>
           <div style={{ background: "var(--bg-elev2)", borderRadius: 12, padding: 12, display: "flex", justifyContent: "center", alignItems: "center", minHeight: 160 }}>
-            {mediaApproved ? (
+            {media ? (
+              <ExerciseDemo media={media} size={260} fallback={mediaApproved ? <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={160} state="start" showLegend /> : null} />
+            ) : mediaApproved ? (
               <ExerciseFigure pose={ex.pose} muscle={ex.muscle} equipment={ex.equipment} size={160} state={figureState} showLegend />
             ) : (
               <div role="img" aria-label="Demonstration coming soon" style={{ color: "var(--ink-dim)", fontSize: 12.5, padding: "24px 12px", textAlign: "center", lineHeight: 1.6 }}>
@@ -72,7 +79,7 @@ export function ExerciseDetailCard({ ex, onAdd, onBack, onArchive }) {
               </div>
             )}
           </div>
-          {mediaApproved && hasFinish && (
+          {!media && mediaApproved && hasFinish && (
             <div role="group" aria-label="View start or finish position" style={{ display: "flex", marginTop: 10, background: "var(--bg-elev2)", borderRadius: 10, padding: 3 }}>
               {["start", "finish"].map((s) => (
                 <button

@@ -6,3 +6,7 @@ dist
 
 .vercel
 .env*
+
+# Licensed exercise clips: never commit (public repo, licence forbids redistribution)
+.exercise-media/
+exercise-media-src/

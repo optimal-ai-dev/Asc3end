@@ -11,7 +11,10 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.js",
     "check-launch-config": "node scripts/check-launch-config.mjs",
-    "validate:exercises": "node scripts/validate-exercise-library.mjs"
+    "validate:exercises": "node scripts/validate-exercise-library.mjs",
+    "media:suggest": "node scripts/build-exercise-media.mjs suggest",
+    "media:build": "node scripts/build-exercise-media.mjs build",
+    "media:upload": "node scripts/build-exercise-media.mjs upload"
   },
   "dependencies": {
     "@sentry/react": "^10.74.0",

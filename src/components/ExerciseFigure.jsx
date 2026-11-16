@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { Camera } from "lucide-react";
 import { MUSCLE_GROUPS, MUSCLE_POSITIONS } from "../exerciseData";
+import { getExerciseMedia } from "../lib/exerciseMedia";
 
 /* Reusable body silhouette that highlights a single muscle group — used in the exercise library */
 function MuscleIcon({ muscle, size = 46 }) {
@@ -306,6 +307,17 @@ export function ExerciseFigure({ pose, muscle, equipment, size = 90, state = "st
    silently shows an inaccurate demonstration anywhere in the app, not only on its detail page. */
 export function ExerciseThumb({ ex, size = 40 }) {
   if (!ex) return null;
+  const media = getExerciseMedia(ex);
+  if (media) {
+    // A small still frame from the licensed clip (~5 KB WebP), lazy-loaded so a long exercise
+    // list only fetches the rows actually on screen.
+    return (
+      <img
+        src={media.thumb} alt="" loading="lazy" decoding="async" width={size} height={size}
+        style={{ width: size, height: size, borderRadius: 8, objectFit: "cover", background: "#fff", flexShrink: 0 }}
+      />
+    );
+  }
   if (ex.mediaStatus !== "approved") {
     return (
       <div
