@@ -47,8 +47,6 @@ import { AdminDashboard } from "./pages/AdminDashboard";
 // people who actually open the Progress tab, instead of loading on every page for everyone.
 const Progress = lazy(() => import("./Progress"));
 
-const SESSION_SAVE_DELAY_MS = 700;
-
 /* ------------------------------------------------------------------ */
 /* App root                                                             */
 /* ------------------------------------------------------------------ */
@@ -390,6 +388,7 @@ export default function App() {
   // and any pending write is flushed straight away when the app is hidden or closed, so switching
   // apps between sets still can't lose anything. Clearing the session (finish/discard) is never
   // delayed, and cancels any pending write so a stale copy can't resurrect a finished workout.
+  const SESSION_SAVE_DELAY_MS = 700;
   const pendingSessionSaveRef = useRef(null);
   useEffect(() => {
     if (!loaded) return;
