@@ -91,6 +91,9 @@ export default async function handler(req, res) {
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      // Shows a "promotion code" box on Checkout so launch codes such as FOUNDER work. Which codes
+      // exist, what they take off and how many times they can be used is all set in Stripe.
+      allow_promotion_codes: true,
       // Checkout always collects a card for subscriptions, trial or not, so the first charge
       // happens automatically when the trial ends unless the athlete cancels first.
       subscription_data: {
