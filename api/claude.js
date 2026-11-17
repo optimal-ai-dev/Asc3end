@@ -68,7 +68,22 @@ export default async function handler(req, res) {
   // Blanket per-user abuse/cost guard, independent of the free-vs-plus business logic below —
   // every call to this endpoint costs real Anthropic API spend regardless of which feature it's
   // for, so it's rate-limited as one bucket rather than per-feature.
-  const rl = await checkRateLimit(user.id, "claude", { windowSeconds: 60, maxRequests: 20 });
+  //
+  // Everything below that needs the database is started at once, not one after the other: the
+  // rate-limit counter, the subscription lookup and the monthly-usage read don't depend on each
+  // other, and each one is a full round trip to the database. Run in sequence they used to add
+  // several hundred milliseconds in front of every Coach message and photo scan before the AI
+  // request itself could even start.
+  const { feature: requestedFeature } = req.body || {};
+  const gated = requestedFeature === FEATURES.SCANNER || isMeteredFeature(requestedFeature);
+  const admin = isAdminUser(user);
+  const [rl, prefetchedSubscriptionState, prefetchedUsage] = await Promise.all([
+    checkRateLimit(user.id, "claude", { windowSeconds: 60, maxRequests: 20 }),
+    gated && !admin ? getSubscriptionState(user.id) : null,
+    // Read eagerly so it's ready if needed; a failure is kept (not thrown) and handled below
+    // exactly as before — fail closed for Free users, serve-but-don't-count for paying ones.
+    gated ? getMonthlyUsage(user.id, requestedFeature).then((count) => ({ count }), (error) => ({ error })) : null,
+  ]);
   if (!rl.allowed) {
     return res.status(429).json({ error: { message: "Too many requests — please wait a moment and try again." } });
   }
@@ -95,15 +110,15 @@ export default async function handler(req, res) {
   if (feature === FEATURES.SCANNER || meteredFeature) {
     // Owners (ADMIN_EMAILS) get Asc3end+ with no monthly caps and no Stripe subscription. The
     // per-minute rate limit above still applies to them.
-    const subscriptionState = isAdminUser(user) ? OWNER_SUBSCRIPTION_STATE : await getSubscriptionState(user.id);
+    const subscriptionState = admin ? OWNER_SUBSCRIPTION_STATE : prefetchedSubscriptionState;
     const entitled = isEntitled(subscriptionState);
     const tracked = isUsageTracked(subscriptionState, feature);
     let currentUsage = 0;
     let usageKnown = tracked;
     if (tracked) {
-      try {
-        currentUsage = await getMonthlyUsage(user.id, feature);
-      } catch (e) {
+      if (!prefetchedUsage?.error) {
+        currentUsage = prefetchedUsage.count;
+      } else {
         // Fail CLOSED, not open: if usage can't be read, a non-entitled caller must not get an
         // unmetered request — the alternative (defaulting to 0/unlimited) is exactly the bug this
         // replaced, where a missing/unreachable feature_usage_monthly table silently gave every

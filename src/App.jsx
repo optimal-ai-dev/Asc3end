@@ -7,7 +7,7 @@ import LegalPage from "./LegalPage";
 import SupportPage from "./SupportPage";
 import { supabase } from "./lib/supabase";
 import { logEvent } from "./lib/analytics";
-import { loadKey, saveKey } from "./lib/storage";
+import { loadKeys, saveKey } from "./lib/storage";
 import { computeStreak, computeWorkoutXp } from "./lib/workoutMath";
 import { classifyDayAdherence } from "./lib/nutritionMath";
 import { computeSubscriptionState, isEntitled, OWNER_SUBSCRIPTION_STATE, isTrialEligible } from "./lib/subscription";
@@ -140,8 +140,10 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return;
     (async () => {
-      const [p, w, n, wl, sess, ce, fav, chal, wat, mine] = await Promise.all([
-        loadKey(KEYS.profile), loadKey(KEYS.workouts), loadKey(KEYS.nutrition), loadKey(KEYS.weightlog), loadKey(KEYS.session), loadKey(KEYS.customExercises), loadKey(KEYS.favorites), loadKey(KEYS.challenges), loadKey(KEYS.water), loadKey(KEYS.myFoods),
+      // One batched request for all ten keys (instead of ten separate ones) — this is what the
+      // athlete is staring at a spinner for on every app open.
+      const [p, w, n, wl, sess, ce, fav, chal, wat, mine] = await loadKeys([
+        KEYS.profile, KEYS.workouts, KEYS.nutrition, KEYS.weightlog, KEYS.session, KEYS.customExercises, KEYS.favorites, KEYS.challenges, KEYS.water, KEYS.myFoods,
       ]);
       // Each array-shaped key is validated item-by-item before being trusted — a corrupted or
       // partially-written row (or a schema left over from an old app version) degrades to
@@ -378,12 +380,42 @@ export default function App() {
     setTab("dashboard");
   };
 
-  // Auto-save the in-progress session on every change so a page reload mid-workout never loses logged sets.
+  // Auto-save the in-progress session so a page reload mid-workout never loses logged sets.
+  // Debounced: the session object changes on every keystroke in the workout notes box and on every
+  // rest-timer tap, and each change used to fire its own network write — a burst of overlapping
+  // writes that could also land out of order (an older copy finishing last and overwriting the
+  // newer one). Now only the latest state is written, SESSION_SAVE_DELAY_MS after changes stop,
+  // and any pending write is flushed straight away when the app is hidden or closed, so switching
+  // apps between sets still can't lose anything. Clearing the session (finish/discard) is never
+  // delayed, and cancels any pending write so a stale copy can't resurrect a finished workout.
+  const SESSION_SAVE_DELAY_MS = 700;
+  const pendingSessionSaveRef = useRef(null);
   useEffect(() => {
     if (!loaded) return;
-    if (session) saveKey(KEYS.session, session);
-    else saveKey(KEYS.session, null);
+    clearTimeout(pendingSessionSaveRef.current?.timer);
+    if (!session) {
+      pendingSessionSaveRef.current = null;
+      saveKey(KEYS.session, null);
+      return;
+    }
+    const flush = () => {
+      if (pendingSessionSaveRef.current?.session !== session) return;
+      clearTimeout(pendingSessionSaveRef.current.timer);
+      pendingSessionSaveRef.current = null;
+      saveKey(KEYS.session, session);
+    };
+    pendingSessionSaveRef.current = { session, flush, timer: setTimeout(flush, SESSION_SAVE_DELAY_MS) };
   }, [session, loaded]);
+  useEffect(() => {
+    const flushNow = () => pendingSessionSaveRef.current?.flush();
+    const onVisibility = () => { if (document.visibilityState === "hidden") flushNow(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flushNow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flushNow);
+    };
+  }, []);
 
   const completeOnboarding = async (form) => {
     // No `targets` snapshot stored here — getNutritionTargets(profile) derives it fresh from
@@ -436,8 +468,9 @@ export default function App() {
       const updatedProfile = { ...profile, activePlan: { ...profile.activePlan, currentDayIndex: nextIndex } };
       if (await saveKey(KEYS.profile, updatedProfile)) setProfile(updatedProfile);
     }
+    // setSession(null) triggers the autosave effect above, which deletes the saved session row
+    // immediately (clears are never debounced).
     setSession(null);
-    await saveKey(KEYS.session, null);
     finishingRef.current = false;
     setFinishingWorkout(false);
     setTab("dashboard");
@@ -451,8 +484,7 @@ export default function App() {
   };
 
   const discardWorkout = async () => {
-    setSession(null);
-    await saveKey(KEYS.session, null);
+    setSession(null); // the autosave effect deletes the saved session row straight away
     setTab("dashboard");
   };
 
