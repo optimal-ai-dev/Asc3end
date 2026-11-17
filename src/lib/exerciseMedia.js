@@ -17,11 +17,22 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
 export const MEDIA_BASE = (explicitBase || (supabaseUrl ? `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/public/exercise-media` : "")).replace(/\/$/, "");
 
-/** Returns { mp4, webm, poster, alt } URLs for an exercise, or null when it has no clip. */
-export function getExerciseMedia(ex, clips = manifest.clips, base = MEDIA_BASE) {
+function currentTheme() {
+  try {
+    return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+/** Returns { mp4, webm, poster, thumb, alt } URLs for an exercise, or null when it has no clip.
+ *  When the manifest is `themed`, each clip was re-coloured to the app's palette in a dark and a
+ *  light variant, and the one matching the current theme is used. */
+export function getExerciseMedia(ex, clips = manifest.clips, base = MEDIA_BASE, themed = manifest.themed, theme = currentTheme()) {
   if (!ex || !base) return null;
-  const key = clips[ex.id];
-  if (!key) return null;
+  const clip = clips[ex.id];
+  if (!clip) return null;
+  const key = themed ? `${clip}-${theme}` : clip;
   const v = manifest.version ? `?v=${manifest.version}` : "";
   return {
     mp4: `${base}/${key}.mp4${v}`,

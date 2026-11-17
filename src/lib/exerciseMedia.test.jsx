@@ -62,3 +62,11 @@ describe("ExerciseDemo", () => {
     expect(container.querySelector("button[aria-label$='demonstration']")).toBeTruthy();
   });
 });
+
+describe("themed clips", () => {
+  it("picks the variant matching the app theme", () => {
+    const clips = { "barbell-bench-press": "bench" };
+    expect(getExerciseMedia(bench, clips, "https://cdn.example", true, "dark").mp4).toMatch(/bench-dark\.mp4/);
+    expect(getExerciseMedia(bench, clips, "https://cdn.example", true, "light").thumb).toMatch(/bench-light-thumb\.webp/);
+  });
+});

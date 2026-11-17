@@ -314,7 +314,7 @@ export function ExerciseThumb({ ex, size = 40 }) {
     return (
       <img
         src={media.thumb} alt="" loading="lazy" decoding="async" width={size} height={size}
-        style={{ width: size, height: size, borderRadius: 8, objectFit: "cover", background: "#fff", flexShrink: 0 }}
+        style={{ width: size, height: size, borderRadius: 8, objectFit: "cover", background: "var(--bg-elev2)", flexShrink: 0 }}
       />
     );
   }

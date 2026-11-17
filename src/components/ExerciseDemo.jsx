@@ -74,7 +74,7 @@ export function ExerciseDemo({ media, size = 240, fallback = null }) {
   };
 
   return (
-    <div style={{ position: "relative", width: "100%", maxWidth: size, aspectRatio: "1 / 1", margin: "0 auto", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+    <div style={{ position: "relative", width: "100%", maxWidth: size, aspectRatio: "1 / 1", margin: "0 auto", borderRadius: 10, overflow: "hidden", background: "var(--bg-elev2)" }}>
       <video
         ref={videoRef}
         aria-label={media.alt}

@@ -12,13 +12,15 @@
 //        node scripts/build-exercise-media.mjs build --src ~/Downloads/library
 //      -> .exercise-media/<key>.mp4 (H.264), .webm (VP9), .webp (poster), -thumb.webp
 //
+//      Add --recolor to also re-theme each clip to the app (dark + light variants).
+//
 //   3. Upload (needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment):
 //        node scripts/build-exercise-media.mjs upload
 //
 // Needs ffmpeg on PATH. Each clip is cropped to a square, scaled to 480px, stripped of audio and
 // encoded at ~100–250 KB, so the detail screen starts playing almost immediately on mobile data.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
 import { EXERCISES } from "../src/exerciseData.js";
 
@@ -138,6 +140,35 @@ function suggest() {
   console.log("Review it before running `build`: low scores and blanks need a human eye.");
 }
 
+/** Encode one clip to mp4 + webm + poster + thumb at `out`.*. With a theme, every frame is passed
+ *  through scripts/recolor-exercise-frame.py first (white background -> app surface, red muscle
+ *  highlight -> app green). */
+function encodeClip(input, out, theme) {
+  // Pad (not crop) to a square on white so wide clips keep the whole body and bar path.
+  const vf = `scale=${SIZE}:${SIZE}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${SIZE}:${SIZE}:(ow-iw)/2:(oh-ih)/2:white,fps=24`;
+  let src = ["-i", input, "-vf", vf];
+  let tmp = null;
+  if (theme) {
+    tmp = `${out}.rgb`;
+    ffmpeg(["-i", input, "-an", "-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb24", `${tmp}.in`]);
+    const recoloured = execFileSync("python3", ["-I", join(ROOT, "scripts/recolor-exercise-frame.py"), String(SIZE), String(SIZE), theme], {
+      input: readFileSync(`${tmp}.in`), maxBuffer: 1 << 30,
+    });
+    writeFileSync(tmp, recoloured);
+    src = ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${SIZE}x${SIZE}`, "-r", "24", "-i", tmp];
+  }
+  ffmpeg([...src, "-an", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-profile:v", "main", "-crf", "28", "-preset", "slow", "-movflags", "+faststart", `${out}.mp4`]);
+  ffmpeg([...src, "-an", "-pix_fmt", "yuv420p", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "40", "-row-mt", "1", `${out}.webm`]);
+  if (tmp) { rmSync(tmp, { force: true }); rmSync(`${tmp}.in`, { force: true }); }
+  // Poster from ~40% through the rep, so the still shows the working position.
+  const dur = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", `${out}.mp4`]).toString().trim()) || 1;
+  const at = (dur * 0.4).toFixed(2);
+  ffmpeg(["-ss", at, "-i", `${out}.mp4`, "-frames:v", "1", "-c:v", "libwebp", "-quality", "80", `${out}.webp`]);
+  ffmpeg(["-ss", at, "-i", `${out}.mp4`, "-frames:v", "1", "-vf", `scale=${THUMB}:${THUMB}`, "-c:v", "libwebp", "-quality", "75", `${out}-thumb.webp`]);
+  const kb = (f) => Math.round(statSync(f).size / 1024);
+  console.log(`✓ ${basename(out)}  mp4 ${kb(`${out}.mp4`)} KB, webm ${kb(`${out}.webm`)} KB`);
+}
+
 function build() {
   const src = requireSrc();
   if (!existsSync(MAP_FILE)) {
@@ -159,18 +190,10 @@ function build() {
     if (!key) {
       key = slug(basename(file, extname(file)));
       const base = join(OUT_DIR, key);
-      if (!existsSync(`${base}.mp4`) || args.force) {
-        // Pad (not crop) to a square on white so wide clips keep the whole body and bar path.
-        const vf = `scale=${SIZE}:${SIZE}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${SIZE}:${SIZE}:(ow-iw)/2:(oh-ih)/2:white,fps=24,format=yuv420p`;
-        ffmpeg(["-i", input, "-an", "-vf", vf, "-c:v", "libx264", "-profile:v", "main", "-crf", "28", "-preset", "slow", "-movflags", "+faststart", `${base}.mp4`]);
-        ffmpeg(["-i", input, "-an", "-vf", vf, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "40", "-row-mt", "1", `${base}.webm`]);
-        // Poster from ~40% through the rep, so the still shows the working position.
-        const dur = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", `${base}.mp4`]).toString().trim()) || 1;
-        const at = (dur * 0.4).toFixed(2);
-        ffmpeg(["-ss", at, "-i", `${base}.mp4`, "-frames:v", "1", "-c:v", "libwebp", "-quality", "80", `${base}.webp`]);
-        ffmpeg(["-ss", at, "-i", `${base}.mp4`, "-frames:v", "1", "-vf", `scale=${THUMB}:${THUMB}`, "-c:v", "libwebp", "-quality", "75", `${base}-thumb.webp`]);
-        const kb = (f) => Math.round(statSync(f).size / 1024);
-        console.log(`✓ ${key}  mp4 ${kb(`${base}.mp4`)} KB, webm ${kb(`${base}.webm`)} KB`);
+      const variants = args.recolor ? ["dark", "light"] : [null];
+      for (const theme of variants) {
+        const out = theme ? `${base}-${theme}` : base;
+        if (!existsSync(`${out}.mp4`) || args.force) encodeClip(input, out, theme);
       }
       encoded.set(file, key);
     }
@@ -180,6 +203,8 @@ function build() {
   const manifest = {
     version: Math.floor(Date.now() / 1000),
     source: args.source || JSON.parse(readFileSync(MANIFEST, "utf8")).source || null,
+    // themed: every clip exists as <key>-dark and <key>-light, re-coloured to the app's palette
+    themed: Boolean(args.recolor),
     clips: Object.fromEntries(Object.entries(clips).sort()),
   };
   writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + "\n");
